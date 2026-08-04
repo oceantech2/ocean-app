@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ocean-app",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "echo", "Docker already running"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
+      "name": "ocean-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "port": 5193,
+      "autoPort": false
+    }
+  ]
+}

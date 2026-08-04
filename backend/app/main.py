@@ -1,0 +1,188 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+import asyncio
+import logging
+import uvicorn
+from app.config import settings
+from app.database import engine, Base, SessionLocal
+from app.api.routes import (
+    auth, colaboradores, nfs, contas, bonus, ferias, dh, relatorios,
+    auditoria, metas, documentos, alertas, configuracoes
+)
+from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrimonio
+from app.api.routes import arquivos_nfs, arquivos_comprovantes
+
+# Criar tabelas
+Base.metadata.create_all(bind=engine)
+
+# Migrações inline — adiciona colunas/valores sem recriar tabelas
+def _migrar():
+    from sqlalchemy import text
+
+    # ALTER TABLE roda normalmente dentro de transação
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS observacao TEXT"))
+            conn.execute(text("ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS beneficio TEXT"))
+            conn.execute(text("ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS cep VARCHAR(10)"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS arquivada BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS caixa VARCHAR(20)"))
+            conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_path TEXT"))
+            conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_nome VARCHAR(255)"))
+            conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS categoria VARCHAR(64)"))
+            conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(64)"))
+            conn.execute(text(
+                "ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS categoria_pendente BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Migração centro_custo → categoria / subcategoria / categoria_pendente (one-shot)
+    with engine.connect() as conn:
+        try:
+            cols = conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'contas_pagar'"
+            )).fetchall()
+            col_names = {r[0] for r in cols}
+            if "centro_custo" in col_names and "categoria" in col_names:
+                # Só migra linhas ainda sem categoria
+                rows = conn.execute(text(
+                    "SELECT id, centro_custo::text FROM contas_pagar "
+                    "WHERE categoria IS NULL OR categoria = ''"
+                )).fetchall()
+                from app.services.categorias_contas import mapear_legado
+                for row_id, centro in rows:
+                    cat, sub, pendente = mapear_legado(centro)
+                    conn.execute(
+                        text(
+                            "UPDATE contas_pagar SET categoria = :cat, subcategoria = :sub, "
+                            "categoria_pendente = :pend WHERE id = :id"
+                        ),
+                        {"cat": cat, "sub": sub, "pend": pendente, "id": row_id},
+                    )
+                # Preenche default se ainda houver NULL (tabela nova parcial)
+                conn.execute(text(
+                    "UPDATE contas_pagar SET categoria = 'adm_financeiro', categoria_pendente = FALSE "
+                    "WHERE categoria IS NULL OR categoria = ''"
+                ))
+                conn.commit()
+                # Remove coluna legada se existir
+                try:
+                    conn.execute(text("ALTER TABLE contas_pagar DROP COLUMN IF EXISTS centro_custo"))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+            elif "categoria" in col_names:
+                conn.execute(text(
+                    "UPDATE contas_pagar SET categoria = 'adm_financeiro', categoria_pendente = FALSE "
+                    "WHERE categoria IS NULL OR categoria = ''"
+                ))
+                conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # ALTER TYPE ADD VALUE não pode rodar dentro de transação no PostgreSQL
+    # é necessário usar AUTOCOMMIT
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        try:
+            conn.execute(text("ALTER TYPE statusnf ADD VALUE IF NOT EXISTS 'CANCELADA'"))
+        except Exception:
+            pass
+
+_migrar()
+
+# Inicializar aplicação
+app = FastAPI(
+    title="Ocean App",
+    description="Sistema de Gestão Financeira e Operacional",
+    version="1.0.0"
+)
+
+# Middleware CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Middleware para hosts seguros
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.ALLOWED_HOSTS
+)
+
+# Incluir rotas
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(colaboradores.router, prefix="/api/colaboradores", tags=["Colaboradores"])
+app.include_router(nfs.router, prefix="/api/nfs", tags=["NFs"])
+app.include_router(contas.router, prefix="/api/contas", tags=["Contas"])
+app.include_router(bonus.router, prefix="/api/bonus", tags=["Bônus"])
+app.include_router(ferias.router, prefix="/api/ferias", tags=["Férias"])
+app.include_router(dh.router, prefix="/api/dh", tags=["DH"])
+app.include_router(relatorios.router, prefix="/api/relatorios", tags=["Relatórios"])
+app.include_router(auditoria.router, prefix="/api/auditoria", tags=["Auditoria"])
+app.include_router(metas.router, prefix="/api/metas", tags=["Metas"])
+app.include_router(documentos.router, prefix="/api/documentos", tags=["Documentos"])
+app.include_router(alertas.router, prefix="/api/alertas", tags=["Alertas"])
+app.include_router(configuracoes.router, prefix="/api/configuracoes", tags=["Configurações"])
+app.include_router(saldos.router, prefix="/api/saldos", tags=["Saldos"])
+app.include_router(impostos.router, prefix="/api/impostos", tags=["Impostos"])
+app.include_router(historico.router, prefix="/api/historico", tags=["Histórico"])
+app.include_router(fluxo_movimentos.router, prefix="/api/fluxo-movimentos", tags=["Fluxo Movimentos"])
+app.include_router(patrimonio.router, prefix="/api/patrimonio", tags=["Patrimônio"])
+app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arquivos NFs"])
+app.include_router(arquivos_comprovantes.router, prefix="/api/arquivos-comprovantes", tags=["Comprovantes"])
+
+@app.get("/")
+def root():
+    return {
+        "message": "Ocean App API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+# ==================== AGENDADOR DE ALERTAS DIÁRIOS ====================
+logger = logging.getLogger("ocean.scheduler")
+
+
+async def _loop_alertas_diarios():
+    """Dispara os alertas por e-mail uma vez por dia (a cada 24h)."""
+    from app.services.email import enviar_alertas
+    while True:
+        await asyncio.sleep(24 * 60 * 60)  # 24h
+        try:
+            db = SessionLocal()
+            try:
+                resultado = enviar_alertas(db)
+                logger.info("[alertas] %s alerta(s), e-mail=%s",
+                            resultado.get("total"), resultado.get("email_enviado"))
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error("[alertas] Falha no loop diário: %s", e)
+
+
+@app.on_event("startup")
+async def _iniciar_agendador():
+    # Só agenda envio automático se houver destinatários configurados
+    if settings.ALERT_EMAILS.strip():
+        asyncio.create_task(_loop_alertas_diarios())
+        logger.info("[alertas] Agendador diário de alertas ativado.")
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host=settings.API_HOST,
+        port=settings.API_PORT,
+        reload=settings.DEBUG
+    )

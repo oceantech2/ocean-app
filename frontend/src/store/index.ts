@@ -1,0 +1,166 @@
+import { create } from 'zustand';
+
+// ==================== AUTH ====================
+interface AuthState {
+  isAuthenticated: boolean;
+  usuario: string | null;
+  token: string | null;
+  papel: 'admin' | 'visualizador' | null;
+  permissoes: string | null;
+  setAuth: (usuario: string, token: string, papel?: string, permissoes?: string | null) => void;
+  logout: () => void;
+}
+
+export const useAuthStore = create<AuthState>(() => ({
+  isAuthenticated: !!localStorage.getItem('access_token'),
+  usuario: localStorage.getItem('usuario'),
+  token: localStorage.getItem('access_token'),
+  papel: (localStorage.getItem('papel') as 'admin' | 'visualizador') || 'admin',
+  permissoes: localStorage.getItem('permissoes'),
+
+  setAuth: (usuario, token, papel = 'admin', permissoes = null) => {
+    useAuthStore.setState({ isAuthenticated: true, usuario, token, papel: papel as 'admin' | 'visualizador', permissoes });
+    localStorage.setItem('usuario', usuario);
+    localStorage.setItem('access_token', token);
+    localStorage.setItem('papel', papel);
+    if (permissoes) localStorage.setItem('permissoes', permissoes);
+    else localStorage.removeItem('permissoes');
+  },
+
+  logout: () => {
+    useAuthStore.setState({ isAuthenticated: false, usuario: null, token: null, papel: null, permissoes: null });
+    localStorage.removeItem('usuario');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('papel');
+    localStorage.removeItem('permissoes');
+  },
+}));
+
+// ==================== NOTIFICAÇÕES (refresh global) ====================
+interface NotifState {
+  notifTick: number;
+  triggerNotifRefresh: () => void;
+  calendarioTick: number;
+  triggerCalendarioRefresh: () => void;
+}
+
+export const useNotifStore = create<NotifState>((set) => ({
+  notifTick: 0,
+  triggerNotifRefresh: () => set((s) => ({ notifTick: s.notifTick + 1 })),
+  calendarioTick: 0,
+  triggerCalendarioRefresh: () => set((s) => ({ calendarioTick: s.calendarioTick + 1 })),
+}));
+
+// ==================== UI (dark mode + sidebar) ====================
+const sidebarKey = (usuario: string) => `ocean-sidebar-collapsed:${usuario}`;
+
+const readSidebarCollapsed = (usuario: string | null): boolean => {
+  if (!usuario) return false;
+  return localStorage.getItem(sidebarKey(usuario)) === 'true';
+};
+
+const writeSidebarCollapsed = (usuario: string | null, collapsed: boolean) => {
+  if (!usuario) return;
+  localStorage.setItem(sidebarKey(usuario), String(collapsed));
+};
+
+interface UIState {
+  darkMode: boolean;
+  toggleDarkMode: () => void;
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (collapsed: boolean, usuario?: string | null) => void;
+  toggleSidebarCollapsed: (usuario?: string | null) => void;
+  hydrateSidebarCollapsed: (usuario: string | null) => void;
+}
+
+export const useUIStore = create<UIState>(() => ({
+  darkMode: localStorage.getItem('ocean-dark') === 'true',
+  toggleDarkMode: () => {
+    useUIStore.setState((state) => {
+      const next = !state.darkMode;
+      localStorage.setItem('ocean-dark', String(next));
+      return { darkMode: next };
+    });
+  },
+  sidebarCollapsed: false,
+  setSidebarCollapsed: (collapsed, usuario) => {
+    const user = usuario ?? useAuthStore.getState().usuario;
+    writeSidebarCollapsed(user, collapsed);
+    useUIStore.setState({ sidebarCollapsed: collapsed });
+  },
+  toggleSidebarCollapsed: (usuario) => {
+    const user = usuario ?? useAuthStore.getState().usuario;
+    useUIStore.setState((state) => {
+      const next = !state.sidebarCollapsed;
+      writeSidebarCollapsed(user, next);
+      return { sidebarCollapsed: next };
+    });
+  },
+  hydrateSidebarCollapsed: (usuario) => {
+    useUIStore.setState({ sidebarCollapsed: readSidebarCollapsed(usuario) });
+  },
+}));
+
+// ==================== FILTRO GLOBAL (mês/ano) ====================
+interface FilterState {
+  mesAtual: number;
+  anoAtual: number;
+  setMes: (mes: number) => void;
+  setAno: (ano: number) => void;
+  setPeriodo: (mes: number, ano: number) => void;
+}
+
+export const useFilterStore = create<FilterState>((set) => ({
+  mesAtual: new Date().getMonth() + 1,
+  anoAtual: new Date().getFullYear(),
+  setMes: (mes) => set({ mesAtual: mes }),
+  setAno: (ano) => set({ anoAtual: ano }),
+  setPeriodo: (mes, ano) => set({ mesAtual: mes, anoAtual: ano }),
+}));
+
+// ==================== FILTROS POR PÁGINA (persistem durante navegação) ====================
+const ANO = new Date().getFullYear();
+const MES = new Date().getMonth() + 1;
+
+interface PageFiltersState {
+  nfsMes: number | '';
+  nfsAno: number;
+  nfsStatus: string;
+  contasCategoria: string;
+  contasSubcategoria: string;
+  contasPago: '' | 'true' | 'false';
+  bonusColaboradorId: number | '';
+  bonusAno: number;
+  feriasColaboradorId: number | '';
+  feriasAno: number;
+  dhMes: number | '';
+  dhAno: number;
+  dhColaborador: string;
+  setNfsFilters: (mes: number | '', ano: number, status: string) => void;
+  setContasFilters: (categoria: string, pago: '' | 'true' | 'false', subcategoria?: string) => void;
+  setBonusFilters: (colaboradorId: number | '', ano: number) => void;
+  setFeriasFilters: (colaboradorId: number | '', ano: number) => void;
+  setDhFilters: (mes: number | '', ano: number, colaborador: string) => void;
+}
+
+export const usePageFilters = create<PageFiltersState>((set) => ({
+  nfsMes: MES,
+  nfsAno: ANO,
+  nfsStatus: '',
+  contasCategoria: '',
+  contasSubcategoria: '',
+  contasPago: '',
+  bonusColaboradorId: '',
+  bonusAno: ANO,
+  feriasColaboradorId: '',
+  feriasAno: ANO,
+  dhMes: MES,
+  dhAno: ANO,
+  dhColaborador: '',
+  setNfsFilters: (mes, ano, status) => set({ nfsMes: mes, nfsAno: ano, nfsStatus: status }),
+  setContasFilters: (categoria, pago, subcategoria = '') =>
+    set({ contasCategoria: categoria, contasPago: pago, contasSubcategoria: subcategoria }),
+  setBonusFilters: (colaboradorId, ano) => set({ bonusColaboradorId: colaboradorId, bonusAno: ano }),
+  setFeriasFilters: (colaboradorId, ano) => set({ feriasColaboradorId: colaboradorId, feriasAno: ano }),
+  setDhFilters: (mes, ano, colaborador) => set({ dhMes: mes, dhAno: ano, dhColaborador: colaborador }),
+}));

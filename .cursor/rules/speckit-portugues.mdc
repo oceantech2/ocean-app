@@ -1,0 +1,14 @@
+---
+description: Speckit e artefatos de especificação sempre em português brasileiro (pt-BR)
+alwaysApply: true
+---
+
+# Speckit — Idioma Português (pt-BR)
+
+Ao executar qualquer fluxo Speckit (`/speckit-specify`, `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze`, `/speckit-implement`, `/speckit-checklist`, `/speckit-converge`, `/speckit-constitution`, etc.):
+
+1. **Converse com o usuário em português brasileiro.**
+2. **Escreva o conteúdo dos artefatos em português brasileiro** (`spec.md`, `plan.md`, `tasks.md`, checklists, relatórios).
+3. **Releia** `.specify/memory/constitution.md` e aplique o princípio "Idioma Português (NÃO NEGOCIÁVEL)".
+4. Mantenha em inglês apenas o que for necessário: nomes técnicos, código, caminhos, comandos e títulos estruturais exigidos pelos templates Speckit.
+5. Perguntas de esclarecimento, opções sugeridas e relatórios de conclusão também em português.

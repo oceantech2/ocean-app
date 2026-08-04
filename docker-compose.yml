@@ -1,0 +1,98 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: ocean_postgres
+    environment:
+      POSTGRES_USER: ocean
+      POSTGRES_PASSWORD: ocean_dev_pass
+      POSTGRES_DB: ocean_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocean -d ocean_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: ocean_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ocean_backend
+    environment:
+      DATABASE_URL: postgresql://ocean:ocean_dev_pass@postgres:5432/ocean_db
+      REDIS_URL: redis://redis:6379
+      DEBUG: "True"
+      SECRET_KEY: dev-secret-key-change-in-production
+      UPLOAD_DIR: /app/uploads
+      # Alertas por e-mail (deixe ALERT_EMAILS vazio para desativar / modo dry-run)
+      ALERT_EMAILS: "${ALERT_EMAILS:-}"
+      SMTP_SERVER: "${SMTP_SERVER:-smtp.gmail.com}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SENDER_EMAIL: "${SENDER_EMAIL:-noreply@oceanapp.com}"
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - uploads_data:/app/uploads
+      - ./NFs:/app/nfs-docs
+      - ./Comprovantes:/app/comprovantes
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend (build multi-stage: Node compila, nginx serve)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ocean_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  # Backup automático do PostgreSQL (dump diário)
+  backup:
+    image: postgres:16-alpine
+    container_name: ocean_backup
+    environment:
+      PGPASSWORD: ocean_dev_pass
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+      - ./backend/scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
