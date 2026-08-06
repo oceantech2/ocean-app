@@ -169,17 +169,17 @@ class ContaPagarBase(BaseModel):
     descricao: str
     categoria: str
     subcategoria: Optional[str] = None
-    valor: float
+    valor: float = Field(..., gt=0)
     data_vencimento: Optional[date] = None
 
 class ContaPagarCreate(ContaPagarBase):
-    pass
+    data_pagamento: Optional[date] = None
 
 class ContaPagarUpdate(BaseModel):
     descricao: Optional[str] = None
     categoria: Optional[str] = None
     subcategoria: Optional[str] = None
-    valor: Optional[float] = None
+    valor: Optional[float] = Field(None, gt=0)
     data_vencimento: Optional[date] = None
     data_pagamento: Optional[date] = None
     pago: Optional[bool] = None

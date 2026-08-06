@@ -166,15 +166,22 @@ def criar_conta(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
+    if conta.valor is None or conta.valor <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Valor deve ser maior que zero",
+        )
+
     dados = conta.dict()
     dados["categoria"] = cat
     dados["subcategoria"] = sub
+    data_pag = dados.get("data_pagamento")
+    if data_pag:
+        dados["pago"] = True
+    else:
+        dados["data_pagamento"] = None
+        dados["pago"] = False
     nova_conta = ContaPagar(**dados, categoria_pendente=False)
-    if nova_conta.data_pagamento and not nova_conta.pago:
-        nova_conta.pago = True
-    elif nova_conta.pago and not nova_conta.data_pagamento:
-        from datetime import date as _date
-        nova_conta.data_pagamento = _date.today()
     db.add(nova_conta)
     db.flush()
     registrar_auditoria(db, current_user, "criar", "ContaPagar", nova_conta.id, f"{nova_conta.descricao} — R$ {nova_conta.valor:,.2f}")
@@ -219,8 +226,12 @@ def atualizar_conta(
     for campo, valor in dados.items():
         setattr(db_conta, campo, valor)
 
-    if "data_pagamento" in dados and dados["data_pagamento"] and not db_conta.pago:
-        db_conta.pago = True
+    if "data_pagamento" in dados:
+        if dados["data_pagamento"]:
+            db_conta.pago = True
+        else:
+            db_conta.pago = False
+            db_conta.data_pagamento = None
     elif "pago" in dados:
         if dados["pago"] and not db_conta.data_pagamento:
             from datetime import date as _date

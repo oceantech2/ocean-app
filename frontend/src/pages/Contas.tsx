@@ -4,6 +4,7 @@ import { mensagemErro } from '../utils/erros';
 import { ContaPagar } from '../types';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import { exportarCSV } from '../utils/export';
+import { formatarMoedaInput, isValorMoedaValido, numberParaMoedaInput, parseMoedaInput } from '../utils/moeda';
 import ImportCSV from '../components/ImportCSV';
 import GerenciadorArquivos from '../components/GerenciadorArquivos';
 import toast from 'react-hot-toast';
@@ -154,7 +155,7 @@ export default function Contas() {
       descricao: c.descricao,
       categoria: c.categoria_pendente ? 'adm_financeiro' : (c.categoria || 'adm_financeiro'),
       subcategoria: c.categoria_pendente ? '' : (c.subcategoria || ''),
-      valor: String(c.valor),
+      valor: numberParaMoedaInput(c.valor),
       data_vencimento: c.data_vencimento ?? '',
       data_pagamento: c.data_pagamento || '',
     });
@@ -162,23 +163,49 @@ export default function Contas() {
   };
 
   const salvar = async () => {
-    if (!form.descricao || !form.valor || !form.data_vencimento) { toast.error('Preencha os campos obrigatórios'); return; }
+    if (!form.descricao || !form.data_vencimento) {
+      toast.error('Preencha os campos obrigatórios');
+      return;
+    }
+    if (!isValorMoedaValido(form.valor)) {
+      toast.error('Informe um valor válido maior que zero');
+      return;
+    }
     if (form.categoria === 'recursos_humanos' && !form.subcategoria) {
       toast.error('Recursos Humanos exige uma subcategoria');
       return;
     }
+    const valorNum = parseMoedaInput(form.valor);
+    if (valorNum === null || valorNum <= 0) {
+      toast.error('Informe um valor válido maior que zero');
+      return;
+    }
     try {
       setSalvando(true);
-      const dados: any = {
+      const dados: {
+        descricao: string;
+        categoria: string;
+        subcategoria: string | null;
+        valor: number;
+        data_vencimento: string;
+        data_pagamento: string | null;
+        pago?: boolean;
+      } = {
         descricao: form.descricao,
         categoria: form.categoria,
         subcategoria: form.categoria === 'recursos_humanos' ? form.subcategoria : null,
-        valor: parseFloat(form.valor),
+        valor: valorNum,
         data_vencimento: form.data_vencimento,
+        data_pagamento: form.data_pagamento || null,
       };
-      if (form.data_pagamento) { dados.data_pagamento = form.data_pagamento; dados.pago = true; }
-      if (editando) { await contasService.atualizar(editando.id, dados); toast.success('Conta atualizada!'); }
-      else { await contasService.criar(dados); toast.success('Conta criada!'); }
+      if (editando) {
+        dados.pago = !!form.data_pagamento;
+        await contasService.atualizar(editando.id, dados);
+        toast.success('Conta atualizada!');
+      } else {
+        await contasService.criar(dados);
+        toast.success('Conta criada!');
+      }
       setModalAberto(false); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
     } catch (e: any) { toast.error(mensagemErro(e, 'Erro ao salvar')); }
     finally { setSalvando(false); }
@@ -309,7 +336,7 @@ export default function Contas() {
           </button>
           {papel === 'admin' && (
             <button onClick={abrirCriar} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-              + Nova Conta
+              + Nova conta a pagar
             </button>
           )}
         </div>
@@ -526,7 +553,7 @@ export default function Contas() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
             <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{editando ? 'Editar Conta' : 'Nova Conta'}</h2>
+              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{editando ? 'Editar conta a pagar' : 'Nova conta a pagar'}</h2>
               {editando?.categoria_pendente && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                   Esta conta está pendente de reclassificação (legado: {editando.categoria}). Escolha uma categoria válida para limpar o aviso.
@@ -563,7 +590,14 @@ export default function Contas() {
               )}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor *</label>
-                <input type="number" step="0.01" className={INPUT} value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className={INPUT}
+                  value={form.valor}
+                  placeholder="R$ 0,00"
+                  onChange={(e) => setForm({ ...form, valor: formatarMoedaInput(e.target.value) })}
+                />
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Vencimento *</label>

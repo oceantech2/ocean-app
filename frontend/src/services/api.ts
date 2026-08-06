@@ -168,6 +168,19 @@ export const nfsService = {
 };
 
 // Contas
+export type ContaPagarCreatePayload = {
+  descricao: string;
+  categoria: string;
+  subcategoria?: string | null;
+  valor: number;
+  data_vencimento?: string | null;
+  data_pagamento?: string | null;
+};
+
+export type ContaPagarUpdatePayload = Partial<ContaPagarCreatePayload> & {
+  pago?: boolean;
+};
+
 export const contasService = {
   listar: (skip = 0, limit = 100, categoria?: string, pago?: boolean, subcategoria?: string) =>
     api.get('/contas', { params: { skip, limit, categoria, pago, subcategoria } }),
@@ -175,10 +188,10 @@ export const contasService = {
   obter: (id: number) =>
     api.get(`/contas/${id}`),
 
-  criar: (dados: any) =>
+  criar: (dados: ContaPagarCreatePayload) =>
     api.post('/contas', dados),
 
-  atualizar: (id: number, dados: any) =>
+  atualizar: (id: number, dados: ContaPagarUpdatePayload) =>
     api.put(`/contas/${id}`, dados),
 
   deletar: (id: number) =>
