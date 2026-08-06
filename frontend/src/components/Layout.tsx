@@ -277,7 +277,7 @@ export default function Layout({ children }: LayoutProps) {
         <aside
           className={`${
             sidebarCollapsed ? 'w-16' : 'w-56'
-          } bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 min-h-screen shrink-0 flex flex-col transition-[width] duration-200`}
+          } bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shrink-0 flex flex-col transition-[width] duration-200 sticky top-[5.5rem] h-[calc(100vh-5.5rem)] self-start`}
         >
           <nav className="p-2 space-y-0.5 flex-1 overflow-y-auto">
             {menuVisivel.map((item) => {

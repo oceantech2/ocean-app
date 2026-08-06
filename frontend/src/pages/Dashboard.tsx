@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Label,
+  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { relatoriosService, metasService, contasService, saldosService } from '../services/api';
@@ -13,6 +14,137 @@ const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set
 const ANOS = Array.from({ length: 2100 - 2024 + 1 }, (_, i) => 2024 + i);
 
 const fmt = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtPct = (parte: number, total: number) => {
+  if (!total || !Number.isFinite(parte) || parte === 0) return null;
+  return `${((parte / total) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+};
+
+/** % pré-calculada (dataKey) centrada no segmento da barra */
+function DrePctLabel(props: {
+  viewBox?: { x?: number; y?: number; width?: number; height?: number };
+  value?: string | number | null;
+}) {
+  const { viewBox, value } = props;
+  if (value == null || value === '' || !viewBox) return null;
+  const { x = 0, y = 0, width = 0, height = 0 } = viewBox;
+  if (height < 12 || width < 14) return null;
+  return (
+    <text
+      x={x + width / 2}
+      y={y + height / 2}
+      fill="#fff"
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontSize={10}
+      fontWeight={700}
+      style={{ pointerEvents: 'none' }}
+    >
+      {String(value)}
+    </text>
+  );
+}
+
+/** Tooltip do DRE via portal — flutuante no viewport, sem scroll interno do card */
+function DreFloatingTooltip({
+  active,
+  payload,
+  label,
+  mousePos,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    name?: string;
+    value?: number;
+    color?: string;
+    payload?: { lucro?: number };
+    dataKey?: string;
+  }>;
+  label?: string;
+  mousePos: { x: number; y: number };
+}) {
+  if (!active || !payload?.length) return null;
+
+  const OFFSET = 16;
+  const EST_W = 220;
+  const EST_H = 24 + payload.length * 22;
+  let left = mousePos.x + OFFSET;
+  let top = mousePos.y + OFFSET;
+  if (typeof window !== 'undefined') {
+    if (left + EST_W > window.innerWidth - 8) left = mousePos.x - EST_W - OFFSET;
+    if (top + EST_H > window.innerHeight - 8) top = mousePos.y - EST_H - OFFSET;
+    left = Math.max(8, left);
+    top = Math.max(8, top);
+  }
+
+  return createPortal(
+    <div
+      className="rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 shadow-lg text-xs text-gray-800 dark:text-gray-100"
+      style={{
+        position: 'fixed',
+        left,
+        top,
+        zIndex: 9999,
+        pointerEvents: 'none',
+        minWidth: 160,
+      }}
+    >
+      <p className="font-semibold mb-1.5">{label}</p>
+      <ul className="space-y-1">
+        {payload.map((item) => {
+          const nome = item.name ?? '';
+          const lucroReal = nome === 'Lucro' ? item.payload?.lucro : undefined;
+          const valor = lucroReal != null ? lucroReal : Number(item.value) || 0;
+          return (
+            <li key={String(item.dataKey ?? nome)} className="flex items-center gap-2">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                style={{ background: item.color }}
+              />
+              <span className="text-gray-500 dark:text-gray-400">{nome}:</span>
+              <span className="font-medium ml-auto">{fmt(valor)}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>,
+    document.body,
+  );
+}
+
+/** % pequena no meio de cada fatia do donut (oculta fatias < 5%) */
+function DonutPctLabel(props: {
+  cx?: number;
+  cy?: number;
+  midAngle?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  percent?: number;
+}) {
+  const { cx = 0, cy = 0, midAngle = 0, innerRadius = 0, outerRadius = 0, percent = 0 } = props;
+  if (percent < 0.05) return null;
+  const RADIAN = Math.PI / 180;
+  const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+  const x = cx + r * Math.cos(-midAngle * RADIAN);
+  const y = cy + r * Math.sin(-midAngle * RADIAN);
+  const pct = (Math.round(percent * 1000) / 10).toLocaleString('pt-BR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  });
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="rgba(255,255,255,0.85)"
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontSize={9}
+      fontWeight={500}
+      style={{ pointerEvents: 'none' }}
+    >
+      {pct}%
+    </text>
+  );
+}
 
 const CENTRO_LABEL: Record<string, string> = {
   adm_financeiro: 'Adm/Financeiro',
@@ -62,6 +194,9 @@ type DrePonto = {
   impostos: number;
   lucro: number;
   lucro_empilhado: number;
+  despesa_pct: string | null;
+  impostos_pct: string | null;
+  lucro_pct: string | null;
 };
 
 type CustoFatia = {
@@ -87,9 +222,22 @@ function cortarEixoDre(dados: DrePonto[], anoSelecionado: number): DrePonto[] {
   return dados;
 }
 
+/** Último mês selecionável no filtro (ano corrente: até mês atual; demais: 12). */
+function maxMesPermitido(anoSelecionado: number): number {
+  if (anoSelecionado === ANO_ATUAL) return MES_ATUAL;
+  if (anoSelecionado < ANO_ATUAL) return 12;
+  return 12; // ano futuro: opções existem, dados ficam vazios
+}
+
+function mesesPermitidos(anoSelecionado: number): number[] {
+  const max = maxMesPermitido(anoSelecionado);
+  return Array.from({ length: max }, (_, i) => i + 1);
+}
+
 export default function Dashboard() {
   const papel = useAuthStore((s) => s.papel);
   const [ano, setAno] = useState(ANO_ATUAL);
+  const [mes, setMes] = useState(MES_ATUAL);
   const [loading, setLoading] = useState(true);
   const [mostrarAnterior, setMostrarAnterior] = useState(true);
   const [anoComparar, setAnoComparar] = useState(ANO_ATUAL - 1);
@@ -98,6 +246,7 @@ export default function Dashboard() {
   const [resumo, setResumo] = useState({
     faturamento_liquido_pago: 0,
     faturamento_bruto_pago: 0,
+    faturamento_bruto_pendente: 0,
     quantidade_pagas: 0,
     quantidade_pendentes: 0,
   });
@@ -124,6 +273,9 @@ export default function Dashboard() {
   const [mostrarDespesa, setMostrarDespesa] = useState(true);
   const [mostrarImpostos, setMostrarImpostos] = useState(true);
   const [mostrarLucro, setMostrarLucro] = useState(true);
+  const dreMousePos = useRef({ x: 0, y: 0 });
+  const dreRaf = useRef(0);
+  const [dreTipPos, setDreTipPos] = useState({ x: 0, y: 0 });
 
   // Custo por categoria (donut)
   const [custoFatias, setCustoFatias] = useState<CustoFatia[]>([]);
@@ -132,7 +284,13 @@ export default function Dashboard() {
 
   useEffect(() => {
     carregarDados();
-  }, [ano, anoComparar]);
+  }, [ano, mes, anoComparar]);
+
+  const alterarAno = (novoAno: number) => {
+    const max = maxMesPermitido(novoAno);
+    setAno(novoAno);
+    if (mes > max) setMes(max);
+  };
 
   const carregarDados = async () => {
     try {
@@ -140,21 +298,23 @@ export default function Dashboard() {
       setDreErro(null);
       setCustoErro(null);
 
-      const mesAteCusto = ano > ANO_ATUAL ? null : ano === ANO_ATUAL ? MES_ATUAL : 12;
+      const carregarCusto = ano <= ANO_ATUAL;
       const custoPromise =
-        mesAteCusto == null
+        !carregarCusto
           ? Promise.resolve({ data: null as any })
-          : relatoriosService.custoPorCategoria(ano, mesAteCusto).catch(() => {
-              setCustoErro('Não foi possível carregar o custo por categoria');
-              return { data: null };
-            });
+          : relatoriosService
+              .custoPorCategoria(ano, mes, mes)
+              .catch(() => {
+                setCustoErro('Não foi possível carregar o custo por categoria');
+                return { data: null };
+              });
 
       const [faturRes, faturAntRes, fechRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoRes] = await Promise.all([
         relatoriosService.faturamentoLiquidoMes(ano),
         relatoriosService.faturamentoLiquidoMes(anoComparar),
         relatoriosService.fechamentosPorTipo(ano),
-        relatoriosService.resumoFinanceiro(ano),
-        metasService.progresso(MES_ATUAL, ano).catch(() => ({ data: null })),
+        relatoriosService.resumoFinanceiro(ano, mes),
+        metasService.progresso(mes, ano).catch(() => ({ data: null })),
         metasService.progresso(0, ano).catch(() => ({ data: null })),
         contasService.listar(0, 500, 'recursos_humanos', undefined, 'retirada_socios').catch(() => ({ data: [] })),
         saldosService.listar(undefined, ano).catch(() => ({ data: [] })),
@@ -188,32 +348,34 @@ export default function Dashboard() {
       });
       setTotalRetiradas(retiradas.reduce((s: number, c: any) => s + c.valor, 0));
 
-      // Saldo mais recente de cada conta — valida mês E ano
+      // Saldo: mais recente ≤ mês filtrado no ano
       const saldosLista: any[] = saldosRes.data || [];
-      const saldosAno = saldosLista.filter((s) => s.ano === ano);
-      const corrente = [...saldosAno].filter((s) => s.conta === 'corrente').sort((a, b) => b.mes - a.mes)[0]
-        || [...saldosLista].filter((s) => s.conta === 'corrente').sort((a, b) => b.ano !== a.ano ? b.ano - a.ano : b.mes - a.mes)[0]
-        || null;
-      const investimento = [...saldosAno].filter((s) => s.conta === 'investimento').sort((a, b) => b.mes - a.mes)[0]
-        || [...saldosLista].filter((s) => s.conta === 'investimento').sort((a, b) => b.ano !== a.ano ? b.ano - a.ano : b.mes - a.mes)[0]
-        || null;
+      const saldosAteMes = saldosLista.filter((s) => s.ano === ano && s.mes <= mes);
+      const corrente = [...saldosAteMes].filter((s) => s.conta === 'corrente').sort((a, b) => b.mes - a.mes)[0] || null;
+      const investimento = [...saldosAteMes].filter((s) => s.conta === 'investimento').sort((a, b) => b.mes - a.mes)[0] || null;
       setSaldoCorrente(corrente);
       setSaldoInvestimento(investimento);
 
       const dreBruto: DrePonto[] = (dreRes.data?.dados || []).map((d: any) => {
+        const receita_bruta = Number(d.receita_bruta) || 0;
+        const despesa = Number(d.despesa) || 0;
+        const impostos = Number(d.impostos) || 0;
         const lucro = Number(d.lucro) || 0;
         return {
           mes: MESES_NOME[d.mes - 1] || String(d.mes),
-          receita_bruta: Number(d.receita_bruta) || 0,
-          despesa: Number(d.despesa) || 0,
-          impostos: Number(d.impostos) || 0,
+          receita_bruta,
+          despesa,
+          impostos,
           lucro,
           lucro_empilhado: Math.max(0, lucro),
+          despesa_pct: fmtPct(despesa, receita_bruta),
+          impostos_pct: fmtPct(impostos, receita_bruta),
+          lucro_pct: fmtPct(Math.max(0, lucro), receita_bruta),
         };
       });
       setDre(cortarEixoDre(dreBruto, ano));
 
-      if (mesAteCusto == null || !custoRes.data) {
+      if (!carregarCusto || !custoRes.data) {
         setCustoFatias([]);
         setCustoTotal(0);
       } else {
@@ -240,7 +402,7 @@ export default function Dashboard() {
 
   const salvarMeta = async () => {
     try {
-      await metasService.definir(MES_ATUAL, ano, parseFloat(valorMeta) || 0);
+      await metasService.definir(mes, ano, parseFloat(valorMeta) || 0);
       toast.success('Meta atualizada!');
       setEditandoMeta(false);
       carregarDados();
@@ -262,6 +424,9 @@ export default function Dashboard() {
 
   const metaMensalValida = Boolean(meta?.tem_meta && meta.valor_meta > 0);
   const metaAnualValida = Boolean(metaAnual?.tem_meta && metaAnual.valor_meta > 0);
+  const rotuloMetaMensal = `Meta de Faturamento — ${MESES_NOME[mes - 1]}/${ano}`;
+  const rotuloCusto = `Custo por categoria — ${MESES_NOME[mes - 1]}/${ano}`;
+  const rotuloCustoVazio = `Sem despesas por categoria para ${MESES_NOME[mes - 1]}/${ano}`;
 
   const pct = metaMensalValida ? Math.min(meta.percentual, 100) : 0;
   const corBarra = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : 'bg-orange-500';
@@ -309,10 +474,20 @@ export default function Dashboard() {
               {ANOS.filter((a) => a !== ano).map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           )}
+          <label className="text-sm text-gray-500 dark:text-gray-400">Mês:</label>
+          <select
+            value={mes}
+            onChange={(e) => setMes(parseInt(e.target.value, 10))}
+            className="border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+          >
+            {mesesPermitidos(ano).map((m) => (
+              <option key={m} value={m}>{MESES_NOME[m - 1]}</option>
+            ))}
+          </select>
           <label className="text-sm text-gray-500 dark:text-gray-400">Ano:</label>
           <select
             value={ano}
-            onChange={(e) => setAno(parseInt(e.target.value))}
+            onChange={(e) => alterarAno(parseInt(e.target.value))}
             className="border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
           >
             {ANOS.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -407,7 +582,7 @@ export default function Dashboard() {
               {editandoMeta ? (
                 <>
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
-                    Meta de Faturamento — {MESES_NOME[MES_ATUAL - 1]}/{ano}
+                    {rotuloMetaMensal}
                   </p>
                   <div className="flex items-end gap-3 flex-wrap">
                     <div>
@@ -428,7 +603,7 @@ export default function Dashboard() {
                 <>
                   <div className="flex items-start gap-2 pr-8 mb-4">
                     <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                      Meta de Faturamento — {MESES_NOME[MES_ATUAL - 1]}/{ano}
+                      {rotuloMetaMensal}
                     </span>
                   </div>
                   {papel === 'admin' && metaMensalValida && (
@@ -477,7 +652,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* KPI Cards — ordem: Bruto / Líquido / NFs Pendentes */}
+          {/* KPI Cards — ordem: Bruto / Líquido / NFs com pagamento pendente (R$) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Faturamento Bruto</h3>
@@ -494,11 +669,13 @@ export default function Dashboard() {
               <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">NFs Pendentes</h3>
+              <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">NFs com pagamento pendente (R$)</h3>
               <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
-                {resumo.quantidade_pendentes}
+                {fmt(resumo.faturamento_bruto_pendente ?? 0)}
               </p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Aguardando pagamento</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                {resumo.quantidade_pendentes ?? 0} NFs pendentes
+              </p>
             </div>
           </div>
 
@@ -538,7 +715,17 @@ export default function Dashboard() {
                 Nenhum aspecto selecionado — use a legenda para exibir séries
               </p>
             ) : (
-              <div className="min-w-[320px]">
+              <div
+                className="min-w-[320px]"
+                onMouseMove={(e) => {
+                  dreMousePos.current = { x: e.clientX, y: e.clientY };
+                  if (dreRaf.current) return;
+                  dreRaf.current = requestAnimationFrame(() => {
+                    dreRaf.current = 0;
+                    setDreTipPos(dreMousePos.current);
+                  });
+                }}
+              >
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={dre} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
@@ -551,13 +738,9 @@ export default function Dashboard() {
                       }
                     />
                     <Tooltip
-                      formatter={(value: any, name: string, item: any) => {
-                        if (name === 'Lucro') {
-                          const lucroReal = item?.payload?.lucro;
-                          return [fmt(lucroReal ?? value), 'Lucro'];
-                        }
-                        return [fmt(Number(value) || 0), name];
-                      }}
+                      cursor={{ fill: 'rgba(156, 163, 175, 0.12)' }}
+                      wrapperStyle={{ visibility: 'hidden', pointerEvents: 'none' }}
+                      content={<DreFloatingTooltip mousePos={dreTipPos} />}
                     />
                     <Legend
                       onClick={(e: any) => {
@@ -571,6 +754,7 @@ export default function Dashboard() {
                       stackId="receita"
                       fill="#3B82F6"
                       hide={!mostrarReceita}
+                      isAnimationActive={false}
                     />
                     <Bar
                       dataKey="despesa"
@@ -578,21 +762,30 @@ export default function Dashboard() {
                       stackId="composicao"
                       fill="#EF4444"
                       hide={!mostrarDespesa}
-                    />
+                      isAnimationActive={false}
+                    >
+                      <LabelList dataKey="despesa_pct" content={DrePctLabel} />
+                    </Bar>
                     <Bar
                       dataKey="impostos"
                       name="Impostos"
                       stackId="composicao"
                       fill="#9CA3AF"
                       hide={!mostrarImpostos}
-                    />
+                      isAnimationActive={false}
+                    >
+                      <LabelList dataKey="impostos_pct" content={DrePctLabel} />
+                    </Bar>
                     <Bar
                       dataKey="lucro_empilhado"
                       name="Lucro"
                       stackId="composicao"
                       fill="#22C55E"
                       hide={!mostrarLucro}
-                    />
+                      isAnimationActive={false}
+                    >
+                      <LabelList dataKey="lucro_pct" content={DrePctLabel} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
                 {dre.some((d) => d.lucro < 0) && mostrarLucro && (
@@ -608,13 +801,13 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">
-                Custo por categoria — {ano}
+                {rotuloCusto}
               </h2>
               {custoErro ? (
                 <p className="text-sm text-red-600 dark:text-red-400 py-8 text-center">{custoErro}</p>
               ) : custoTotal <= 0 || custoFatias.length === 0 ? (
                 <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                  Sem despesas por categoria para {ano}
+                  {rotuloCustoVazio}
                 </p>
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
@@ -628,6 +821,8 @@ export default function Dashboard() {
                       innerRadius={62}
                       outerRadius={92}
                       paddingAngle={1}
+                      label={DonutPctLabel}
+                      labelLine={false}
                     >
                       {custoFatias.map((f) => (
                         <Cell key={f.categoria} fill={f.fill} />

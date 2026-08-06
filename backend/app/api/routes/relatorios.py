@@ -224,21 +224,25 @@ def placement_por_consultor(
 @router.get("/resumo-financeiro")
 def resumo_financeiro(
     ano: int = Query(None),
+    mes: int = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Resumo geral financeiro a partir de 2024"""
+    """Resumo geral financeiro. Filtra por ano e, se informado, pelo mês de data_emissao."""
     query = db.query(NF)
     if ano:
         query = query.filter(extract("year", NF.data_emissao) == ano)
-    
+    if mes:
+        query = query.filter(extract("month", NF.data_emissao) == mes)
+
     nfs_pagas = query.filter(NF.status == StatusNF.PAGA).all()
     nfs_pendentes = query.filter(NF.status == StatusNF.PENDENTE).all()
-    
+
     return {
         "faturamento_liquido_pago": sum(nf.valor_liquido for nf in nfs_pagas),
         "faturamento_bruto_pago": sum(nf.valor_bruto for nf in nfs_pagas),
         "faturamento_liquido_pendente": sum(nf.valor_liquido for nf in nfs_pendentes),
+        "faturamento_bruto_pendente": sum(nf.valor_bruto for nf in nfs_pendentes),
         "quantidade_pagas": len(nfs_pagas),
         "quantidade_pendentes": len(nfs_pendentes),
     }
@@ -297,13 +301,21 @@ def dre_mensal(
 def custo_por_categoria(
     ano: int = Query(...),
     mes_ate: int = Query(..., ge=1, le=12),
+    mes_de: int = Query(1, ge=1, le=12),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
     """
-    Composição do custo por categoria no período (meses 1..mes_ate do ano).
+    Composição do custo por categoria no período (meses mes_de..mes_ate do ano).
+    Default mes_de=1 preserva YTD. Dashboard usa mes_de=mes_ate para mês isolado.
     Pendentes agregados em bucket 'pendente'. Contas pagas e pendentes de pagamento.
     """
+    if mes_de > mes_ate:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="mes_de deve ser menor ou igual a mes_ate",
+        )
+
     rows = (
         db.query(
             ContaPagar.categoria,
@@ -313,6 +325,7 @@ def custo_por_categoria(
         .filter(
             ContaPagar.data_vencimento.isnot(None),
             extract("year", ContaPagar.data_vencimento) == ano,
+            extract("month", ContaPagar.data_vencimento) >= mes_de,
             extract("month", ContaPagar.data_vencimento) <= mes_ate,
         )
         .group_by(ContaPagar.categoria, ContaPagar.categoria_pendente)
@@ -343,6 +356,7 @@ def custo_por_categoria(
 
     return {
         "ano": ano,
+        "mes_de": mes_de,
         "mes_ate": mes_ate,
         "total": total,
         "categorias": categorias,

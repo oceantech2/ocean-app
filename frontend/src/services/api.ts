@@ -292,14 +292,16 @@ export const relatoriosService = {
   placementPorConsultor: (ano?: number) =>
     api.get('/relatorios/placement-por-consultor', { params: { ano } }),
 
-  resumoFinanceiro: (ano?: number) =>
-    api.get('/relatorios/resumo-financeiro', { params: { ano } }),
+  resumoFinanceiro: (ano?: number, mes?: number) =>
+    api.get('/relatorios/resumo-financeiro', { params: { ano, mes } }),
 
   dreMensal: (ano: number) =>
     api.get('/relatorios/dre-mensal', { params: { ano } }),
 
-  custoPorCategoria: (ano: number, mesAte: number) =>
-    api.get('/relatorios/custo-por-categoria', { params: { ano, mes_ate: mesAte } }),
+  custoPorCategoria: (ano: number, mesAte: number, mesDe: number = 1) =>
+    api.get('/relatorios/custo-por-categoria', {
+      params: { ano, mes_ate: mesAte, mes_de: mesDe },
+    }),
 };
 
 // Auditoria
