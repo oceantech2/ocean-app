@@ -212,11 +212,11 @@ def parse_nfs_xlsx(file_bytes: bytes) -> list[dict]:
 
         nf_count[numero_base] = nf_count.get(numero_base, 0) + 1
         ocorrencia = nf_count[numero_base]
-        numero_unico = numero_base if ocorrencia == 1 else f"{numero_base}-{ocorrencia}"
 
         registros.append({
             "_linha": row,
-            "numero": numero_unico,
+            "numero": numero_base,
+            "duplicado_arquivo": ocorrencia > 1,
             "razao_social": empresa,
             "cancelada": is_cancelada,
             "posicao": _to_str(cell_val(row, "posicao")),
@@ -415,11 +415,27 @@ def _inferir_centro_custo(descricao: str) -> str:
     return cat
 
 
+def _rotulo_caixa_export(caixa: str | None) -> str:
+    if caixa == "corrente":
+        return "Corrente"
+    if caixa == "investimento":
+        return "Investimento"
+    return ""
+
+
 # ==================== EXPORT: NFs ====================
 def preencher_template_nfs(nfs: list[dict]) -> bytes:
-    """Preenche a aba 'Entradas' do template com as NFs (em memória)."""
+    """Preenche a aba 'Entradas' do template com as NFs (em memória).
+
+    Coluna Caixa é acrescentada após Placement (template não a possui).
+    """
     wb = openpyxl.load_workbook(TEMPLATE_NFS_PATH)
     ws = wb[NF_SHEET]
+
+    col_caixa = max(NF_COLS.values()) + 1
+    col_origem = col_caixa + 1
+    ws.cell(row=NF_HEADER_ROW, column=col_caixa, value="Caixa")
+    ws.cell(row=NF_HEADER_ROW, column=col_origem, value="Origem")
 
     row = NF_DATA_START_ROW
     for nf in nfs:
@@ -434,6 +450,9 @@ def preencher_template_nfs(nfs: list[dict]) -> bytes:
         ws.cell(row=row, column=NF_COLS["lead"],           value=nf.get("lead_nome"))
         ws.cell(row=row, column=NF_COLS["conducao"],       value=nf.get("conducao_nome"))
         ws.cell(row=row, column=NF_COLS["placement"],      value=nf.get("placement_nome"))
+        ws.cell(row=row, column=col_caixa, value=_rotulo_caixa_export(nf.get("caixa")))
+        orig = nf.get("origem") or "maggo"
+        ws.cell(row=row, column=col_origem, value="Manual" if orig == "manual" else "Maggo")
         row += 1
 
     buf = io.BytesIO()

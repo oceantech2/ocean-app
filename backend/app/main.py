@@ -28,6 +28,8 @@ def _migrar():
             conn.execute(text("ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS cep VARCHAR(10)"))
             conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS arquivada BOOLEAN NOT NULL DEFAULT FALSE"))
             conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS caixa VARCHAR(20)"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS origem VARCHAR(20)"))
+            conn.execute(text("UPDATE nfs SET origem = 'maggo' WHERE origem IS NULL"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_path TEXT"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_nome VARCHAR(255)"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS categoria VARCHAR(64)"))
@@ -108,6 +110,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Ocean-Maggo-Status", "X-Ocean-Maggo-Ignorados"],
 )
 
 # Middleware para hosts seguros

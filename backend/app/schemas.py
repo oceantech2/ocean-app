@@ -54,12 +54,31 @@ class NFBase(BaseModel):
 
 class NFCreate(NFBase):
     status: Optional[str] = None
+    data_pagamento: Optional[date] = None
+    caixa: Optional[Literal["corrente", "investimento"]] = None
     colaborador_lead_id: Optional[int] = None
     colaborador_conducao_id: Optional[int] = None
     colaborador_placement_id: Optional[int] = None
 
+    @field_validator("caixa")
+    @classmethod
+    def validar_caixa_create(cls, v):
+        if v is not None and v not in ("corrente", "investimento"):
+            raise ValueError("caixa deve ser 'corrente', 'investimento' ou null")
+        return v
+
 class NFUpdate(BaseModel):
-    """Allowlist Contas a Receber: só enriquecimento Ocean (FR-008)."""
+    """Enriquecimento Ocean (+ campos de negócio se origem=manual)."""
+    numero: Optional[str] = None
+    razao_social: Optional[str] = None
+    posicao: Optional[str] = None
+    candidato: Optional[str] = None
+    valor_bruto: Optional[float] = None
+    valor_liquido: Optional[float] = None
+    data_emissao: Optional[date] = None
+    data_vencimento: Optional[date] = None
+    tipo: Optional[str] = None
+    tipo_abertura_fechamento: Optional[str] = None
     data_pagamento: Optional[date] = None
     colaborador_lead_id: Optional[int] = None
     colaborador_conducao_id: Optional[int] = None
@@ -83,6 +102,7 @@ class NFResponse(NFBase):
     colaborador_placement_id: Optional[int]
     arquivada: bool = False
     caixa: Optional[str] = None
+    origem: Optional[str] = None  # manual | maggo
     criado_em: datetime
 
     class Config:

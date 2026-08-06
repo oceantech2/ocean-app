@@ -35,6 +35,7 @@ export interface NF {
   colaborador_placement_id?: number;
   arquivada?: boolean;
   caixa?: 'corrente' | 'investimento' | null;
+  origem?: 'manual' | 'maggo' | null;
 }
 
 // Bônus

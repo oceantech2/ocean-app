@@ -82,6 +82,7 @@ class NF(Base):
     colaborador_placement_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=True)
     arquivada = Column(Boolean, default=False, nullable=False, server_default='false')
     caixa = Column(String(20), nullable=True)  # corrente | investimento | null
+    origem = Column(String(20), nullable=False, default="maggo", server_default="maggo")  # manual | maggo
 
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

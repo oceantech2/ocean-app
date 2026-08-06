@@ -138,12 +138,17 @@ export const nfsService = {
   resumo: (mes?: number, ano?: number) =>
     api.get('/nfs/resumo/total', { params: { mes, ano } }),
 
-  importarXlsx: (arquivo: File) => {
+  importarXlsx: (arquivo: File, on_conflict?: 'reject' | 'update') => {
     const fd = new FormData();
     fd.append('file', arquivo);
-    return api.post('/nfs/importar-xlsx', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return api.post<{ ok: number; atualizados: number; erros: Array<{ linha?: number; numero?: string; motivo?: string }> }>(
+      '/nfs/importar-xlsx',
+      fd,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: on_conflict ? { on_conflict } : undefined,
+      },
+    );
   },
 
   deletarTodas: (params?: { mes?: number; ano?: number }) =>
