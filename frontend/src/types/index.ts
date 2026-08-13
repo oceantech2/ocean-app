@@ -1,14 +1,20 @@
 // Colaborador
 export interface Colaborador {
   id: number;
+  tipo?: 'colaborador' | 'fornecedor';
+  tipo_documento?: 'cpf' | 'cnpj';
+  documento?: string;
   nome: string;
   cpf: string;
-  cargo: string;
-  salario: number;
-  data_nascimento: string;
+  razao_social?: string | null;
+  telefone?: string | null;
+  email?: string | null;
+  cargo?: string | null;
+  salario?: number | null;
+  data_nascimento?: string | null;
   endereco_completo?: string;
   cep?: string;
-  data_admissao: string;
+  data_admissao?: string;
   data_desligamento?: string;
   ativo: boolean;
   observacao?: string;
@@ -86,6 +92,23 @@ export interface ResumoFeriasAno {
   tem_pendencia: boolean;
 }
 
+export type FluxoConta = 'corrente' | 'investimento';
+
+export type OrigemMovimentoFluxo = 'contas_receber' | 'contas_pagar' | 'manual' | 'transferencia';
+
+export interface MovimentoFluxo {
+  id: string;
+  data: string;
+  tipo: 'entrada' | 'saida';
+  origem: OrigemMovimentoFluxo;
+  origem_rotulo: 'Contas a Receber' | 'Contas a Pagar' | 'Manual' | 'Transferência';
+  desc: string;
+  valor: number;
+  manual: boolean;
+  movId?: number;
+  parId?: string | null;
+}
+
 // Conta a Pagar
 export interface ContaPagar {
   id: number;
@@ -98,6 +121,9 @@ export interface ContaPagar {
   data_pagamento?: string;
   pago: boolean;
   comprovante_nome?: string;
+  fornecedor_id?: number | null;
+  fornecedor_nome?: string | null;
+  fornecedor_ativo?: boolean | null;
 }
 
 // DH

@@ -90,7 +90,10 @@ export default function Calendario() {
     });
   });
   contas.forEach((c) => c.data_vencimento && addEvento(c.data_vencimento, {
-    tipo: 'conta', titulo: c.descricao, valor: c.valor, pago: c.pago,
+    tipo: 'conta',
+    titulo: c.fornecedor_nome ? `${c.fornecedor_nome} — ${c.descricao}` : c.descricao,
+    valor: c.valor,
+    pago: c.pago,
   }));
 
   const primeiroDia = new Date(ano, mes, 1).getDay();

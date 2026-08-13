@@ -11,7 +11,7 @@ from app.api.routes import (
     auditoria, metas, documentos, alertas, configuracoes
 )
 from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrimonio
-from app.api.routes import arquivos_nfs, arquivos_comprovantes
+from app.api.routes import arquivos_nfs
 
 # Criar tabelas
 Base.metadata.create_all(bind=engine)
@@ -50,6 +50,66 @@ def _migrar():
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(64)"))
             conn.execute(text(
                 "ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS categoria_pendente BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.execute(text(
+                "ALTER TABLE fluxo_movimentos ADD COLUMN IF NOT EXISTS conta VARCHAR(20) NOT NULL DEFAULT 'corrente'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE fluxo_movimentos ADD COLUMN IF NOT EXISTS par_id VARCHAR(36)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_fluxo_movimentos_par_id ON fluxo_movimentos (par_id)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'colaborador'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS tipo_documento VARCHAR(4) NOT NULL DEFAULT 'cpf'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS documento VARCHAR(14)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS razao_social VARCHAR(255)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS telefone VARCHAR(20)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS email VARCHAR(255)"
+            ))
+            conn.execute(text("ALTER TABLE colaboradores ALTER COLUMN cpf TYPE VARCHAR(22)"))
+            conn.execute(text("ALTER TABLE colaboradores ALTER COLUMN cpf DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE colaboradores ALTER COLUMN cargo DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE colaboradores ALTER COLUMN salario DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE colaboradores ALTER COLUMN data_nascimento DROP NOT NULL"))
+            conn.execute(text(
+                "UPDATE colaboradores SET documento = regexp_replace(COALESCE(cpf, ''), '[^0-9]', '', 'g') "
+                "WHERE documento IS NULL OR documento = ''"
+            ))
+            conn.execute(text(
+                "UPDATE colaboradores SET documento = '00000000000' "
+                "WHERE documento IS NULL OR documento = ''"
+            ))
+            conn.execute(text("ALTER TABLE colaboradores ALTER COLUMN documento SET NOT NULL"))
+            conn.execute(text("ALTER TABLE colaboradores DROP CONSTRAINT IF EXISTS colaboradores_cpf_key"))
+            conn.execute(text("DROP INDEX IF EXISTS ix_colaboradores_cpf"))
+            conn.execute(text("DROP INDEX IF EXISTS colaboradores_cpf_key"))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_colaboradores_tipo_documento_ativo "
+                "ON colaboradores (tipo, documento) WHERE ativo IS TRUE"
+            ))
+            conn.execute(text(
+                "ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS fornecedor_id INTEGER"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_contas_pagar_fornecedor_id ON contas_pagar (fornecedor_id)"
+            ))
+            conn.execute(text(
+                "DO $$ BEGIN "
+                "ALTER TABLE contas_pagar ADD CONSTRAINT contas_pagar_fornecedor_id_fkey "
+                "FOREIGN KEY (fornecedor_id) REFERENCES colaboradores(id); "
+                "EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
             ))
             conn.commit()
         except Exception:
@@ -235,9 +295,9 @@ app.include_router(saldos.router, prefix="/api/saldos", tags=["Saldos"])
 app.include_router(impostos.router, prefix="/api/impostos", tags=["Impostos"])
 app.include_router(historico.router, prefix="/api/historico", tags=["Histórico"])
 app.include_router(fluxo_movimentos.router, prefix="/api/fluxo-movimentos", tags=["Fluxo Movimentos"])
+app.include_router(fluxo_movimentos.transferencias_router, prefix="/api/fluxo-transferencias", tags=["Fluxo Transferências"])
 app.include_router(patrimonio.router, prefix="/api/patrimonio", tags=["Patrimônio"])
 app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arquivos NFs"])
-app.include_router(arquivos_comprovantes.router, prefix="/api/arquivos-comprovantes", tags=["Comprovantes"])
 
 @app.get("/")
 def root():

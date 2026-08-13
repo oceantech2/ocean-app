@@ -5,10 +5,16 @@ from datetime import datetime, date
 # ==================== COLABORADORES ====================
 class ColaboradorBase(BaseModel):
     nome: str
-    cpf: str
-    cargo: str
-    salario: float
-    data_nascimento: date
+    tipo: str = "colaborador"
+    tipo_documento: str = "cpf"
+    documento: Optional[str] = None
+    cpf: Optional[str] = None
+    razao_social: Optional[str] = None
+    telefone: Optional[str] = None
+    email: Optional[str] = None
+    cargo: Optional[str] = None
+    salario: Optional[float] = None
+    data_nascimento: Optional[date] = None
     endereco_completo: Optional[str] = None
     cep: Optional[str] = None
     observacao: Optional[str] = None
@@ -19,8 +25,16 @@ class ColaboradorCreate(ColaboradorBase):
 
 class ColaboradorUpdate(BaseModel):
     nome: Optional[str] = None
+    tipo: Optional[str] = None
+    tipo_documento: Optional[str] = None
+    documento: Optional[str] = None
+    cpf: Optional[str] = None
+    razao_social: Optional[str] = None
+    telefone: Optional[str] = None
+    email: Optional[str] = None
     cargo: Optional[str] = None
     salario: Optional[float] = None
+    data_nascimento: Optional[date] = None
     endereco_completo: Optional[str] = None
     cep: Optional[str] = None
     data_admissao: Optional[date] = None
@@ -31,8 +45,8 @@ class ColaboradorUpdate(BaseModel):
 
 class ColaboradorResponse(ColaboradorBase):
     id: int
-    data_admissao: datetime
-    data_desligamento: Optional[datetime]
+    data_admissao: Optional[datetime] = None
+    data_desligamento: Optional[datetime] = None
     ativo: bool
     criado_em: datetime
 
@@ -261,6 +275,7 @@ class ContaPagarBase(BaseModel):
 
 class ContaPagarCreate(ContaPagarBase):
     data_pagamento: Optional[date] = None
+    fornecedor_id: Optional[int] = None
 
 class ContaPagarUpdate(BaseModel):
     descricao: Optional[str] = None
@@ -270,6 +285,7 @@ class ContaPagarUpdate(BaseModel):
     data_vencimento: Optional[date] = None
     data_pagamento: Optional[date] = None
     pago: Optional[bool] = None
+    fornecedor_id: Optional[int] = None
 
 class ContaPagarResponse(ContaPagarBase):
     id: int
@@ -277,7 +293,21 @@ class ContaPagarResponse(ContaPagarBase):
     pago: bool
     data_pagamento: Optional[date]
     comprovante_nome: Optional[str] = None
+    fornecedor_id: Optional[int] = None
+    fornecedor_nome: Optional[str] = None
+    fornecedor_ativo: Optional[bool] = None
     criado_em: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def anexar_fornecedor(cls, data):
+        if hasattr(data, "__table__"):
+            f = getattr(data, "fornecedor", None)
+            payload = {col.name: getattr(data, col.name) for col in data.__table__.columns}
+            payload["fornecedor_nome"] = f.nome if f else None
+            payload["fornecedor_ativo"] = f.ativo if f else None
+            return payload
+        return data
 
     class Config:
         from_attributes = True

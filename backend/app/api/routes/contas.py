@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import extract
 from typing import List, Optional
 import io
 import os
 import uuid
 from app.database import get_db
-from app.models import ContaPagar
+from app.models import ContaPagar, Colaborador
 from app.schemas import ContaPagarCreate, ContaPagarResponse, ContaPagarUpdate
 from app.api.routes.auth import get_current_user, require_admin
 from app.services.audit import registrar_auditoria
@@ -16,6 +16,34 @@ from app.services import categorias_contas as cat_svc
 from app.config import settings
 
 router = APIRouter()
+
+EXTENSOES_NF = {".pdf", ".jpg", ".jpeg", ".png"}
+MEDIA_TYPE_NF = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+}
+
+
+def _extensao(nome: str | None) -> str:
+    return os.path.splitext(nome or "")[1].lower()
+
+
+def _media_type_arquivo(path: str, nome_original: str | None) -> str:
+    ext = _extensao(path) or _extensao(nome_original)
+    return MEDIA_TYPE_NF.get(ext, "application/octet-stream")
+
+
+def _validar_fornecedor_id(db: Session, fornecedor_id: int | None, atual: ContaPagar | None = None):
+    if fornecedor_id is None:
+        return None
+    f = db.query(Colaborador).filter(Colaborador.id == fornecedor_id).first()
+    if not f or f.tipo != "fornecedor":
+        raise HTTPException(status_code=400, detail="Fornecedor inválido")
+    if not f.ativo and (not atual or atual.fornecedor_id != fornecedor_id):
+        raise HTTPException(status_code=400, detail="Fornecedor inativo")
+    return fornecedor_id
 
 
 @router.delete("/todas", status_code=status.HTTP_403_FORBIDDEN)
@@ -119,7 +147,7 @@ def listar_contas(
     current_user: str = Depends(get_current_user)
 ):
     """Listar contas a pagar com filtros por categoria/subcategoria."""
-    query = db.query(ContaPagar)
+    query = db.query(ContaPagar).options(joinedload(ContaPagar.fornecedor))
 
     if categoria:
         cat = cat_svc.normalizar_codigo(categoria)
@@ -148,7 +176,7 @@ def obter_conta(
     current_user: str = Depends(get_current_user)
 ):
     """Obter uma conta específica"""
-    conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
+    conta = db.query(ContaPagar).options(joinedload(ContaPagar.fornecedor)).filter(ContaPagar.id == conta_id).first()
     if not conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
     return conta
@@ -175,6 +203,7 @@ def criar_conta(
     dados = conta.dict()
     dados["categoria"] = cat
     dados["subcategoria"] = sub
+    dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"))
     data_pag = dados.get("data_pagamento")
     if data_pag:
         dados["pago"] = True
@@ -187,6 +216,7 @@ def criar_conta(
     registrar_auditoria(db, current_user, "criar", "ContaPagar", nova_conta.id, f"{nova_conta.descricao} — R$ {nova_conta.valor:,.2f}")
     db.commit()
     db.refresh(nova_conta)
+    db.refresh(nova_conta, attribute_names=["fornecedor"])
     return nova_conta
 
 
@@ -198,11 +228,14 @@ def atualizar_conta(
     current_user: str = Depends(require_admin),
 ):
     """Atualizar uma conta. Pagamento/descrição sem forçar reclassificação."""
-    db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
+    db_conta = db.query(ContaPagar).options(joinedload(ContaPagar.fornecedor)).filter(ContaPagar.id == conta_id).first()
     if not db_conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
 
     dados = conta_update.dict(exclude_unset=True)
+
+    if "fornecedor_id" in dados:
+        dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"), db_conta)
 
     if "categoria" in dados:
         try:
@@ -243,6 +276,7 @@ def atualizar_conta(
     registrar_auditoria(db, current_user, "editar", "ContaPagar", db_conta.id, f"{db_conta.descricao} — {acao_desc}")
     db.commit()
     db.refresh(db_conta)
+    db.refresh(db_conta, attribute_names=["fornecedor"])
     return db_conta
 
 
@@ -275,6 +309,13 @@ async def upload_comprovante(
     if not db_conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
 
+    ext = _extensao(arquivo.filename)
+    if ext not in EXTENSOES_NF:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato não permitido. Envie PDF, JPEG ou PNG.",
+        )
+
     conteudo = await arquivo.read()
     if len(conteudo) > settings.UPLOAD_MAX_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"Arquivo excede {settings.UPLOAD_MAX_MB} MB")
@@ -282,8 +323,6 @@ async def upload_comprovante(
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     if db_conta.comprovante_path and os.path.exists(db_conta.comprovante_path):
         os.remove(db_conta.comprovante_path)
-
-    ext = os.path.splitext(arquivo.filename or "")[1]
     nome_arquivo = f"comprovante_{conta_id}_{uuid.uuid4().hex}{ext}"
     caminho = os.path.join(settings.UPLOAD_DIR, nome_arquivo)
     with open(caminho, "wb") as f:
@@ -310,7 +349,8 @@ def download_comprovante(
     return FileResponse(
         db_conta.comprovante_path,
         filename=db_conta.comprovante_nome or "comprovante",
-        media_type="application/octet-stream",
+        media_type=_media_type_arquivo(db_conta.comprovante_path, db_conta.comprovante_nome),
+        content_disposition_type="inline",
     )
 
 

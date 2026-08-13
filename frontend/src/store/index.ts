@@ -129,6 +129,8 @@ interface PageFiltersState {
   contasCategoria: string;
   contasSubcategoria: string;
   contasPago: '' | 'true' | 'false';
+  contasAlertaVencimento: '' | 'hoje' | '7dias' | 'vencida';
+  nfsSemNumero: boolean;
   bonusColaboradorId: number | '';
   bonusAno: number;
   feriasColaboradorId: number | '';
@@ -137,7 +139,8 @@ interface PageFiltersState {
   dhAno: number;
   dhColaborador: string;
   setNfsFilters: (mes: number | '', ano: number, status: string) => void;
-  setContasFilters: (categoria: string, pago: '' | 'true' | 'false', subcategoria?: string) => void;
+  setContasFilters: (categoria: string, pago: '' | 'true' | 'false', subcategoria?: string, alertaVencimento?: '' | 'hoje' | '7dias' | 'vencida') => void;
+  setNfsSemNumero: (ligado: boolean) => void;
   setBonusFilters: (colaboradorId: number | '', ano: number) => void;
   setFeriasFilters: (colaboradorId: number | '', ano: number) => void;
   setDhFilters: (mes: number | '', ano: number, colaborador: string) => void;
@@ -150,6 +153,8 @@ export const usePageFilters = create<PageFiltersState>((set) => ({
   contasCategoria: '',
   contasSubcategoria: '',
   contasPago: '',
+  contasAlertaVencimento: '',
+  nfsSemNumero: false,
   bonusColaboradorId: '',
   bonusAno: ANO,
   feriasColaboradorId: '',
@@ -157,9 +162,22 @@ export const usePageFilters = create<PageFiltersState>((set) => ({
   dhMes: MES,
   dhAno: ANO,
   dhColaborador: '',
-  setNfsFilters: (mes, ano, status) => set({ nfsMes: mes, nfsAno: ano, nfsStatus: status }),
-  setContasFilters: (categoria, pago, subcategoria = '') =>
-    set({ contasCategoria: categoria, contasPago: pago, contasSubcategoria: subcategoria }),
+  setNfsFilters: (mes, ano, status) => set({
+    nfsMes: mes,
+    nfsAno: ano,
+    nfsStatus: status,
+    nfsSemNumero: status === 'sem_nf',
+  }),
+  setContasFilters: (categoria, pago, subcategoria = '', alertaVencimento) =>
+    set({
+      contasCategoria: categoria,
+      contasPago: pago,
+      contasSubcategoria: subcategoria,
+      ...(alertaVencimento !== undefined ? { contasAlertaVencimento: alertaVencimento } : {}),
+    }),
+  setNfsSemNumero: (ligado) => set(ligado
+    ? { nfsSemNumero: true, nfsMes: '' as const, nfsStatus: 'sem_nf' }
+    : { nfsSemNumero: false }),
   setBonusFilters: (colaboradorId, ano) => set({ bonusColaboradorId: colaboradorId, bonusAno: ano }),
   setFeriasFilters: (colaboradorId, ano) => set({ feriasColaboradorId: colaboradorId, feriasAno: ano }),
   setDhFilters: (mes, ano, colaborador) => set({ dhMes: mes, dhAno: ano, dhColaborador: colaborador }),

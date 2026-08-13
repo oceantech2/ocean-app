@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { contasService, comprovantesService } from '../services/api';
+import { contasService, colaboradoresService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
-import { ContaPagar } from '../types';
+import { ContaPagar, Colaborador } from '../types';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import { exportarCSV } from '../utils/export';
 import { formatarMoedaInput, isValorMoedaValido, numberParaMoedaInput, parseMoedaInput } from '../utils/moeda';
 import ImportCSV from '../components/ImportCSV';
-import GerenciadorArquivos from '../components/GerenciadorArquivos';
+import { hojeISO, compararVencimento, venceEmMenosDe7Dias } from '../utils/dataCivil';
 import toast from 'react-hot-toast';
 
 const CATEGORIAS_OPCOES = [
@@ -52,6 +52,18 @@ const categoriaLabel = (c: ContaPagar | string, sub?: string | null, pendente?: 
   return categoriaLabel(c.categoria, c.subcategoria, c.categoria_pendente);
 };
 
+const ACCEPT_NF = '.pdf,.jpg,.jpeg,.png';
+const EXT_NF_OK = ['.pdf', '.jpg', '.jpeg', '.png'];
+
+function extensaoArquivo(nome: string) {
+  const i = nome.lastIndexOf('.');
+  return i >= 0 ? nome.slice(i).toLowerCase() : '';
+}
+
+function arquivoNfValido(file: File) {
+  return EXT_NF_OK.includes(extensaoArquivo(file.name));
+}
+
 const FORM_INICIAL = {
   descricao: '',
   categoria: 'adm_financeiro',
@@ -59,11 +71,12 @@ const FORM_INICIAL = {
   valor: '',
   data_vencimento: '',
   data_pagamento: '',
+  fornecedor_id: '',
 };
 
 export default function Contas() {
   const papel = useAuthStore((s) => s.papel);
-  const { contasCategoria, contasSubcategoria, contasPago, setContasFilters } = usePageFilters();
+  const { contasCategoria, contasSubcategoria, contasPago, contasAlertaVencimento, setContasFilters } = usePageFilters();
   const triggerNotifRefresh = useNotifStore((s) => s.triggerNotifRefresh);
   const triggerCalendarioRefresh = useNotifStore((s) => s.triggerCalendarioRefresh);
 
@@ -75,17 +88,21 @@ export default function Contas() {
   const [importandoXlsx, setImportandoXlsx] = useState(false);
   const [modalAberto, setModalAberto] = useState(false);
   const [importAberto, setImportAberto] = useState(false);
-  const [comprovantesAberto, setComprovantesAberto] = useState(false);
   const [buscaDescricao, setBuscaDescricao] = useState('');
+  const [arquivoNf, setArquivoNf] = useState<File | null>(null);
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [editando, setEditando] = useState<ContaPagar | null>(null);
   const [form, setForm] = useState({ ...FORM_INICIAL });
+  const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
   const [salvando, setSalvando] = useState(false);
   const [sortField, setSortField] = useState<string>('data_vencimento');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => { carregarContas(); }, [contasCategoria, contasSubcategoria, contasPago]);
+  useEffect(() => {
+    colaboradoresService.listar(0, 500, true, 'fornecedor').then((r) => setFornecedores(r.data || [])).catch(() => {});
+  }, []);
 
   const carregarContas = async () => {
     try {
@@ -103,12 +120,21 @@ export default function Contas() {
     finally { setLoading(false); }
   };
 
-  const isVencida = (c: ContaPagar) => !c.pago && !!c.data_vencimento && new Date(c.data_vencimento) < new Date();
+  const isVencida = (c: ContaPagar) => !c.pago && compararVencimento(c.data_vencimento, hojeISO()) === -1;
 
   const contasFiltradas = contas.filter((c) => {
     if (buscaDescricao && !c.descricao.toLowerCase().includes(buscaDescricao.toLowerCase())) return false;
     if (dataInicio && c.data_vencimento && c.data_vencimento < dataInicio) return false;
     if (dataFim && c.data_vencimento && c.data_vencimento > dataFim) return false;
+    if (contasAlertaVencimento === 'vencida') {
+      return !c.pago && compararVencimento(c.data_vencimento, hojeISO()) === -1;
+    }
+    if (contasAlertaVencimento === 'hoje') {
+      return !c.pago && compararVencimento(c.data_vencimento, hojeISO()) === 0;
+    }
+    if (contasAlertaVencimento === '7dias') {
+      return !c.pago && venceEmMenosDe7Dias(c.data_vencimento, hojeISO());
+    }
     return true;
   });
 
@@ -148,9 +174,10 @@ export default function Contas() {
   const totalPago = contas.filter((c) => c.pago).reduce((s, c) => s + c.valor, 0);
   const totalVencido = contas.filter((c) => isVencida(c)).reduce((s, c) => s + c.valor, 0);
 
-  const abrirCriar = () => { setEditando(null); setForm({ ...FORM_INICIAL }); setModalAberto(true); };
+  const abrirCriar = () => { setEditando(null); setForm({ ...FORM_INICIAL }); setArquivoNf(null); setModalAberto(true); };
   const abrirEditar = (c: ContaPagar) => {
     setEditando(c);
+    setArquivoNf(null);
     setForm({
       descricao: c.descricao,
       categoria: c.categoria_pendente ? 'adm_financeiro' : (c.categoria || 'adm_financeiro'),
@@ -158,6 +185,7 @@ export default function Contas() {
       valor: numberParaMoedaInput(c.valor),
       data_vencimento: c.data_vencimento ?? '',
       data_pagamento: c.data_pagamento || '',
+      fornecedor_id: c.fornecedor_id ? String(c.fornecedor_id) : '',
     });
     setModalAberto(true);
   };
@@ -189,6 +217,7 @@ export default function Contas() {
         valor: number;
         data_vencimento: string;
         data_pagamento: string | null;
+        fornecedor_id: number | null;
         pago?: boolean;
       } = {
         descricao: form.descricao,
@@ -197,16 +226,44 @@ export default function Contas() {
         valor: valorNum,
         data_vencimento: form.data_vencimento,
         data_pagamento: form.data_pagamento || null,
+        fornecedor_id: form.fornecedor_id ? parseInt(form.fornecedor_id, 10) : null,
       };
       if (editando) {
         dados.pago = !!form.data_pagamento;
         await contasService.atualizar(editando.id, dados);
+        if (arquivoNf) {
+          if (arquivoNfValido(arquivoNf)) {
+            try {
+              await contasService.uploadComprovante(editando.id, arquivoNf);
+            } catch (e: any) {
+              toast.error(mensagemErro(e, 'Conta atualizada, mas a nota fiscal não foi anexada'));
+              setModalAberto(false); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
+              return;
+            }
+          } else {
+            toast.error('Use PDF, JPEG ou PNG. A conta foi salva sem alterar o arquivo.');
+          }
+        }
         toast.success('Conta atualizada!');
       } else {
-        await contasService.criar(dados);
+        const res = await contasService.criar(dados);
+        const novaId = res.data?.id;
+        if (arquivoNf && novaId) {
+          if (arquivoNfValido(arquivoNf)) {
+            try {
+              await contasService.uploadComprovante(novaId, arquivoNf);
+            } catch (e: any) {
+              toast.error(mensagemErro(e, 'Conta criada, mas a nota fiscal não foi anexada'));
+              setModalAberto(false); setArquivoNf(null); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
+              return;
+            }
+          } else {
+            toast.error('Use PDF, JPEG ou PNG. A conta foi salva sem arquivo.');
+          }
+        }
         toast.success('Conta criada!');
       }
-      setModalAberto(false); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
+      setModalAberto(false); setArquivoNf(null); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
     } catch (e: any) { toast.error(mensagemErro(e, 'Erro ao salvar')); }
     finally { setSalvando(false); }
   };
@@ -264,12 +321,27 @@ export default function Contas() {
     const arquivo = e.target.files?.[0];
     e.target.value = '';
     if (!arquivo || !uploadingComprovante) return;
+    if (!arquivoNfValido(arquivo)) {
+      toast.error('Use PDF, JPEG ou PNG');
+      setUploadingComprovante(null);
+      return;
+    }
     try {
       await contasService.uploadComprovante(uploadingComprovante, arquivo);
-      toast.success('Comprovante anexado!');
+      toast.success('Nota fiscal vinculada!');
       carregarContas();
-    } catch { toast.error('Erro ao anexar comprovante'); }
+    } catch (err: any) { toast.error(mensagemErro(err, 'Erro ao anexar nota fiscal')); }
     finally { setUploadingComprovante(null); }
+  };
+
+  const removerNotaFiscal = async (conta: ContaPagar) => {
+    if (!confirm(`Remover a nota fiscal de "${conta.descricao}"?`)) return;
+    try {
+      await contasService.removerComprovante(conta.id);
+      toast.success('Nota fiscal removida');
+      if (editando?.id === conta.id) setEditando({ ...editando, comprovante_nome: undefined });
+      carregarContas();
+    } catch (err: any) { toast.error(mensagemErro(err, 'Erro ao remover nota fiscal')); }
   };
 
   const exportar = () => exportarCSV(contas.map((c) => ({
@@ -320,7 +392,7 @@ export default function Contas() {
               <input
                 ref={comprovanteInputRef}
                 type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.webp"
+                accept={ACCEPT_NF}
                 className="hidden"
                 onChange={handleComprovanteFile}
               />
@@ -338,12 +410,6 @@ export default function Contas() {
           </button>
           <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
             Exportar PDF
-          </button>
-          <button
-            onClick={() => setComprovantesAberto(true)}
-            className="px-4 py-2 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-sm font-medium transition"
-          >
-            📁 Comprovantes
           </button>
           {papel === 'admin' && (
             <button onClick={abrirCriar} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
@@ -395,9 +461,23 @@ export default function Contas() {
         )}
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Status</label>
-          <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={contasPago} onChange={(e) => setContasFilters(contasCategoria, e.target.value as any, contasSubcategoria)}>
+          <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={
+            contasAlertaVencimento === 'hoje' ? 'alerta-hoje'
+              : contasAlertaVencimento === '7dias' ? 'alerta-7dias'
+                : contasAlertaVencimento === 'vencida' ? 'alerta-vencida'
+                  : contasPago
+          } onChange={(e) => {
+            const v = e.target.value;
+            if (v === 'alerta-hoje') setContasFilters(contasCategoria, 'false', contasSubcategoria, 'hoje');
+            else if (v === 'alerta-7dias') setContasFilters(contasCategoria, 'false', contasSubcategoria, '7dias');
+            else if (v === 'alerta-vencida') setContasFilters(contasCategoria, 'false', contasSubcategoria, 'vencida');
+            else setContasFilters(contasCategoria, v as '' | 'true' | 'false', contasSubcategoria, '');
+          }}>
             <option value="">Todos</option>
             <option value="false">Pendente</option>
+            <option value="alerta-hoje">Vence hoje</option>
+            <option value="alerta-7dias">Vence em menos de 7 dias</option>
+            <option value="alerta-vencida">Vencida</option>
             <option value="true">Pago</option>
           </select>
         </div>
@@ -439,11 +519,12 @@ export default function Contas() {
                     <tr>
                       {[
                         { label: 'Descrição', campo: 'descricao' },
+                        { label: 'Fornecedor', campo: 'fornecedor_nome' },
                         { label: 'Valor', campo: 'valor' },
                         { label: 'Vencimento', campo: 'data_vencimento' },
                         { label: 'Pagamento', campo: 'data_pagamento' },
                         { label: 'Status', campo: 'status' },
-                        { label: 'Comprovante', campo: null },
+                        { label: 'Nota fiscal', campo: null },
                         { label: '', campo: null },
                       ].map(({ label, campo }) => (
                         <th
@@ -467,6 +548,12 @@ export default function Contas() {
                             </span>
                           )}
                         </td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
+                          {conta.fornecedor_nome || '—'}
+                          {conta.fornecedor_id && conta.fornecedor_ativo === false && (
+                            <span className="ml-1 text-gray-400">(inativo)</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right font-medium text-gray-700 dark:text-gray-300">{fmt(conta.valor)}</td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
                           Venc: {conta.data_vencimento}
@@ -484,19 +571,39 @@ export default function Contas() {
                         </td>
                         <td className="px-4 py-3 text-xs">
                           {conta.comprovante_nome ? (
-                            <button
-                              onClick={() => contasService.downloadComprovante(conta.id, conta.comprovante_nome!)}
-                              className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
-                              title={conta.comprovante_nome}
-                            >
-                              <span>📎</span>
-                              <span className="max-w-[80px] truncate">{conta.comprovante_nome}</span>
-                            </button>
-                          ) : conta.pago && papel === 'admin' ? (
+                            <div className="flex flex-col gap-1 items-start">
+                              <button
+                                onClick={() => contasService.downloadComprovante(conta.id, conta.comprovante_nome)}
+                                className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                                title={conta.comprovante_nome}
+                              >
+                                <span>📎</span>
+                                <span className="max-w-[80px] truncate">{conta.comprovante_nome}</span>
+                              </button>
+                              {papel === 'admin' && (
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => abrirUploadComprovante(conta)}
+                                    className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                                    title="Substituir nota fiscal"
+                                  >
+                                    Substituir
+                                  </button>
+                                  <button
+                                    onClick={() => removerNotaFiscal(conta)}
+                                    className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition"
+                                    title="Remover nota fiscal"
+                                  >
+                                    Remover
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : papel === 'admin' ? (
                             <button
                               onClick={() => abrirUploadComprovante(conta)}
                               className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
-                              title="Anexar comprovante"
+                              title="Anexar nota fiscal"
                             >
                               + Anexar
                             </button>
@@ -553,13 +660,6 @@ export default function Contas() {
         />
       )}
 
-      <GerenciadorArquivos
-        titulo="Comprovantes"
-        servico={comprovantesService}
-        aberto={comprovantesAberto}
-        onFechar={() => setComprovantesAberto(false)}
-      />
-
       {modalAberto && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
@@ -575,6 +675,23 @@ export default function Contas() {
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Descrição *</label>
                 <input className={INPUT} value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Fornecedor</label>
+                <select
+                  className={INPUT}
+                  value={form.fornecedor_id}
+                  onChange={(e) => setForm({ ...form, fornecedor_id: e.target.value })}
+                  disabled={papel !== 'admin'}
+                >
+                  <option value="">Sem fornecedor</option>
+                  {fornecedores.map((f) => (
+                    <option key={f.id} value={String(f.id)}>{f.nome}</option>
+                  ))}
+                  {editando?.fornecedor_id && !fornecedores.some((f) => f.id === editando.fornecedor_id) && editando.fornecedor_nome && (
+                    <option value={String(editando.fornecedor_id)}>{editando.fornecedor_nome} (inativo)</option>
+                  )}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Categorias *</label>
@@ -619,9 +736,48 @@ export default function Contas() {
                 <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Preencher apenas se já foi pago</p>
               </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nota fiscal (PDF, JPEG ou PNG)</label>
+                {editando?.comprovante_nome && (
+                  <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => contasService.downloadComprovante(editando.id, editando.comprovante_nome)}
+                      className="text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[200px]"
+                    >
+                      {editando.comprovante_nome}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removerNotaFiscal(editando)}
+                      className="text-red-600 dark:text-red-400 hover:underline"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept={ACCEPT_NF}
+                  className="block w-full text-xs text-gray-500 dark:text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border file:border-gray-200 dark:file:border-gray-600 file:bg-white dark:file:bg-gray-700 file:text-gray-700 dark:file:text-gray-200"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    e.target.value = '';
+                    if (f && !arquivoNfValido(f)) {
+                      toast.error('Use PDF, JPEG ou PNG');
+                      setArquivoNf(null);
+                      return;
+                    }
+                    setArquivoNf(f);
+                  }}
+                />
+                {arquivoNf && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Selecionado: {arquivoNf.name}</p>
+                )}
+              </div>
             </div>
             <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
-              <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={() => { setModalAberto(false); setArquivoNf(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>

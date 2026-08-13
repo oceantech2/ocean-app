@@ -1,35 +1,74 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import io
+from datetime import datetime
 from app.database import get_db
 from app.models import Colaborador, Ferias
 from app.schemas import ColaboradorCreate, ColaboradorResponse, ColaboradorUpdate
 from app.api.routes.auth import get_current_user, require_admin
 from app.services.audit import registrar_auditoria
 from app.services import excel_io
+from app.services import documento as doc
 
 router = APIRouter()
+
+
+def _normalizar_cadastro(tipo: str, tipo_documento: str, documento_ou_cpf: Optional[str], razao_social: Optional[str], email: Optional[str], eh_colaborador: bool, cargo, salario, data_nascimento):
+    tipo = (tipo or "colaborador").strip()
+    if tipo not in ("colaborador", "fornecedor"):
+        raise HTTPException(status_code=400, detail="Tipo inválido")
+    tipo_documento = (tipo_documento or "cpf").strip().lower()
+    if tipo_documento not in ("cpf", "cnpj"):
+        raise HTTPException(status_code=400, detail="Tipo de documento inválido")
+    digitos = doc.so_digitos(documento_ou_cpf)
+    if tipo_documento == "cpf":
+        if not doc.validar_cpf(digitos):
+            raise HTTPException(status_code=400, detail="CPF inválido")
+        razao = None
+    else:
+        if not doc.validar_cnpj(digitos):
+            raise HTTPException(status_code=400, detail="CNPJ inválido")
+        razao = (razao_social or "").strip() or None
+        if not razao:
+            raise HTTPException(status_code=400, detail="Razão Social é obrigatória para CNPJ")
+    if not doc.validar_email(email):
+        raise HTTPException(status_code=400, detail="E-mail inválido")
+    if eh_colaborador:
+        if not cargo or salario is None or not data_nascimento:
+            raise HTTPException(status_code=400, detail="Preencha os campos obrigatórios")
+    return tipo, tipo_documento, digitos, razao, (email.strip() if email else None)
+
+
+def _checar_duplicidade(db: Session, tipo: str, documento: str, excluir_id: Optional[int] = None):
+    q = db.query(Colaborador).filter(
+        Colaborador.tipo == tipo,
+        Colaborador.documento == documento,
+        Colaborador.ativo.is_(True),
+    )
+    if excluir_id is not None:
+        q = q.filter(Colaborador.id != excluir_id)
+    if q.first():
+        raise HTTPException(status_code=400, detail="Documento já está em uso neste cadastro")
+
 
 @router.get("/", response_model=List[ColaboradorResponse])
 def listar_colaboradores(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     ativo: bool = Query(None),
+    tipo: str = Query("colaborador"),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Listar todos os colaboradores com paginação"""
     query = db.query(Colaborador)
-    
+    if tipo in ("colaborador", "fornecedor"):
+        query = query.filter(Colaborador.tipo == tipo)
     if ativo is not None:
         query = query.filter(Colaborador.ativo == ativo)
-    
-    total = query.count()
-    colaboradores = query.offset(skip).limit(limit).all()
-    
-    return colaboradores
+    return query.offset(skip).limit(limit).all()
+
 
 @router.post("/importar-xlsx")
 def importar_colaboradores_xlsx(
@@ -37,8 +76,6 @@ def importar_colaboradores_xlsx(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    """Importa colaboradores + férias a partir da aba 'Colaboradores' do arquivo modelo .xlsx
-    (best effort, reporta sucesso/erro por linha). CPF é a chave de deduplicação."""
     conteudo = file.file.read()
     try:
         registros = excel_io.parse_colaboradores_xlsx(conteudo)
@@ -67,21 +104,39 @@ def importar_colaboradores_xlsx(
                 erros.append(f"Linha {linha}: Nascimento inválido, ignorada")
                 continue
 
-            db_colab = db.query(Colaborador).filter(Colaborador.cpf == reg["cpf"]).first()
+            digitos = doc.so_digitos(reg["cpf"])
+            db_colab = db.query(Colaborador).filter(
+                Colaborador.tipo == "colaborador",
+                Colaborador.documento == digitos,
+            ).first()
+            if not db_colab:
+                db_colab = db.query(Colaborador).filter(
+                    Colaborador.tipo == "colaborador",
+                    Colaborador.cpf == reg["cpf"],
+                ).first()
             if db_colab:
+                if db_colab.tipo != "colaborador":
+                    erros.append(f"Linha {linha}: documento pertence a outro tipo de cadastro")
+                    continue
                 db_colab.nome = reg["nome"]
                 db_colab.cargo = reg["cargo"]
                 db_colab.salario = reg["salario"]
                 db_colab.data_nascimento = reg["data_nascimento"]
                 db_colab.endereco_completo = reg.get("endereco_completo")
+                db_colab.tipo_documento = "cpf"
+                db_colab.documento = digitos
+                db_colab.cpf = doc.formatar_cpf(digitos)
                 if reg.get("data_admissao"):
                     db_colab.data_admissao = reg["data_admissao"]
                 if reg.get("data_desligamento"):
                     db_colab.data_desligamento = reg["data_desligamento"]
             else:
                 db_colab = Colaborador(
+                    tipo="colaborador",
+                    tipo_documento="cpf",
+                    documento=digitos,
                     nome=reg["nome"],
-                    cpf=reg["cpf"],
+                    cpf=doc.formatar_cpf(digitos),
                     cargo=reg["cargo"],
                     salario=reg["salario"],
                     data_nascimento=reg["data_nascimento"],
@@ -125,8 +180,7 @@ def exportar_colaboradores_xlsx(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    """Exporta colaboradores + férias preenchendo o template oficial (aba 'Colaboradores')."""
-    colaboradores = db.query(Colaborador).order_by(Colaborador.nome).all()
+    colaboradores = db.query(Colaborador).filter(Colaborador.tipo == "colaborador").order_by(Colaborador.nome).all()
 
     dados = []
     for c in colaboradores:
@@ -136,7 +190,7 @@ def exportar_colaboradores_xlsx(
         )[:5]
         dados.append({
             "nome": c.nome,
-            "cpf": c.cpf,
+            "cpf": c.cpf or doc.formatar_cpf(c.documento),
             "cargo": c.cargo,
             "salario": c.salario,
             "data_nascimento": c.data_nascimento,
@@ -164,16 +218,11 @@ def obter_colaborador(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Obter um colaborador específico"""
     colaborador = db.query(Colaborador).filter(Colaborador.id == colaborador_id).first()
-    
     if not colaborador:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Colaborador não encontrado"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Colaborador não encontrado")
     return colaborador
+
 
 @router.post("/", response_model=ColaboradorResponse, status_code=status.HTTP_201_CREATED)
 def criar_colaborador(
@@ -181,26 +230,38 @@ def criar_colaborador(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Criar um novo colaborador"""
-    # Verificar se CPF já existe
-    db_colaborador = db.query(Colaborador).filter(Colaborador.cpf == colaborador.cpf).first()
-    if db_colaborador:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Colaborador com este CPF já existe"
-        )
-    
+    tipo = colaborador.tipo or "colaborador"
+    bruto = colaborador.documento or colaborador.cpf
+    tipo, tipo_documento, digitos, razao, email = _normalizar_cadastro(
+        tipo, colaborador.tipo_documento or "cpf", bruto, colaborador.razao_social, colaborador.email,
+        tipo == "colaborador", colaborador.cargo, colaborador.salario, colaborador.data_nascimento,
+    )
+    _checar_duplicidade(db, tipo, digitos)
+
     dados = colaborador.dict()
-    if dados.get('data_admissao') is None:
-        dados.pop('data_admissao', None)
+    if dados.get("data_admissao") is None:
+        dados.pop("data_admissao", None)
+    dados["tipo"] = tipo
+    dados["tipo_documento"] = tipo_documento
+    dados["documento"] = digitos
+    dados["cpf"] = doc.formatar_documento(tipo_documento, digitos)
+    dados["razao_social"] = razao
+    dados["email"] = email
+    dados["telefone"] = (colaborador.telefone or "").strip() or None
+    if tipo == "fornecedor":
+        dados["cargo"] = None
+        dados["salario"] = None
+        dados["data_nascimento"] = None
+        dados.pop("beneficio", None)
+        dados["beneficio"] = None
     novo_colaborador = Colaborador(**dados)
     db.add(novo_colaborador)
     db.flush()
-    registrar_auditoria(db, current_user, "criar", "Colaborador", novo_colaborador.id, f"{novo_colaborador.nome} — {novo_colaborador.cargo}")
+    registrar_auditoria(db, current_user, "criar", "Colaborador", novo_colaborador.id, f"{novo_colaborador.nome} — {tipo}")
     db.commit()
     db.refresh(novo_colaborador)
-
     return novo_colaborador
+
 
 @router.put("/{colaborador_id}", response_model=ColaboradorResponse)
 def atualizar_colaborador(
@@ -209,16 +270,42 @@ def atualizar_colaborador(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Atualizar um colaborador"""
     db_colaborador = db.query(Colaborador).filter(Colaborador.id == colaborador_id).first()
-    
     if not db_colaborador:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Colaborador não encontrado"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Colaborador não encontrado")
+
     dados_atualizacao = colaborador_update.dict(exclude_unset=True)
+    if "tipo" in dados_atualizacao and dados_atualizacao["tipo"] != db_colaborador.tipo:
+        raise HTTPException(status_code=400, detail="Não é permitido alterar o tipo do cadastro")
+    dados_atualizacao.pop("tipo", None)
+
+    tipo_documento = dados_atualizacao.get("tipo_documento", db_colaborador.tipo_documento)
+    bruto = dados_atualizacao.get("documento") or dados_atualizacao.get("cpf") or db_colaborador.documento
+    razao_in = dados_atualizacao.get("razao_social", db_colaborador.razao_social)
+    email_in = dados_atualizacao["email"] if "email" in dados_atualizacao else db_colaborador.email
+    precisa_doc = any(k in dados_atualizacao for k in ("tipo_documento", "documento", "cpf", "razao_social", "cargo", "salario", "data_nascimento"))
+    if precisa_doc:
+        _, tipo_documento, digitos, razao, email = _normalizar_cadastro(
+            db_colaborador.tipo, tipo_documento, bruto, razao_in, email_in,
+            db_colaborador.tipo == "colaborador",
+            dados_atualizacao.get("cargo", db_colaborador.cargo),
+            dados_atualizacao.get("salario", db_colaborador.salario),
+            dados_atualizacao.get("data_nascimento", db_colaborador.data_nascimento),
+        )
+        _checar_duplicidade(db, db_colaborador.tipo, digitos, excluir_id=db_colaborador.id)
+        dados_atualizacao["tipo_documento"] = tipo_documento
+        dados_atualizacao["documento"] = digitos
+        dados_atualizacao["cpf"] = doc.formatar_documento(tipo_documento, digitos)
+        dados_atualizacao["razao_social"] = razao
+        if "email" in dados_atualizacao:
+            dados_atualizacao["email"] = email
+    if "telefone" in dados_atualizacao:
+        dados_atualizacao["telefone"] = (dados_atualizacao["telefone"] or "").strip() or None
+    if "email" in dados_atualizacao and dados_atualizacao["email"]:
+        if not doc.validar_email(dados_atualizacao["email"]):
+            raise HTTPException(status_code=400, detail="E-mail inválido")
+        dados_atualizacao["email"] = dados_atualizacao["email"].strip() or None
+
     for campo, valor in dados_atualizacao.items():
         setattr(db_colaborador, campo, valor)
 
@@ -227,8 +314,8 @@ def atualizar_colaborador(
     registrar_auditoria(db, current_user, "editar", "Colaborador", db_colaborador.id, f"{db_colaborador.nome} — {desc}")
     db.commit()
     db.refresh(db_colaborador)
-
     return db_colaborador
+
 
 @router.delete("/{colaborador_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_colaborador(
@@ -236,14 +323,13 @@ def deletar_colaborador(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Soft delete — marca colaborador como inativo (mantém no banco)."""
     db_colaborador = db.query(Colaborador).filter(Colaborador.id == colaborador_id).first()
     if not db_colaborador:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Colaborador não encontrado")
 
-    from datetime import datetime
     db_colaborador.ativo = False
-    db_colaborador.data_desligamento = datetime.utcnow()
+    if db_colaborador.tipo == "colaborador":
+        db_colaborador.data_desligamento = datetime.utcnow()
     registrar_auditoria(db, current_user, "deletar", "Colaborador", db_colaborador.id, f"Desligou {db_colaborador.nome}")
     db.commit()
     return None
@@ -255,7 +341,6 @@ def excluir_colaborador_permanente(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    """Hard delete — remove permanentemente o colaborador e todos os seus registros do banco."""
     db_colaborador = db.query(Colaborador).filter(Colaborador.id == colaborador_id).first()
     if not db_colaborador:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Colaborador não encontrado")
@@ -265,6 +350,3 @@ def excluir_colaborador_permanente(
     db.delete(db_colaborador)
     db.commit()
     return None
-
-
-

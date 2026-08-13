@@ -12,7 +12,7 @@ const MENU = [
   { label: 'Dashboard', path: '/dashboard', desc: 'Visão geral financeira', permKey: 'dashboard' },
   { label: 'Calendário', path: '/calendario', desc: 'Vencimentos de NFs e contas', permKey: 'calendario' },
   { label: 'Contas a Receber', path: '/nfs', desc: 'Valores a receber (Maggo)', notifKey: 'nfsVencidas', permKey: 'nfs' },
-  { label: 'Contas a Pagar', path: '/contas', desc: 'Despesas por categorias', notifKey: 'contasAtrasadas', permKey: 'contas' },
+  { label: 'Contas a Pagar', path: '/contas', desc: 'Despesas por categorias', notifKey: 'contasAlertasTotal', permKey: 'contas' },
   { label: 'Fluxo de Caixa', path: '/fluxo-caixa', desc: 'Saldo corrente e investimento', permKey: 'fluxo_caixa' },
   { label: 'Impostos', path: '/impostos', desc: 'Acompanhamento mensal de impostos', permKey: 'impostos' },
   { label: 'Retiradas (Sócios)', path: '/retiradas', desc: 'Retiradas de lucro dos sócios', permKey: 'retiradas' },
@@ -42,6 +42,7 @@ export default function Layout({ children }: LayoutProps) {
   const notif = useNotificacoes();
   const setNfsFilters = usePageFilters((s) => s.setNfsFilters);
   const setContasFilters = usePageFilters((s) => s.setContasFilters);
+  const setNfsSemNumero = usePageFilters((s) => s.setNfsSemNumero);
 
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [buscaTexto, setBuscaTexto] = useState('');
@@ -112,7 +113,10 @@ export default function Layout({ children }: LayoutProps) {
 
   const alertas = [
     { label: 'NFs vencidas', count: notif.nfsVencidas, ir: () => { setNfsFilters('', 0, 'vencida'); navigate('/nfs'); } },
-    { label: 'Contas atrasadas', count: notif.contasAtrasadas, ir: () => { setContasFilters('', 'false'); navigate('/contas'); } },
+    { label: 'Contas a vencer em menos de 1 dia', count: notif.contasVenceHoje, ir: () => { setContasFilters('', 'false', '', 'hoje'); navigate('/contas'); } },
+    { label: 'Contas a vencer em menos de 7 dias', count: notif.contasVence7Dias, ir: () => { setContasFilters('', 'false', '', '7dias'); navigate('/contas'); } },
+    { label: 'Contas vencidas', count: notif.contasVencidas, ir: () => { setContasFilters('', 'false', '', 'vencida'); navigate('/contas'); } },
+    { label: 'Contas com nota fiscal pendente', count: notif.nfsSemNumero, ir: () => { setNfsSemNumero(true); navigate('/nfs'); } },
     { label: 'Férias aguardando aprovação', count: notif.feriasAguardando, ir: () => navigate('/ferias') },
   ].filter((a) => a.count > 0);
 

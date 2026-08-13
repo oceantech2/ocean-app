@@ -76,8 +76,8 @@ export const authService = {
 
 // Colaboradores
 export const colaboradoresService = {
-  listar: (skip = 0, limit = 100, ativo?: boolean) =>
-    api.get('/colaboradores', { params: { skip, limit, ativo } }),
+  listar: (skip = 0, limit = 100, ativo?: boolean, tipo?: 'colaborador' | 'fornecedor') =>
+    api.get('/colaboradores', { params: { skip, limit, ativo, tipo } }),
 
   obter: (id: number) =>
     api.get(`/colaboradores/${id}`),
@@ -186,6 +186,7 @@ export type ContaPagarCreatePayload = {
   valor: number;
   data_vencimento?: string | null;
   data_pagamento?: string | null;
+  fornecedor_id?: number | null;
 };
 
 export type ContaPagarUpdatePayload = Partial<ContaPagarCreatePayload> & {
@@ -230,14 +231,11 @@ export const contasService = {
     return api.post(`/contas/${contaId}/comprovante`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
 
-  downloadComprovante: async (contaId: number, nome: string) => {
+  downloadComprovante: async (contaId: number, _nome?: string) => {
     const res = await api.get(`/contas/${contaId}/comprovante`, { responseType: 'blob' });
-    const url = URL.createObjectURL(new Blob([res.data]));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = nome;
-    a.click();
-    URL.revokeObjectURL(url);
+    const type = (res.headers['content-type'] as string) || 'application/octet-stream';
+    const url = URL.createObjectURL(new Blob([res.data], { type }));
+    window.open(url, '_blank');
   },
 
   removerComprovante: (contaId: number) =>
@@ -445,14 +443,32 @@ export const patrimonioService = {
 
 // Fluxo de Caixa — Movimentos Manuais
 export const fluxoMovimentosService = {
-  listar: (mes?: number, ano?: number) =>
-    api.get('/fluxo-movimentos', { params: { mes, ano } }),
+  listar: (mes?: number, ano?: number, conta?: 'corrente' | 'investimento') =>
+    api.get('/fluxo-movimentos', { params: { mes, ano, conta } }),
 
-  criar: (dados: { tipo: 'receita' | 'despesa'; descricao: string; valor: number; data_movimento: string }) =>
+  criar: (dados: {
+    tipo: 'receita' | 'despesa';
+    descricao: string;
+    valor: number;
+    data_movimento: string;
+    conta: 'corrente' | 'investimento';
+  }) =>
     api.post('/fluxo-movimentos', dados),
 
   deletar: (id: number) =>
     api.delete(`/fluxo-movimentos/${id}`),
+
+  transferir: (dados: {
+    origem: 'corrente' | 'investimento';
+    destino: 'corrente' | 'investimento';
+    valor: number;
+    data_movimento: string;
+    observacao?: string;
+  }) =>
+    api.post('/fluxo-transferencias', dados),
+
+  desfazerTransferencia: (parId: string) =>
+    api.delete(`/fluxo-transferencias/${parId}`),
 };
 
 // Histórico Colaboradores
@@ -477,18 +493,6 @@ export const arquivosNfsService = {
   },
   downloadUrl: (nome: string) => `${API_BASE_URL}/arquivos-nfs/download/${encodeURIComponent(nome)}`,
   deletar: (nome: string) => api.delete(`/arquivos-nfs/${encodeURIComponent(nome)}`),
-};
-
-// Comprovantes de Pagamento
-export const comprovantesService = {
-  listar: () => api.get('/arquivos-comprovantes/'),
-  upload: (file: File) => {
-    const fd = new FormData();
-    fd.append('file', file);
-    return api.post('/arquivos-comprovantes/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-  },
-  downloadUrl: (nome: string) => `${API_BASE_URL}/arquivos-comprovantes/download/${encodeURIComponent(nome)}`,
-  deletar: (nome: string) => api.delete(`/arquivos-comprovantes/${encodeURIComponent(nome)}`),
 };
 
 export default api;

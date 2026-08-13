@@ -101,7 +101,7 @@ const INPUT_RO = INPUT + ' bg-gray-50 dark:bg-gray-900/40 text-gray-600 dark:tex
 
 export default function NFs() {
   const papel = useAuthStore((s) => s.papel);
-  const { nfsMes, nfsAno, nfsStatus, setNfsFilters } = usePageFilters();
+  const { nfsMes, nfsAno, nfsStatus, nfsSemNumero, setNfsFilters } = usePageFilters();
   const triggerNotifRefresh = useNotifStore((s) => s.triggerNotifRefresh);
   const triggerCalendarioRefresh = useNotifStore((s) => s.triggerCalendarioRefresh);
 
@@ -125,16 +125,30 @@ export default function NFs() {
   const [dataPagamentoForm, setDataPagamentoForm] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
 
-  useEffect(() => { carregarNFs(); setPagina(0); }, [nfsMes, nfsAno, nfsStatus, mostrarArquivadas]);
+  useEffect(() => { carregarNFs(); setPagina(0); }, [nfsMes, nfsAno, nfsStatus, nfsSemNumero, mostrarArquivadas]);
 
   const carregarNFs = async () => {
     try {
       setLoading(true);
+      const semNumero = nfsSemNumero || nfsStatus === 'sem_nf';
       const [nfsRes, resumoRes] = await Promise.all([
-        nfsService.listar(0, 500, nfsMes !== '' ? nfsMes : undefined, nfsAno || undefined, nfsStatus || undefined, mostrarArquivadas),
-        nfsService.resumo(nfsMes !== '' ? nfsMes : undefined, nfsAno || undefined).catch(() => null),
+        nfsService.listar(
+          0,
+          500,
+          semNumero ? undefined : (nfsMes !== '' ? nfsMes : undefined),
+          semNumero ? undefined : (nfsAno || undefined),
+          semNumero ? undefined : (nfsStatus || undefined),
+          mostrarArquivadas,
+        ),
+        nfsService.resumo(
+          semNumero ? undefined : (nfsMes !== '' ? nfsMes : undefined),
+          semNumero ? undefined : (nfsAno || undefined),
+        ).catch(() => null),
       ]);
-      setNfs(nfsRes.data);
+      const lista = Array.isArray(nfsRes.data) ? nfsRes.data : [];
+      setNfs(semNumero
+        ? lista.filter((n: NF) => n.status !== 'cancelada' && !(n.numero ?? '').trim())
+        : lista);
       setResumo(resumoRes?.data ?? null);
       const headers = nfsRes.headers || {};
       const maggoStatus = headers['x-ocean-maggo-status'];
@@ -408,22 +422,25 @@ export default function NFs() {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Mês</label>
-          <select className={INPUT} value={nfsMes} onChange={(e) => { setNfsFilters(e.target.value === '' ? '' : parseInt(e.target.value), nfsAno, nfsStatus); }}>
+          <select className={INPUT} value={nfsMes} onChange={(e) => { setNfsFilters(e.target.value === '' ? '' : parseInt(e.target.value), nfsAno, nfsSemNumero ? 'sem_nf' : nfsStatus); }} disabled={nfsSemNumero}>
             <option value="">Todos</option>
             {MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
           </select>
         </div>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Ano</label>
-          <input type="number" className={INPUT + ' !w-24'} value={nfsAno} onChange={(e) => setNfsFilters(nfsMes, parseInt(e.target.value), nfsStatus)} />
+          <input type="number" className={INPUT + ' !w-24'} value={nfsAno} onChange={(e) => setNfsFilters(nfsMes, parseInt(e.target.value), nfsSemNumero ? 'sem_nf' : nfsStatus)} disabled={nfsSemNumero} />
         </div>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Status</label>
-          <select className={INPUT} value={nfsStatus} onChange={(e) => setNfsFilters(nfsMes, nfsAno, e.target.value)}>
+          <select className={INPUT} value={nfsSemNumero || nfsStatus === 'sem_nf' ? 'sem_nf' : nfsStatus} onChange={(e) => {
+            setNfsFilters(nfsMes, nfsAno, e.target.value);
+          }}>
             <option value="">Todos</option>
             <option value="pendente">Pendente</option>
             <option value="paga">Recebida</option>
             <option value="vencida">Vencida</option>
+            <option value="sem_nf">Sem NF</option>
             <option value="cancelada">Cancelada</option>
           </select>
         </div>

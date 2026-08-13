@@ -20,11 +20,17 @@ class Colaborador(Base):
     __tablename__ = "colaboradores"
     
     id = Column(Integer, primary_key=True, index=True)
+    tipo = Column(String(20), nullable=False, default="colaborador", index=True)
+    tipo_documento = Column(String(4), nullable=False, default="cpf")
+    documento = Column(String(14), nullable=False, index=True)
     nome = Column(String(255), nullable=False)
-    cpf = Column(String(14), unique=True, nullable=False, index=True)
-    cargo = Column(String(100), nullable=False)
-    salario = Column(Float, nullable=False)
-    data_nascimento = Column(Date, nullable=False)
+    cpf = Column(String(22), nullable=True, index=True)
+    razao_social = Column(String(255), nullable=True)
+    telefone = Column(String(20), nullable=True)
+    email = Column(String(255), nullable=True)
+    cargo = Column(String(100), nullable=True)
+    salario = Column(Float, nullable=True)
+    data_nascimento = Column(Date, nullable=True)
     endereco_completo = Column(Text)
     cep = Column(String(10))
     data_admissao = Column(DateTime, default=datetime.utcnow)
@@ -43,6 +49,7 @@ class Colaborador(Base):
     ferias = relationship("Ferias", back_populates="colaborador")
     historico = relationship("HistoricoColaborador", back_populates="colaborador", order_by="HistoricoColaborador.data_inicio.desc()")
     patrimonio = relationship("Patrimonio", back_populates="colaborador")
+    contas_pagar = relationship("ContaPagar", back_populates="fornecedor")
 
 
 class HistoricoColaborador(Base):
@@ -145,8 +152,11 @@ class ContaPagar(Base):
     pago = Column(Boolean, default=False, index=True)
     comprovante_path = Column(Text, nullable=True)
     comprovante_nome = Column(String(255), nullable=True)
+    fornecedor_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=True, index=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    fornecedor = relationship("Colaborador", back_populates="contas_pagar")
 
 # ==================== MOVIMENTOS MANUAIS DO FLUXO ====================
 class FluxoMovimento(Base):
@@ -159,6 +169,8 @@ class FluxoMovimento(Base):
     data_movimento = Column(Date, nullable=False, index=True)
     mes = Column(Integer, nullable=False)
     ano = Column(Integer, nullable=False)
+    conta = Column(String(20), nullable=False, default="corrente")  # corrente | investimento
+    par_id = Column(String(36), nullable=True, index=True)  # UUID do par de transferência
     criado_em = Column(DateTime, default=datetime.utcnow)
 
 # ==================== FLUXO DE CAIXA ====================
