@@ -116,6 +116,17 @@ export const colaboradoresService = {
 };
 
 // NFs
+function normalizarPayloadNf(dados: Record<string, unknown>) {
+  const out = { ...dados };
+  for (const k of ['numero', 'data_emissao', 'data_vencimento', 'data_ent_pgto', 'data_pagamento']) {
+    if (k in out && (out[k] === '' || out[k] === undefined)) out[k] = null;
+  }
+  if ('valor_imposto' in out && (out.valor_imposto === '' || out.valor_imposto === undefined)) {
+    out.valor_imposto = null;
+  }
+  return out;
+}
+
 export const nfsService = {
   listar: (skip = 0, limit = 100, mes?: number, ano?: number, status?: string, incluir_arquivadas = false) =>
     api.get('/nfs', { params: { skip, limit, mes, ano, status_filtro: status, incluir_arquivadas } }),
@@ -127,10 +138,10 @@ export const nfsService = {
     api.get(`/nfs/${id}`),
 
   criar: (dados: any) =>
-    api.post('/nfs', dados),
+    api.post('/nfs', normalizarPayloadNf(dados)),
 
   atualizar: (id: number, dados: any) =>
-    api.put(`/nfs/${id}`, dados),
+    api.put(`/nfs/${id}`, normalizarPayloadNf(dados)),
 
   deletar: (id: number) =>
     api.delete(`/nfs/${id}`),

@@ -18,16 +18,19 @@ export interface Colaborador {
 // NF
 export interface NF {
   id: number;
-  numero: string;
+  maggo_id?: string | null;
+  numero: string | null;
   razao_social: string;
   posicao?: string;
   candidato?: string;
   valor_bruto: number;
+  valor_imposto?: number | null;
   valor_liquido: number;
-  data_emissao: string;
-  data_vencimento: string;
-  data_pagamento?: string;
-  tipo: 'retainer' | 'sucesso';
+  data_ent_pgto?: string | null;
+  data_emissao: string | null;
+  data_vencimento: string | null;
+  data_pagamento?: string | null;
+  tipo: 'retainer' | 'sucesso' | 'parcelamento';
   tipo_abertura_fechamento?: string;
   status: 'paga' | 'pendente' | 'vencida' | 'cancelada';
   colaborador_lead_id?: number;
@@ -74,6 +77,15 @@ export interface Ferias {
   aprovado: boolean;
 }
 
+export interface ResumoFeriasAno {
+  colaborador_id: number;
+  ano: number;
+  direito_anual: number;
+  total_tirado: number;
+  saldo_anual: number;
+  tem_pendencia: boolean;
+}
+
 // Conta a Pagar
 export interface ContaPagar {
   id: number;
@@ -93,7 +105,7 @@ export interface DH {
   id: number;
   empresa: string;
   posicao: string;
-  tipo_fechamento: 'retainer' | 'sucesso';
+  tipo_fechamento: 'retainer' | 'sucesso' | 'parcelamento';
   tipo_abertura_fechamento?: string;
   colaborador_preencheu: string;
   data_envio: string;

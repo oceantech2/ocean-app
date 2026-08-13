@@ -6,6 +6,7 @@ from app.models import Ferias
 from app.schemas import FeriasCreate, FeriasResponse, FeriasUpdate
 from app.api.routes.auth import get_current_user
 from app.services.audit import registrar_auditoria
+from app.services.ferias_calculo import datas_validas, destino_transferencia
 
 router = APIRouter()
 
@@ -75,6 +76,13 @@ def atualizar_ferias(
     for campo, valor in dados.items():
         setattr(db_ferias, campo, valor)
 
+    if not datas_validas(db_ferias.data_inicio, db_ferias.data_fim):
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A data fim não pode ser anterior à data início",
+        )
+
     if "aprovado" in dados:
         desc = "aprovou" if dados["aprovado"] else "rejeitou"
     else:
@@ -94,6 +102,27 @@ def deletar_ferias(
     db_ferias = db.query(Ferias).filter(Ferias.id == ferias_id).first()
     if not db_ferias:
         raise HTTPException(status_code=404, detail="Férias não encontradas")
+    restantes = (
+        db.query(Ferias)
+        .filter(
+            Ferias.colaborador_id == db_ferias.colaborador_id,
+            Ferias.ano == db_ferias.ano,
+            Ferias.id != db_ferias.id,
+        )
+        .all()
+    )
+    destino_id = destino_transferencia(
+        db_ferias.dias_direito or 0,
+        [(r.id, r.dias_direito or 0) for r in restantes],
+    )
+    if destino_id is not None:
+        destino = next(r for r in restantes if r.id == destino_id)
+        destino.dias_direito = db_ferias.dias_direito
+        registrar_auditoria(
+            db, current_user, "editar", "Ferias", destino.id,
+            f"Transferência de direito anual {db_ferias.dias_direito}d (colaborador {db_ferias.colaborador_id})",
+        )
+
     registrar_auditoria(db, current_user, "deletar", "Ferias", db_ferias.id, f"Colaborador {db_ferias.colaborador_id} — {db_ferias.ano}")
     db.delete(db_ferias)
     db.commit()

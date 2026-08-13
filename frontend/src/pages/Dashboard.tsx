@@ -234,15 +234,126 @@ function mesesPermitidos(anoSelecionado: number): number[] {
   return Array.from({ length: max }, (_, i) => i + 1);
 }
 
+/** Último mês do recorte anual do donut (YTD no ano corrente; jan–dez em anos anteriores). */
+function mesAteAno(anoSelecionado: number): number | null {
+  if (anoSelecionado > ANO_ATUAL) return null;
+  if (anoSelecionado === ANO_ATUAL) return MES_ATUAL;
+  return 12;
+}
+
+function mapCustoResposta(data: any): { fatias: CustoFatia[]; total: number } {
+  if (!data) return { fatias: [], total: 0 };
+  const total = Number(data.total) || 0;
+  const fatias: CustoFatia[] = (data.categorias || []).map((c: any, i: number) => {
+    const cat = String(c.categoria || c.centro_custo || '');
+    return {
+      categoria: cat,
+      nome: c.label || centroLabel(cat),
+      valor: Number(c.valor) || 0,
+      percentual: Number(c.percentual) || 0,
+      fill: centroCor(cat, i),
+    };
+  });
+  return { fatias, total };
+}
+
+const MSG_SELECIONE_MES = 'Selecione um mês para ver este indicador';
+
+function DonutCustoBloco({
+  titulo,
+  vazio,
+  erro,
+  fatias,
+  total,
+}: {
+  titulo: string;
+  vazio: string;
+  erro: string | null;
+  fatias: CustoFatia[];
+  total: number;
+}) {
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">{titulo}</h2>
+      {erro ? (
+        <p className="text-sm text-red-600 dark:text-red-400 py-8 text-center">{erro}</p>
+      ) : total <= 0 || fatias.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">{vazio}</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie
+              data={fatias}
+              dataKey="valor"
+              nameKey="nome"
+              cx="50%"
+              cy="45%"
+              innerRadius={62}
+              outerRadius={92}
+              paddingAngle={1}
+              label={DonutPctLabel}
+              labelLine={false}
+            >
+              {fatias.map((f) => (
+                <Cell key={f.categoria} fill={f.fill} />
+              ))}
+              <Label
+                content={({ viewBox }) => {
+                  if (!viewBox || !('cx' in viewBox) || !('cy' in viewBox)) return null;
+                  const { cx, cy } = viewBox as { cx: number; cy: number };
+                  return (
+                    <g>
+                      <text x={cx} y={cy - 8} textAnchor="middle" fill="#9CA3AF" style={{ fontSize: 10 }}>
+                        Total
+                      </text>
+                      <text x={cx} y={cy + 10} textAnchor="middle" fill="#1F2937" style={{ fontSize: 12, fontWeight: 600 }}>
+                        {fmt(total)}
+                      </text>
+                    </g>
+                  );
+                }}
+              />
+            </Pie>
+            <Tooltip
+              formatter={(_value: any, _name: string, item: any) => {
+                const p = item?.payload as CustoFatia | undefined;
+                if (!p) return ['', ''];
+                const pctLabel = (Math.round(p.percentual * 10) / 10).toLocaleString('pt-BR', {
+                  minimumFractionDigits: 1,
+                  maximumFractionDigits: 1,
+                });
+                return [`${fmt(p.valor)} (${pctLabel}%)`, p.nome];
+              }}
+            />
+            <Legend
+              verticalAlign="bottom"
+              formatter={(value: string, entry: any) => {
+                const p = entry?.payload as CustoFatia | undefined;
+                const pctLabel = p
+                  ? (Math.round(p.percentual * 10) / 10).toLocaleString('pt-BR', {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 1,
+                    })
+                  : '';
+                return pctLabel ? `${value} (${pctLabel}%)` : value;
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const papel = useAuthStore((s) => s.papel);
   const [ano, setAno] = useState(ANO_ATUAL);
-  const [mes, setMes] = useState(MES_ATUAL);
+  const [mes, setMes] = useState<number | null>(MES_ATUAL);
   const [loading, setLoading] = useState(true);
   const [mostrarAnterior, setMostrarAnterior] = useState(true);
   const [anoComparar, setAnoComparar] = useState(ANO_ATUAL - 1);
   const [faturamento, setFaturamento] = useState<any[]>([]);
-  const [, setFechamentos] = useState({ retainer: 0, sucesso: 0 });
+  const [fechamentos, setFechamentos] = useState({ retainer: 0, sucesso: 0, parcelamento: 0, total: 0 });
   const [resumo, setResumo] = useState({
     faturamento_liquido_pago: 0,
     faturamento_bruto_pago: 0,
@@ -277,10 +388,13 @@ export default function Dashboard() {
   const dreRaf = useRef(0);
   const [dreTipPos, setDreTipPos] = useState({ x: 0, y: 0 });
 
-  // Custo por categoria (donut)
-  const [custoFatias, setCustoFatias] = useState<CustoFatia[]>([]);
-  const [custoTotal, setCustoTotal] = useState(0);
-  const [custoErro, setCustoErro] = useState<string | null>(null);
+  // Custo por categoria (donuts mês / ano)
+  const [custoMesFatias, setCustoMesFatias] = useState<CustoFatia[]>([]);
+  const [custoMesTotal, setCustoMesTotal] = useState(0);
+  const [custoMesErro, setCustoMesErro] = useState<string | null>(null);
+  const [custoAnoFatias, setCustoAnoFatias] = useState<CustoFatia[]>([]);
+  const [custoAnoTotal, setCustoAnoTotal] = useState(0);
+  const [custoAnoErro, setCustoAnoErro] = useState<string | null>(null);
 
   useEffect(() => {
     carregarDados();
@@ -289,32 +403,54 @@ export default function Dashboard() {
   const alterarAno = (novoAno: number) => {
     const max = maxMesPermitido(novoAno);
     setAno(novoAno);
-    if (mes > max) setMes(max);
+    if (mes !== null && mes > max) setMes(max);
   };
 
   const carregarDados = async () => {
     try {
       setLoading(true);
       setDreErro(null);
-      setCustoErro(null);
+      setCustoMesErro(null);
+      setCustoAnoErro(null);
 
-      const carregarCusto = ano <= ANO_ATUAL;
-      const custoPromise =
+      const temMes = mes !== null;
+      const mesAteAnual = mesAteAno(ano);
+      const carregarCusto = mesAteAnual !== null;
+
+      const custoAnoPromise =
         !carregarCusto
+          ? Promise.resolve({ data: null as any })
+          : relatoriosService
+              .custoPorCategoria(ano, mesAteAnual, 1)
+              .catch(() => {
+                setCustoAnoErro('Não foi possível carregar o custo por categoria do ano');
+                return { data: null };
+              });
+
+      const custoMesPromise =
+        !temMes || !carregarCusto
           ? Promise.resolve({ data: null as any })
           : relatoriosService
               .custoPorCategoria(ano, mes, mes)
               .catch(() => {
-                setCustoErro('Não foi possível carregar o custo por categoria');
+                setCustoMesErro('Não foi possível carregar o custo por categoria do mês');
                 return { data: null };
               });
 
-      const [faturRes, faturAntRes, fechRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoRes] = await Promise.all([
+      const resumoPromise = temMes
+        ? relatoriosService.resumoFinanceiro(ano, mes)
+        : Promise.resolve({ data: null });
+
+      const metaMesPromise = temMes
+        ? metasService.progresso(mes, ano).catch(() => ({ data: null }))
+        : Promise.resolve({ data: null });
+
+      const [faturRes, faturAntRes, fechRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes] = await Promise.all([
         relatoriosService.faturamentoLiquidoMes(ano),
         relatoriosService.faturamentoLiquidoMes(anoComparar),
         relatoriosService.fechamentosPorTipo(ano),
-        relatoriosService.resumoFinanceiro(ano, mes),
-        metasService.progresso(mes, ano).catch(() => ({ data: null })),
+        resumoPromise,
+        metaMesPromise,
         metasService.progresso(0, ano).catch(() => ({ data: null })),
         contasService.listar(0, 500, 'recursos_humanos', undefined, 'retirada_socios').catch(() => ({ data: [] })),
         saldosService.listar(undefined, ano).catch(() => ({ data: [] })),
@@ -322,7 +458,8 @@ export default function Dashboard() {
           setDreErro('Não foi possível carregar o DRE');
           return { data: null };
         }),
-        custoPromise,
+        custoMesPromise,
+        custoAnoPromise,
       ]);
 
       const ant: Record<number, number> = {};
@@ -335,22 +472,31 @@ export default function Dashboard() {
         }))
       );
       setFechamentos(fechRes.data || {});
-      setResumo(resumoRes.data || {});
-      setMeta(metaRes.data);
-      setValorMeta(metaRes.data?.valor_meta ? String(metaRes.data.valor_meta) : '');
+      if (temMes && resumoRes.data) {
+        setResumo(resumoRes.data);
+      } else if (!temMes) {
+        setResumo({
+          faturamento_liquido_pago: 0,
+          faturamento_bruto_pago: 0,
+          faturamento_bruto_pendente: 0,
+          quantidade_pagas: 0,
+          quantidade_pendentes: 0,
+        });
+      }
+      setMeta(temMes ? metaRes.data : null);
+      setValorMeta(temMes && metaRes.data?.valor_meta ? String(metaRes.data.valor_meta) : '');
       setMetaAnual(metaAnualRes.data);
       setValorMetaAnual(metaAnualRes.data?.valor_meta ? String(metaAnualRes.data.valor_meta) : '');
 
-      // Retirada de lucro do ano — usa data_pagamento se disponível, senão data_vencimento
       const retiradas = (retiradasRes.data || []).filter((c: any) => {
         const dataRef = c.data_pagamento || c.data_vencimento;
         return dataRef && new Date(dataRef).getFullYear() === ano;
       });
       setTotalRetiradas(retiradas.reduce((s: number, c: any) => s + c.valor, 0));
 
-      // Saldo: mais recente ≤ mês filtrado no ano
       const saldosLista: any[] = saldosRes.data || [];
-      const saldosAteMes = saldosLista.filter((s) => s.ano === ano && s.mes <= mes);
+      const limiteMes = mes ?? 12;
+      const saldosAteMes = saldosLista.filter((s) => s.ano === ano && s.mes <= limiteMes);
       const corrente = [...saldosAteMes].filter((s) => s.conta === 'corrente').sort((a, b) => b.mes - a.mes)[0] || null;
       const investimento = [...saldosAteMes].filter((s) => s.conta === 'investimento').sort((a, b) => b.mes - a.mes)[0] || null;
       setSaldoCorrente(corrente);
@@ -375,23 +521,22 @@ export default function Dashboard() {
       });
       setDre(cortarEixoDre(dreBruto, ano));
 
-      if (!carregarCusto || !custoRes.data) {
-        setCustoFatias([]);
-        setCustoTotal(0);
+      if (!temMes || !carregarCusto || !custoMesRes.data) {
+        setCustoMesFatias([]);
+        setCustoMesTotal(0);
       } else {
-        const total = Number(custoRes.data.total) || 0;
-        const fatias: CustoFatia[] = (custoRes.data.categorias || []).map((c: any, i: number) => {
-          const cat = String(c.categoria || c.centro_custo || '');
-          return {
-            categoria: cat,
-            nome: c.label || centroLabel(cat),
-            valor: Number(c.valor) || 0,
-            percentual: Number(c.percentual) || 0,
-            fill: centroCor(cat, i),
-          };
-        });
-        setCustoTotal(total);
-        setCustoFatias(fatias);
+        const mapped = mapCustoResposta(custoMesRes.data);
+        setCustoMesFatias(mapped.fatias);
+        setCustoMesTotal(mapped.total);
+      }
+
+      if (!carregarCusto || !custoAnoRes.data) {
+        setCustoAnoFatias([]);
+        setCustoAnoTotal(0);
+      } else {
+        const mapped = mapCustoResposta(custoAnoRes.data);
+        setCustoAnoFatias(mapped.fatias);
+        setCustoAnoTotal(mapped.total);
       }
     } catch {
       toast.error('Erro ao carregar dados do dashboard');
@@ -401,6 +546,7 @@ export default function Dashboard() {
   };
 
   const salvarMeta = async () => {
+    if (mes === null) return;
     try {
       await metasService.definir(mes, ano, parseFloat(valorMeta) || 0);
       toast.success('Meta atualizada!');
@@ -422,11 +568,19 @@ export default function Dashboard() {
     }
   };
 
-  const metaMensalValida = Boolean(meta?.tem_meta && meta.valor_meta > 0);
+  const metaMensalValida = Boolean(mes !== null && meta?.tem_meta && meta.valor_meta > 0);
   const metaAnualValida = Boolean(metaAnual?.tem_meta && metaAnual.valor_meta > 0);
-  const rotuloMetaMensal = `Meta de Faturamento — ${MESES_NOME[mes - 1]}/${ano}`;
-  const rotuloCusto = `Custo por categoria — ${MESES_NOME[mes - 1]}/${ano}`;
-  const rotuloCustoVazio = `Sem despesas por categoria para ${MESES_NOME[mes - 1]}/${ano}`;
+  const rotuloMetaMensal = mes === null
+    ? 'Meta de Faturamento'
+    : `Meta de Faturamento — ${MESES_NOME[mes - 1]}/${ano}`;
+  const rotuloCustoMes = mes === null
+    ? 'Custo por categoria — mês'
+    : `Custo por categoria — ${MESES_NOME[mes - 1]}/${ano}`;
+  const rotuloCustoMesVazio = mes === null
+    ? MSG_SELECIONE_MES
+    : `Sem despesas por categoria para ${MESES_NOME[mes - 1]}/${ano}`;
+  const rotuloCustoAno = `Custo por categoria — ${ano}`;
+  const rotuloCustoAnoVazio = `Sem despesas por categoria para ${ano}`;
 
   const pct = metaMensalValida ? Math.min(meta.percentual, 100) : 0;
   const corBarra = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : 'bg-orange-500';
@@ -476,10 +630,15 @@ export default function Dashboard() {
           )}
           <label className="text-sm text-gray-500 dark:text-gray-400">Mês:</label>
           <select
-            value={mes}
-            onChange={(e) => setMes(parseInt(e.target.value, 10))}
+            value={mes ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              setMes(v === '' ? null : parseInt(v, 10));
+              setEditandoMeta(false);
+            }}
             className="border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
           >
+            <option value="">Todos os meses</option>
             {mesesPermitidos(ano).map((m) => (
               <option key={m} value={m}>{MESES_NOME[m - 1]}</option>
             ))}
@@ -579,7 +738,18 @@ export default function Dashboard() {
 
             {/* Meta de Faturamento (mês) */}
             <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
-              {editandoMeta ? (
+              {mes === null ? (
+                <>
+                  <div className="flex items-start gap-2 mb-4">
+                    <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
+                      {rotuloMetaMensal}
+                    </span>
+                  </div>
+                  <p className="mt-auto text-sm text-gray-500 dark:text-gray-400 text-center py-2">
+                    {MSG_SELECIONE_MES}
+                  </p>
+                </>
+              ) : editandoMeta ? (
                 <>
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                     {rotuloMetaMensal}
@@ -656,26 +826,86 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Faturamento Bruto</h3>
-              <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
-                {fmt(resumo.faturamento_bruto_pago)}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Valor total</p>
+              {mes === null ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{MSG_SELECIONE_MES}</p>
+              ) : (
+                <>
+                  <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
+                    {fmt(resumo.faturamento_bruto_pago)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Valor total</p>
+                </>
+              )}
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Faturamento Líquido</h3>
-              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">
-                {fmt(resumo.faturamento_liquido_pago)}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
+              {mes === null ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{MSG_SELECIONE_MES}</p>
+              ) : (
+                <>
+                  <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">
+                    {fmt(resumo.faturamento_liquido_pago)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
+                </>
+              )}
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">NFs com pagamento pendente (R$)</h3>
-              <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
-                {fmt(resumo.faturamento_bruto_pendente ?? 0)}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                {resumo.quantidade_pendentes ?? 0} NFs pendentes
-              </p>
+              {mes === null ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{MSG_SELECIONE_MES}</p>
+              ) : (
+                <>
+                  <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
+                    {fmt(resumo.faturamento_bruto_pendente ?? 0)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                    {resumo.quantidade_pendentes ?? 0} NFs pendentes
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Mix de tipos — Retainer / Sucesso / Parcelamento */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Fechamentos por tipo — {ano}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">Retainer</p>
+                  <p className="text-2xl font-bold text-purple-700 dark:text-purple-300 mt-1">{fechamentos.retainer || 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Sucesso</p>
+                  <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300 mt-1">{fechamentos.sucesso || 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Parcelamento</p>
+                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{fechamentos.parcelamento || 0}</p>
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie
+                    data={[
+                      { name: 'Retainer', value: fechamentos.retainer || 0 },
+                      { name: 'Sucesso', value: fechamentos.sucesso || 0 },
+                      { name: 'Parcelamento', value: fechamentos.parcelamento || 0 },
+                    ]}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={70}
+                    dataKey="value"
+                    label={({ name, value }) => `${name}: ${value}`}
+                  >
+                    <Cell fill="#8B5CF6" />
+                    <Cell fill="#6366F1" />
+                    <Cell fill="#3B82F6" />
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
           </div>
 
@@ -798,95 +1028,32 @@ export default function Dashboard() {
           </div>
 
           {/* Custo por categoria — donut abaixo do DRE */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">
-                {rotuloCusto}
-              </h2>
-              {custoErro ? (
-                <p className="text-sm text-red-600 dark:text-red-400 py-8 text-center">{custoErro}</p>
-              ) : custoTotal <= 0 || custoFatias.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                  {rotuloCustoVazio}
-                </p>
-              ) : (
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={custoFatias}
-                      dataKey="valor"
-                      nameKey="nome"
-                      cx="50%"
-                      cy="45%"
-                      innerRadius={62}
-                      outerRadius={92}
-                      paddingAngle={1}
-                      label={DonutPctLabel}
-                      labelLine={false}
-                    >
-                      {custoFatias.map((f) => (
-                        <Cell key={f.categoria} fill={f.fill} />
-                      ))}
-                      <Label
-                        content={({ viewBox }) => {
-                          if (!viewBox || !('cx' in viewBox) || !('cy' in viewBox)) return null;
-                          const { cx, cy } = viewBox as { cx: number; cy: number };
-                          return (
-                            <g>
-                              <text
-                                x={cx}
-                                y={cy - 8}
-                                textAnchor="middle"
-                                fill="#9CA3AF"
-                                style={{ fontSize: 10 }}
-                              >
-                                Total
-                              </text>
-                              <text
-                                x={cx}
-                                y={cy + 10}
-                                textAnchor="middle"
-                                fill="#1F2937"
-                                style={{ fontSize: 12, fontWeight: 600 }}
-                              >
-                                {fmt(custoTotal)}
-                              </text>
-                            </g>
-                          );
-                        }}
-                      />
-                    </Pie>
-                    <Tooltip
-                      formatter={(_value: any, _name: string, item: any) => {
-                        const p = item?.payload as CustoFatia | undefined;
-                        if (!p) return ['', ''];
-                        const pct = (Math.round(p.percentual * 10) / 10).toLocaleString('pt-BR', {
-                          minimumFractionDigits: 1,
-                          maximumFractionDigits: 1,
-                        });
-                        return [`${fmt(p.valor)} (${pct}%)`, p.nome];
-                      }}
-                    />
-                    <Legend
-                      verticalAlign="bottom"
-                      formatter={(value: string, entry: any) => {
-                        const p = entry?.payload as CustoFatia | undefined;
-                        const pct = p
-                          ? (Math.round(p.percentual * 10) / 10).toLocaleString('pt-BR', {
-                              minimumFractionDigits: 1,
-                              maximumFractionDigits: 1,
-                            })
-                          : '';
-                        return pct ? `${value} (${pct}%)` : value;
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
+          {mes !== null ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <DonutCustoBloco
+                titulo={rotuloCustoMes}
+                vazio={rotuloCustoMesVazio}
+                erro={custoMesErro}
+                fatias={custoMesFatias}
+                total={custoMesTotal}
+              />
+              <DonutCustoBloco
+                titulo={rotuloCustoAno}
+                vazio={rotuloCustoAnoVazio}
+                erro={custoAnoErro}
+                fatias={custoAnoFatias}
+                total={custoAnoTotal}
+              />
             </div>
-            {/* Slot reservado (half-width desktop) */}
-            <div className="hidden md:block" aria-hidden="true" />
-          </div>
+          ) : (
+            <DonutCustoBloco
+              titulo={rotuloCustoAno}
+              vazio={rotuloCustoAnoVazio}
+              erro={custoAnoErro}
+              fatias={custoAnoFatias}
+              total={custoAnoTotal}
+            />
+          )}
 
           {/* Gráficos */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
@@ -904,16 +1071,6 @@ export default function Dashboard() {
                   <Line type="monotone" dataKey="valor" stroke="#3B82F6" dot={{ r: 3 }} name={`${ano}`} />
                 </LineChart>
               </ResponsiveContainer>
-          </div>
-
-          {/* Próximas Ações */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-3">Próximas Ações</h2>
-            <div className="text-gray-600 dark:text-gray-400 space-y-1">
-              <p>• Acompanhar {resumo.quantidade_pendentes} NFs pendentes</p>
-              <p>• Revisar prazos de vencimento</p>
-              <p>• Processar bônus do mês</p>
-            </div>
           </div>
         </>
       )}

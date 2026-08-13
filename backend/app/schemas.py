@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import datetime, date
 
@@ -40,17 +40,59 @@ class ColaboradorResponse(ColaboradorBase):
         from_attributes = True
 
 # ==================== NFs ====================
+def _numero_opcional(v):
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
+_TIPOS_OFICIAIS = ("retainer", "sucesso", "parcelamento")
+
+
+def _tipo_oficial(v):
+    if v is None:
+        return None
+    t = str(v).strip().lower()
+    if t not in _TIPOS_OFICIAIS:
+        raise ValueError("tipo deve ser retainer, sucesso ou parcelamento")
+    return t
+
+
+def _data_opcional(v):
+    if v is None or v == "":
+        return None
+    return v
+
+
 class NFBase(BaseModel):
-    numero: str
+    numero: Optional[str] = None
     razao_social: str
     posicao: Optional[str] = None
     candidato: Optional[str] = None
     valor_bruto: float
+    valor_imposto: Optional[float] = None
     valor_liquido: float
-    data_emissao: date
-    data_vencimento: date
-    tipo: str  # "retainer" ou "sucesso"
-    tipo_abertura_fechamento: Optional[str] = None  # "abertura" ou "fechamento"
+    data_ent_pgto: Optional[date] = None
+    data_emissao: Optional[date] = None
+    data_vencimento: Optional[date] = None
+    tipo: str  # retainer | sucesso | parcelamento
+    tipo_abertura_fechamento: Optional[str] = None  # legado; classificação oficial é só `tipo`
+
+    @field_validator("numero", mode="before")
+    @classmethod
+    def normalizar_numero_base(cls, v):
+        return _numero_opcional(v)
+
+    @field_validator("data_emissao", "data_vencimento", "data_ent_pgto", mode="before")
+    @classmethod
+    def datas_vazias_base(cls, v):
+        return _data_opcional(v)
+
+    @field_validator("tipo")
+    @classmethod
+    def validar_tipo_base(cls, v):
+        return _tipo_oficial(v)
 
 class NFCreate(NFBase):
     status: Optional[str] = None
@@ -60,6 +102,11 @@ class NFCreate(NFBase):
     colaborador_conducao_id: Optional[int] = None
     colaborador_placement_id: Optional[int] = None
 
+    @field_validator("data_pagamento", mode="before")
+    @classmethod
+    def data_pag_vazia_create(cls, v):
+        return _data_opcional(v)
+
     @field_validator("caixa")
     @classmethod
     def validar_caixa_create(cls, v):
@@ -67,14 +114,22 @@ class NFCreate(NFBase):
             raise ValueError("caixa deve ser 'corrente', 'investimento' ou null")
         return v
 
+    @model_validator(mode="after")
+    def numero_exige_emissao_create(self):
+        if self.numero and not self.data_emissao:
+            raise ValueError("Data de emissão é obrigatória quando o número da NF é informado")
+        return self
+
 class NFUpdate(BaseModel):
-    """Enriquecimento Ocean (+ campos de negócio se origem=manual)."""
+    """Atualização de conta a receber (Maggo e Ocean)."""
     numero: Optional[str] = None
     razao_social: Optional[str] = None
     posicao: Optional[str] = None
     candidato: Optional[str] = None
     valor_bruto: Optional[float] = None
+    valor_imposto: Optional[float] = None
     valor_liquido: Optional[float] = None
+    data_ent_pgto: Optional[date] = None
     data_emissao: Optional[date] = None
     data_vencimento: Optional[date] = None
     tipo: Optional[str] = None
@@ -86,6 +141,21 @@ class NFUpdate(BaseModel):
     arquivada: Optional[bool] = None
     caixa: Optional[Literal["corrente", "investimento"]] = None
 
+    @field_validator("numero", mode="before")
+    @classmethod
+    def normalizar_numero_update(cls, v):
+        return _numero_opcional(v)
+
+    @field_validator("data_emissao", "data_vencimento", "data_ent_pgto", "data_pagamento", mode="before")
+    @classmethod
+    def datas_vazias_update(cls, v):
+        return _data_opcional(v)
+
+    @field_validator("tipo")
+    @classmethod
+    def validar_tipo_update(cls, v):
+        return _tipo_oficial(v)
+
     @field_validator("caixa")
     @classmethod
     def validar_caixa(cls, v):
@@ -95,6 +165,7 @@ class NFUpdate(BaseModel):
 
 class NFResponse(NFBase):
     id: int
+    maggo_id: Optional[str] = None
     status: str
     data_pagamento: Optional[date]
     colaborador_lead_id: Optional[int]
@@ -148,11 +219,27 @@ class FeriasCreate(FeriasBase):
     data_inicio: Optional[date] = None
     data_fim: Optional[date] = None
 
+    @model_validator(mode="after")
+    def intervalo_datas(self):
+        from app.services.ferias_calculo import datas_validas
+        if not datas_validas(self.data_inicio, self.data_fim):
+            raise ValueError("A data fim não pode ser anterior à data início")
+        return self
+
 class FeriasUpdate(BaseModel):
+    dias_direito: Optional[int] = None
     dias_tirados: Optional[int] = None
     data_inicio: Optional[date] = None
     data_fim: Optional[date] = None
     aprovado: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def intervalo_datas(self):
+        from app.services.ferias_calculo import datas_validas
+        if self.data_inicio is not None and self.data_fim is not None:
+            if not datas_validas(self.data_inicio, self.data_fim):
+                raise ValueError("A data fim não pode ser anterior à data início")
+        return self
 
 class FeriasResponse(FeriasBase):
     id: int
@@ -199,9 +286,14 @@ class ContaPagarResponse(ContaPagarBase):
 class DHBase(BaseModel):
     empresa: str
     posicao: str
-    tipo_fechamento: str  # "retainer" ou "sucesso"
-    tipo_abertura_fechamento: Optional[str] = None  # "abertura" ou "fechamento"
+    tipo_fechamento: str  # retainer | sucesso | parcelamento
+    tipo_abertura_fechamento: Optional[str] = None  # legado; classificação oficial é só `tipo_fechamento`
     colaborador_preencheu: str
+
+    @field_validator("tipo_fechamento")
+    @classmethod
+    def validar_tipo_fechamento(cls, v):
+        return _tipo_oficial(v)
 
 class DHCreate(DHBase):
     pass

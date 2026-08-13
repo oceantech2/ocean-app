@@ -81,7 +81,7 @@ export default function Calendario() {
     (eventosPorDia[chave] = eventosPorDia[chave] || []).push(ev);
   };
   nfs.forEach((nf) => {
-    if (nf.status === 'cancelada') return;
+    if (nf.status === 'cancelada' || !nf.data_vencimento) return;
     addEvento(nf.data_vencimento, {
       tipo: 'nf',
       titulo: `NF ${nf.numero} — ${nf.razao_social}`,

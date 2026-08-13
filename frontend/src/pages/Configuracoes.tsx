@@ -17,7 +17,6 @@ const MENUS = [
   { key: 'dh', label: 'DH' },
   { key: 'colaboradores', label: 'Colaboradores' },
   { key: 'ferias', label: 'Férias' },
-  { key: 'relatorios', label: 'Relatórios' },
 ];
 
 const PERMS_ADMIN = Object.fromEntries(MENUS.map((m) => [m.key, true]));

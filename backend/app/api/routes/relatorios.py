@@ -46,7 +46,7 @@ def fechamentos_por_tipo(
     current_user: str = Depends(get_current_user)
 ):
     """
-    Contagem de fechamentos por tipo: retainer vs sucesso.
+    Contagem de fechamentos por tipo: retainer, sucesso e parcelamento.
     Opcional: filtrar por ano/mês.
     """
     query = db.query(NF)
@@ -61,11 +61,13 @@ def fechamentos_por_tipo(
     
     retainer = query.filter(NF.tipo == TipoFechamento.RETAINER).count()
     sucesso = query.filter(NF.tipo == TipoFechamento.SUCESSO).count()
-    
+    parcelamento = query.filter(NF.tipo == TipoFechamento.PARCELAMENTO).count()
+
     return {
         "retainer": retainer,
         "sucesso": sucesso,
-        "total": retainer + sucesso
+        "parcelamento": parcelamento,
+        "total": retainer + sucesso + parcelamento
     }
 
 @router.get("/faturamento-por-cliente")

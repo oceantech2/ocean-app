@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { nfsService, colaboradoresService } from '../services/api';
+import { nfsService } from '../services/api';
 import { mensagemErro, detalheObjeto } from '../utils/erros';
-import { NF, Colaborador } from '../types';
+import { NF } from '../types';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import Pagination from '../components/Pagination';
 import { exportarCSV } from '../utils/export';
@@ -10,17 +10,16 @@ import toast from 'react-hot-toast';
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const OPCOES_PAGINA = [15, 25, 50, 100];
 
-function tipoLabel(tipo: string, tipoAb?: string) {
+function tipoLabel(tipo: string) {
+  if (tipo === 'parcelamento') return 'Parcelamento';
   if (tipo === 'sucesso') return 'Sucesso';
-  if (tipoAb === 'abertura') return 'Retainer - Abertura';
-  if (tipoAb === 'fechamento') return 'Retainer - Fechamento';
   return 'Retainer';
 }
 
-function tipoColor(tipo: string, tipoAb?: string) {
-  if (tipo === 'sucesso') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400';
-  if (tipoAb === 'abertura') return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400';
-  return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400';
+function tipoColor(tipo: string) {
+  if (tipo === 'parcelamento') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400';
+  if (tipo === 'sucesso') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400';
+  return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400';
 }
 
 function rowBg(status: string) {
@@ -37,16 +36,10 @@ function statusColor(s: string) {
   return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400';
 }
 function statusLabel(s: string) {
-  if (s === 'paga') return 'Paga';
+  if (s === 'paga') return 'Recebida';
   if (s === 'vencida') return 'Vencida';
   if (s === 'cancelada') return 'Cancelada';
   return 'Pendente';
-}
-
-function caixaLabel(caixa?: string | null) {
-  if (caixa === 'corrente') return 'Corrente';
-  if (caixa === 'investimento') return 'Investimento';
-  return '—';
 }
 
 function origemLabel(origem?: string | null) {
@@ -91,23 +84,16 @@ function IconExibir({ className = 'w-4 h-4' }: { className?: string }) {
 
 const BTN_ICON = 'inline-flex items-center justify-center w-7 h-7 rounded transition';
 
-const MSG_CAIXA_OBRIGATORIA = 'Caixa é obrigatória quando a conta está recebida. Informe corrente ou investimento.';
-
-function tipoToCombined(tipo: string, tipoAb?: string): string {
-  if (tipo === 'retainer' && tipoAb === 'abertura') return 'retainer|abertura';
-  if (tipo === 'retainer' && tipoAb === 'fechamento') return 'retainer|fechamento';
-  if (tipo === 'retainer') return 'retainer|abertura';
-  return 'sucesso';
-}
+const MSG_DATA_PAGAMENTO = 'Informe a data de pagamento para marcar como recebido.';
+const MSG_NF_EXIGE_EMISSAO = 'Informe a data de emissão junto com o número da NF.';
 
 const FORM_INICIAL = {
   numero: '', razao_social: '', posicao: '', candidato: '',
-  valor_bruto: '', valor_liquido: '', data_emissao: '', data_vencimento: '',
+  valor_bruto: '', valor_imposto: '', valor_liquido: '',
+  data_ent_pgto: '', data_emissao: '', data_vencimento: '',
   data_pagamento: '',
   pagamento_estado: 'pendente' as 'pendente' | 'recebido',
-  tipo_combined: 'sucesso',
-  colaborador_lead_id: '', colaborador_conducao_id: '', colaborador_placement_id: '',
-  caixa: '' as '' | 'corrente' | 'investimento',
+  tipo: 'retainer' as 'retainer' | 'sucesso' | 'parcelamento',
 };
 
 const INPUT = 'border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full';
@@ -120,7 +106,6 @@ export default function NFs() {
   const triggerCalendarioRefresh = useNotifStore((s) => s.triggerCalendarioRefresh);
 
   const [nfs, setNfs] = useState<NF[]>([]);
-  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
   const [loading, setLoading] = useState(true);
   const [resumo, setResumo] = useState<any>(null);
   const [pagina, setPagina] = useState(0);
@@ -138,18 +123,9 @@ export default function NFs() {
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
   const [dataPagamentoForm, setDataPagamentoForm] = useState('');
-  const [caixaPagarForm, setCaixaPagarForm] = useState<'' | 'corrente' | 'investimento'>('');
   const [filtroCliente, setFiltroCliente] = useState('');
 
-  useEffect(() => { carregarColaboradores(); }, []);
   useEffect(() => { carregarNFs(); setPagina(0); }, [nfsMes, nfsAno, nfsStatus, mostrarArquivadas]);
-
-  const carregarColaboradores = async () => {
-    try {
-      const res = await colaboradoresService.listar(0, 200, true);
-      setColaboradores(res.data);
-    } catch { /* silencioso */ }
-  };
 
   const carregarNFs = async () => {
     try {
@@ -183,16 +159,15 @@ export default function NFs() {
     setConflitoNfId(null);
     setEditando(nf);
     setForm({
-      numero: nf.numero, razao_social: nf.razao_social, posicao: nf.posicao || '',
+      numero: nf.numero || '', razao_social: nf.razao_social, posicao: nf.posicao || '',
       candidato: nf.candidato || '', valor_bruto: String(nf.valor_bruto),
-      valor_liquido: String(nf.valor_liquido), data_emissao: nf.data_emissao,
-      data_vencimento: nf.data_vencimento, data_pagamento: nf.data_pagamento || '',
+      valor_imposto: nf.valor_imposto == null ? '' : String(nf.valor_imposto),
+      valor_liquido: String(nf.valor_liquido),
+      data_ent_pgto: nf.data_ent_pgto || '',
+      data_emissao: nf.data_emissao || '',
+      data_vencimento: nf.data_vencimento || '', data_pagamento: nf.data_pagamento || '',
       pagamento_estado: nf.data_pagamento ? 'recebido' : 'pendente',
-      tipo_combined: tipoToCombined(nf.tipo, nf.tipo_abertura_fechamento),
-      colaborador_lead_id: String(nf.colaborador_lead_id || ''),
-      colaborador_conducao_id: String(nf.colaborador_conducao_id || ''),
-      colaborador_placement_id: String(nf.colaborador_placement_id || ''),
-      caixa: (nf.caixa === 'corrente' || nf.caixa === 'investimento') ? nf.caixa : '',
+      tipo: (nf.tipo === 'sucesso' || nf.tipo === 'parcelamento' ? nf.tipo : 'retainer'),
     });
     setModalAberto(true);
   };
@@ -227,34 +202,37 @@ export default function NFs() {
   };
 
   const salvar = async () => {
+    const numeroTrim = form.numero.trim();
+    if (numeroTrim && !form.data_emissao) {
+      toast.error(MSG_NF_EXIGE_EMISSAO);
+      return;
+    }
     if (criando) {
-      if (!form.numero.trim() || !form.razao_social.trim() || !form.valor_bruto || !form.valor_liquido
-          || !form.data_emissao || !form.data_vencimento) {
-        toast.error('Preencha NF, cliente, valores e datas obrigatórias');
+      if (!form.razao_social.trim() || !form.valor_bruto || !form.valor_liquido) {
+        toast.error('Preencha empresa, método de pagamento, valor bruto e valor líquido');
         return;
       }
       const recebido = form.pagamento_estado === 'recebido';
-      if (recebido && (!form.data_pagamento || !form.caixa)) {
-        toast.error(MSG_CAIXA_OBRIGATORIA);
+      if (recebido && !form.data_pagamento) {
+        toast.error(MSG_DATA_PAGAMENTO);
         return;
       }
-      const [tipo, tipoAb] = form.tipo_combined.includes('|')
-        ? form.tipo_combined.split('|')
-        : [form.tipo_combined, undefined];
       try {
         setSalvando(true);
         setConflitoNfId(null);
         await nfsService.criar({
-          numero: form.numero.trim(),
+          numero: numeroTrim || null,
           razao_social: form.razao_social.trim(),
+          posicao: form.posicao.trim() || null,
           valor_bruto: parseFloat(form.valor_bruto),
+          valor_imposto: form.valor_imposto === '' ? null : parseFloat(form.valor_imposto),
           valor_liquido: parseFloat(form.valor_liquido),
-          data_emissao: form.data_emissao,
-          data_vencimento: form.data_vencimento,
-          tipo,
-          tipo_abertura_fechamento: tipoAb || null,
+          data_ent_pgto: form.data_ent_pgto || null,
+          data_emissao: form.data_emissao || null,
+          data_vencimento: form.data_vencimento || null,
+          tipo: form.tipo,
           data_pagamento: recebido ? form.data_pagamento : null,
-          caixa: recebido ? form.caixa : null,
+          caixa: recebido ? 'corrente' : null,
         });
         toast.success('Conta a receber criada!');
         setModalAberto(false);
@@ -272,45 +250,38 @@ export default function NFs() {
     const isManual = editando.origem === 'manual';
     const recebido = form.pagamento_estado === 'recebido';
     const dataPagamento = recebido ? (form.data_pagamento || null) : null;
-    const caixa = form.caixa === '' ? null : form.caixa;
-    if (dataPagamento && !caixa) {
-      toast.error(MSG_CAIXA_OBRIGATORIA);
+    if (recebido && !dataPagamento) {
+      toast.error(MSG_DATA_PAGAMENTO);
       return;
     }
+    const transicionaRecebido = recebido && !editando.data_pagamento;
     try {
       setSalvando(true);
       setConflitoNfId(null);
       const dados: Record<string, unknown> = {
+        numero: numeroTrim || null,
+        data_emissao: form.data_emissao || null,
+        data_vencimento: form.data_vencimento || null,
         data_pagamento: dataPagamento,
-        colaborador_lead_id: form.colaborador_lead_id ? parseInt(form.colaborador_lead_id) : null,
-        colaborador_conducao_id: form.colaborador_conducao_id ? parseInt(form.colaborador_conducao_id) : null,
-        colaborador_placement_id: form.colaborador_placement_id ? parseInt(form.colaborador_placement_id) : null,
-        caixa,
       };
-      const numeroTrim = form.numero.trim();
-      if (numeroTrim && numeroTrim !== editando.numero) {
-        dados.numero = numeroTrim;
+      if (transicionaRecebido) {
+        dados.caixa = 'corrente';
       }
       if (isManual) {
-        if (!form.razao_social.trim() || !form.valor_bruto || !form.valor_liquido
-            || !form.data_emissao || !form.data_vencimento) {
-          toast.error('Preencha os campos obrigatórios');
+        if (!form.razao_social.trim() || !form.valor_bruto || !form.valor_liquido) {
+          toast.error('Preencha empresa, método de pagamento, valor bruto e valor líquido');
           setSalvando(false);
           return;
         }
-        const [tipo, tipoAb] = form.tipo_combined.includes('|')
-          ? form.tipo_combined.split('|')
-          : [form.tipo_combined, undefined];
         Object.assign(dados, {
           razao_social: form.razao_social.trim(),
           posicao: form.posicao || null,
           candidato: form.candidato || null,
           valor_bruto: parseFloat(form.valor_bruto),
+          valor_imposto: form.valor_imposto === '' ? null : parseFloat(form.valor_imposto),
           valor_liquido: parseFloat(form.valor_liquido),
-          data_emissao: form.data_emissao,
-          data_vencimento: form.data_vencimento,
-          tipo,
-          tipo_abertura_fechamento: tipoAb || null,
+          data_ent_pgto: form.data_ent_pgto || null,
+          tipo: form.tipo,
         });
       }
       await nfsService.atualizar(editando.id, dados);
@@ -326,28 +297,25 @@ export default function NFs() {
 
   const abrirPagar = (nf: NF) => {
     setDataPagamentoForm(new Date().toISOString().split('T')[0]);
-    setCaixaPagarForm(
-      nf.caixa === 'corrente' || nf.caixa === 'investimento' ? nf.caixa : ''
-    );
     setPagarModal(nf);
   };
 
   const confirmarPagamento = async () => {
     if (!pagarModal) return;
-    if (!caixaPagarForm) {
-      toast.error(MSG_CAIXA_OBRIGATORIA);
+    if (!dataPagamentoForm) {
+      toast.error(MSG_DATA_PAGAMENTO);
       return;
     }
     try {
       await nfsService.atualizar(pagarModal.id, {
-        data_pagamento: dataPagamentoForm || new Date().toISOString().split('T')[0],
-        caixa: caixaPagarForm,
+        data_pagamento: dataPagamentoForm,
+        caixa: 'corrente',
       });
       toast.success('Marcada como recebida!');
       setPagarModal(null);
       carregarNFs(); triggerNotifRefresh(); triggerCalendarioRefresh();
     } catch (e: any) {
-      toast.error(mensagemErro(e, 'Erro ao registrar pagamento'));
+      toast.error(mensagemErro(e, 'Erro ao registrar recebimento'));
     }
   };
 
@@ -372,18 +340,25 @@ export default function NFs() {
 
   const exportar = () => {
     exportarCSV(nfs.map((n) => ({
-      Número: n.numero, Cliente: n.razao_social, Posição: n.posicao || '',
-      Candidato: n.candidato || '',
+      NF: n.numero || '',
+      Vaga: n.posicao || '',
+      Empresa: n.razao_social,
       Origem: origemLabel(n.origem),
-      Tipo: tipoLabel(n.tipo, n.tipo_abertura_fechamento),
-      Bruto: n.valor_bruto, Líquido: n.valor_liquido,
-      Emissão: n.data_emissao, Vencimento: n.data_vencimento,
-      Pagamento: n.data_pagamento || '', Status: n.status,
-      Caixa: caixaLabel(n.caixa),
+      'Método de pagamento': tipoLabel(n.tipo),
+      Bruto: n.valor_bruto,
+      Imposto: n.valor_imposto ?? '',
+      Líquido: n.valor_liquido,
+      'Data ent. pgto': n.data_ent_pgto || '',
+      Emissão: n.data_emissao || '',
+      Vencimento: n.data_vencimento || '',
+      Pagamento: n.data_pagamento || '',
+      Status: statusLabel(n.status),
     })), `contas_receber_${nfsAno}`);
   };
 
   const fmt = (v: number) => v?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) ?? 'R$ 0,00';
+  const dash = (v?: string | null) => v || '—';
+  const fmtImposto = (v?: number | null) => (v == null ? '—' : fmt(v));
 
   const nfsFiltradas = (() => {
     const base = filtroCliente
@@ -447,7 +422,7 @@ export default function NFs() {
           <select className={INPUT} value={nfsStatus} onChange={(e) => setNfsFilters(nfsMes, nfsAno, e.target.value)}>
             <option value="">Todos</option>
             <option value="pendente">Pendente</option>
-            <option value="paga">Paga</option>
+            <option value="paga">Recebida</option>
             <option value="vencida">Vencida</option>
             <option value="cancelada">Cancelada</option>
           </select>
@@ -463,7 +438,7 @@ export default function NFs() {
           />
         </div>
         <div className="flex gap-3 text-xs ml-2 items-center">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-200 inline-block"></span>Paga</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-200 inline-block"></span>Recebida</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-200 inline-block"></span>Pendente</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200 inline-block"></span>Vencida</span>
         </div>
@@ -486,12 +461,12 @@ export default function NFs() {
       {resumo && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-            <p className="text-xs text-green-600 dark:text-green-400 font-medium">Bruto Pago</p>
+            <p className="text-xs text-green-600 dark:text-green-400 font-medium">Bruto Recebido</p>
             <p className="text-xl font-bold text-green-700 dark:text-green-300 mt-1">{fmt(resumo.total_bruto_pago)}</p>
             <p className="text-xs text-green-500 dark:text-green-500">{resumo.qtd_pagas} registro(s)</p>
           </div>
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Líquido Pago</p>
+            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Líquido Recebido</p>
             <p className="text-xl font-bold text-blue-700 dark:text-blue-300 mt-1">{fmt(resumo.total_liquido_pago)}</p>
           </div>
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
@@ -518,20 +493,21 @@ export default function NFs() {
         ) : (
           <>
             <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[980px]">
+            <table className="w-full text-sm border-collapse min-w-[1120px]">
               <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                 <tr>
                   {[
-                    { label: 'Nº', campo: 'numero', className: 'text-left' },
-                    { label: 'Cliente', campo: 'razao_social', className: 'text-left' },
+                    { label: 'Vaga', campo: 'posicao', className: 'text-left' },
                     { label: 'Origem', campo: 'origem', className: 'text-left' },
-                    { label: 'Tipo', campo: 'tipo', className: 'text-left' },
+                    { label: 'Método de pagamento', campo: 'tipo', className: 'text-left' },
                     { label: 'Bruto', campo: 'valor_bruto', className: 'text-right' },
+                    { label: 'Imposto', campo: 'valor_imposto', className: 'text-right' },
                     { label: 'Líquido', campo: 'valor_liquido', className: 'text-right' },
+                    { label: 'Data ent. pgto', campo: 'data_ent_pgto', className: 'text-left' },
+                    { label: 'NF', campo: 'numero', className: 'text-left' },
                     { label: 'Emissão', campo: 'data_emissao', className: 'text-left' },
-                    { label: 'Venc.', campo: 'data_vencimento', className: 'text-left' },
-                    { label: 'Pagto', campo: 'data_pagamento', className: 'text-left' },
-                    { label: 'Caixa', campo: 'caixa', className: 'text-left' },
+                    { label: 'Vencimento', campo: 'data_vencimento', className: 'text-left' },
+                    { label: 'Pagamento', campo: 'data_pagamento', className: 'text-left' },
                     { label: 'Status', campo: 'status', className: 'text-left' },
                     { label: 'Ações', campo: null, className: 'text-right sticky right-0 bg-gray-50 dark:bg-gray-700 z-20 shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)]' },
                   ].map(({ label, campo, className }) => (
@@ -548,40 +524,35 @@ export default function NFs() {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {paginados.map((nf) => (
                   <tr key={nf.id} className={`${rowBg(nf.status)} transition-colors ${nf.arquivada ? 'opacity-50' : ''} group`}>
-                    <td className="px-2 py-2.5 font-mono font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <span>{nf.numero}</span>
-                        {nf.arquivada && <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-400 px-1 rounded">Arq.</span>}
-                      </div>
-                      {(nf.posicao || nf.candidato) && (
-                        <div className="text-[10px] text-gray-400 font-sans font-normal max-w-[120px] truncate" title={[nf.posicao, nf.candidato].filter(Boolean).join(' · ')}>
-                          {[nf.posicao, nf.candidato].filter(Boolean).join(' · ')}
-                        </div>
-                      )}
+                    <td className="px-2 py-2.5 text-gray-700 dark:text-gray-300 max-w-[200px]">
+                      <div className="font-medium text-gray-800 dark:text-gray-100 truncate" title={nf.posicao || ''}>{dash(nf.posicao)}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={nf.razao_social}>{nf.razao_social}</div>
                     </td>
-                    <td className="px-2 py-2.5 text-gray-700 dark:text-gray-300 max-w-[140px] truncate" title={nf.razao_social}>{nf.razao_social}</td>
                     <td className="px-2 py-2.5 text-xs whitespace-nowrap">
                       <span className={`px-1.5 py-0.5 rounded font-medium ${nf.origem === 'manual' ? 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>
                         {origemLabel(nf.origem)}
                       </span>
                     </td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
-                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${tipoColor(nf.tipo, nf.tipo_abertura_fechamento)}`}>
-                        {tipoLabel(nf.tipo, nf.tipo_abertura_fechamento)}
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${tipoColor(nf.tipo)}`}>
+                        {tipoLabel(nf.tipo)}
                       </span>
                     </td>
                     <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_bruto)}</td>
+                    <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmtImposto(nf.valor_imposto)}</td>
                     <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_liquido)}</td>
-                    <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{nf.data_emissao}</td>
-                    <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{nf.data_vencimento}</td>
+                    <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{dash(nf.data_ent_pgto)}</td>
+                    <td className="px-2 py-2.5 font-mono font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <span>{nf.numero || '—'}</span>
+                        {nf.arquivada && <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-400 px-1 rounded">Arq.</span>}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{dash(nf.data_emissao)}</td>
+                    <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{dash(nf.data_vencimento)}</td>
                     <td className="px-2 py-2.5 text-xs whitespace-nowrap">
                       {nf.data_pagamento
                         ? <span className="text-green-700 dark:text-green-400 font-medium">{nf.data_pagamento}</span>
-                        : <span className="text-gray-400">—</span>}
-                    </td>
-                    <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                      {nf.caixa
-                        ? <span className="font-medium">{caixaLabel(nf.caixa)}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
@@ -599,8 +570,8 @@ export default function NFs() {
                                 ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
                                 : 'text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40'
                             }`}
-                            title="Pagar"
-                            aria-label="Pagar"
+                            title="Recebido"
+                            aria-label="Recebido"
                           >
                             <IconPagar />
                           </button>
@@ -642,7 +613,8 @@ export default function NFs() {
 
       {modalAberto && (editando || criando) && (() => {
         const isManual = criando || editando?.origem === 'manual';
-        const negocioEditavel = criando || isManual;
+        const maggoEditavel = isManual;
+        const oceanEditavel = true;
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div
@@ -657,118 +629,138 @@ export default function NFs() {
               {!criando && (
                 <p className="text-xs text-gray-500 mt-1">
                   Origem: {origemLabel(editando?.origem)}
-                  {isManual ? ' — campos de negócio editáveis' : ' — apenas enriquecimento Ocean'}
+                  {isManual ? ' — dados Maggo e Ocean editáveis' : ' — dados Maggo somente leitura; Ocean editável'}
                 </p>
               )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-4">
               <div className="grid grid-cols-2 gap-4">
+              <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Dados Maggo</p>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">NF *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Vaga</label>
                 <input
-                  className={INPUT}
+                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  value={form.posicao}
+                  readOnly={!maggoEditavel}
+                  disabled={!maggoEditavel}
+                  onChange={(e) => setForm({ ...form, posicao: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Método de pagamento *</label>
+                {maggoEditavel ? (
+                  <select
+                    className={INPUT}
+                    value={form.tipo}
+                    onChange={(e) => setForm({ ...form, tipo: e.target.value as 'retainer' | 'sucesso' | 'parcelamento' })}
+                  >
+                    <option value="retainer">Retainer</option>
+                    <option value="sucesso">Sucesso</option>
+                    <option value="parcelamento">Parcelamento</option>
+                  </select>
+                ) : (
+                  <input className={INPUT_RO} value={tipoLabel(editando!.tipo)} readOnly disabled />
+                )}
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Empresa *</label>
+                <input
+                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  value={form.razao_social}
+                  readOnly={!maggoEditavel}
+                  disabled={!maggoEditavel}
+                  onChange={(e) => setForm({ ...form, razao_social: e.target.value })}
+                />
+              </div>
+              {!criando && (
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Candidato</label>
+                  <input
+                    className={maggoEditavel ? INPUT : INPUT_RO}
+                    value={form.candidato}
+                    readOnly={!maggoEditavel}
+                    disabled={!maggoEditavel}
+                    onChange={(e) => setForm({ ...form, candidato: e.target.value })}
+                  />
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor bruto *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  value={form.valor_bruto}
+                  readOnly={!maggoEditavel}
+                  disabled={!maggoEditavel}
+                  onChange={(e) => setForm({ ...form, valor_bruto: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Imposto</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  value={form.valor_imposto}
+                  readOnly={!maggoEditavel}
+                  disabled={!maggoEditavel}
+                  onChange={(e) => setForm({ ...form, valor_imposto: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor líquido *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  value={form.valor_liquido}
+                  readOnly={!maggoEditavel}
+                  disabled={!maggoEditavel}
+                  onChange={(e) => setForm({ ...form, valor_liquido: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data ent. pgto</label>
+                <input
+                  type="date"
+                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  value={form.data_ent_pgto}
+                  readOnly={!maggoEditavel}
+                  disabled={!maggoEditavel}
+                  onChange={(e) => setForm({ ...form, data_ent_pgto: e.target.value })}
+                />
+              </div>
+
+              <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mt-2">Dados Ocean</p>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">NF</label>
+                <input
+                  className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.numero}
                   onChange={(e) => setForm({ ...form, numero: e.target.value })}
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tipo *</label>
-                {negocioEditavel ? (
-                  <select
-                    className={INPUT}
-                    value={form.tipo_combined}
-                    onChange={(e) => setForm({ ...form, tipo_combined: e.target.value })}
-                  >
-                    <option value="sucesso">Sucesso</option>
-                    <option value="retainer|abertura">Retainer - Abertura</option>
-                    <option value="retainer|fechamento">Retainer - Fechamento</option>
-                  </select>
-                ) : (
-                  <input className={INPUT_RO} value={tipoLabel(editando!.tipo, editando!.tipo_abertura_fechamento)} readOnly disabled />
-                )}
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Razão Social *</label>
-                <input
-                  className={negocioEditavel ? INPUT : INPUT_RO}
-                  value={form.razao_social}
-                  readOnly={!negocioEditavel}
-                  disabled={!negocioEditavel}
-                  onChange={(e) => setForm({ ...form, razao_social: e.target.value })}
-                />
-              </div>
-              {!criando && (
-                <>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Posição</label>
-                    <input
-                      className={isManual ? INPUT : INPUT_RO}
-                      value={form.posicao}
-                      readOnly={!isManual}
-                      disabled={!isManual}
-                      onChange={(e) => setForm({ ...form, posicao: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Candidato</label>
-                    <input
-                      className={isManual ? INPUT : INPUT_RO}
-                      value={form.candidato}
-                      readOnly={!isManual}
-                      disabled={!isManual}
-                      onChange={(e) => setForm({ ...form, candidato: e.target.value })}
-                    />
-                  </div>
-                </>
-              )}
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor Bruto *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className={negocioEditavel ? INPUT : INPUT_RO}
-                  value={form.valor_bruto}
-                  readOnly={!negocioEditavel}
-                  disabled={!negocioEditavel}
-                  onChange={(e) => setForm({ ...form, valor_bruto: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor Líquido *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className={negocioEditavel ? INPUT : INPUT_RO}
-                  value={form.valor_liquido}
-                  readOnly={!negocioEditavel}
-                  disabled={!negocioEditavel}
-                  onChange={(e) => setForm({ ...form, valor_liquido: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Emissão *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de emissão{form.numero.trim() ? ' *' : ''}</label>
                 <input
                   type="date"
-                  className={negocioEditavel ? INPUT : INPUT_RO}
+                  className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.data_emissao}
-                  readOnly={!negocioEditavel}
-                  disabled={!negocioEditavel}
                   onChange={(e) => setForm({ ...form, data_emissao: e.target.value })}
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Vencimento *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Vencimento</label>
                 <input
                   type="date"
-                  className={negocioEditavel ? INPUT : INPUT_RO}
+                  className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.data_vencimento}
-                  readOnly={!negocioEditavel}
-                  disabled={!negocioEditavel}
                   onChange={(e) => setForm({ ...form, data_vencimento: e.target.value })}
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Pagamento *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Pagamento</label>
                 <select
                   className={INPUT}
                   value={form.pagamento_estado}
@@ -782,42 +774,21 @@ export default function NFs() {
                   }}
                 >
                   <option value="pendente">Pendente</option>
-                  <option value="recebido">Recebido</option>
+                  <option value="recebido">Recebida</option>
                 </select>
               </div>
-              {form.pagamento_estado === 'recebido' && (
-                <>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Pagamento *</label>
-                    <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Caixa *</label>
-                    <select
-                      className={INPUT}
-                      value={form.caixa}
-                      onChange={(e) => setForm({ ...form, caixa: e.target.value as '' | 'corrente' | 'investimento' })}
-                    >
-                      <option value="">—</option>
-                      <option value="corrente">Corrente</option>
-                      <option value="investimento">Investimento</option>
-                    </select>
-                  </div>
-                </>
-              )}
-              {!criando && [
-                { label: 'Lead', key: 'colaborador_lead_id' },
-                { label: 'Condução', key: 'colaborador_conducao_id' },
-                { label: 'Placement', key: 'colaborador_placement_id' },
-              ].map(({ label, key }) => (
-                <div key={key}>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">{label}</label>
-                  <select className={INPUT} value={(form as any)[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })}>
-                    <option value="">Nenhum</option>
-                    {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                  </select>
+              {!criando && (
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Status</label>
+                  <input className={INPUT_RO} value={statusLabel(editando!.status)} readOnly disabled />
                 </div>
-              ))}
+              )}
+              {form.pagamento_estado === 'recebido' && (
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento *</label>
+                  <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
+                </div>
+              )}
               </div>
               {conflitoNfId && (
                 <div className="mt-4">
@@ -846,12 +817,12 @@ export default function NFs() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm mx-4">
             <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Registrar Pagamento</h2>
-              <p className="text-sm text-gray-500 mt-1">{pagarModal.numero} — {pagarModal.razao_social}</p>
+              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Marcar como recebido</h2>
+              <p className="text-sm text-gray-500 mt-1">{pagarModal.posicao || '—'} — {pagarModal.razao_social}</p>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Pagamento *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento *</label>
                 <input
                   type="date"
                   className={INPUT}
@@ -859,23 +830,11 @@ export default function NFs() {
                   onChange={(e) => setDataPagamentoForm(e.target.value)}
                 />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Caixa *</label>
-                <select
-                  className={INPUT}
-                  value={caixaPagarForm}
-                  onChange={(e) => setCaixaPagarForm(e.target.value as '' | 'corrente' | 'investimento')}
-                >
-                  <option value="">—</option>
-                  <option value="corrente">Corrente</option>
-                  <option value="investimento">Investimento</option>
-                </select>
-              </div>
             </div>
             <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
               <button onClick={() => setPagarModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={confirmarPagamento} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                Confirmar Pagamento
+                Confirmar recebimento
               </button>
             </div>
           </div>

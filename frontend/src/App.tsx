@@ -12,7 +12,6 @@ const Contas = lazy(() => import('./pages/Contas'));
 const BonusPage = lazy(() => import('./pages/Bonus'));
 const FeriasPage = lazy(() => import('./pages/Ferias'));
 const DHPage = lazy(() => import('./pages/DH'));
-const Relatorios = lazy(() => import('./pages/Relatorios'));
 const Calendario = lazy(() => import('./pages/Calendario'));
 const Auditoria = lazy(() => import('./pages/Auditoria'));
 const Seguranca = lazy(() => import('./pages/Seguranca'));
@@ -63,7 +62,7 @@ export default function App() {
           <Route path="/bonus" element={<Protected><BonusPage /></Protected>} />
           <Route path="/ferias" element={<Protected><FeriasPage /></Protected>} />
           <Route path="/dh" element={<Protected><DHPage /></Protected>} />
-          <Route path="/relatorios" element={<Protected><Relatorios /></Protected>} />
+          <Route path="/relatorios" element={<Navigate to="/dashboard" replace />} />
           <Route path="/calendario" element={<Protected><Calendario /></Protected>} />
           <Route path="/auditoria" element={<Protected><Auditoria /></Protected>} />
           <Route path="/seguranca" element={<Protected><Seguranca /></Protected>} />

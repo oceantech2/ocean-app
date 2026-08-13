@@ -30,6 +30,20 @@ def _migrar():
             conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS caixa VARCHAR(20)"))
             conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS origem VARCHAR(20)"))
             conn.execute(text("UPDATE nfs SET origem = 'maggo' WHERE origem IS NULL"))
+            conn.execute(text("ALTER TABLE nfs ALTER COLUMN numero DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS maggo_id VARCHAR(80)"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS valor_imposto FLOAT"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS data_ent_pgto DATE"))
+            conn.execute(text("ALTER TABLE nfs ALTER COLUMN data_emissao DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE nfs ALTER COLUMN data_vencimento DROP NOT NULL"))
+            conn.execute(text(
+                "UPDATE nfs SET maggo_id = numero "
+                "WHERE origem = 'maggo' AND maggo_id IS NULL AND numero IS NOT NULL"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_nfs_maggo_id "
+                "ON nfs (maggo_id) WHERE maggo_id IS NOT NULL"
+            ))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_path TEXT"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_nome VARCHAR(255)"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS categoria VARCHAR(64)"))
@@ -93,6 +107,90 @@ def _migrar():
             conn.execute(text("ALTER TYPE statusnf ADD VALUE IF NOT EXISTS 'CANCELADA'"))
         except Exception:
             pass
+        try:
+            labels = [r[0] for r in conn.execute(text(
+                "SELECT e.enumlabel FROM pg_enum e "
+                "JOIN pg_type t ON e.enumtypid = t.oid "
+                "WHERE t.typname = 'tipofechamento'"
+            )).fetchall()]
+            use_names = any(lb == "RETAINER" for lb in labels)
+            novo = "PARCELAMENTO" if use_names else "parcelamento"
+            if not labels:
+                try:
+                    conn.execute(text("ALTER TYPE tipofechamento ADD VALUE IF NOT EXISTS 'parcelamento'"))
+                except Exception:
+                    conn.execute(text("ALTER TYPE tipofechamento ADD VALUE IF NOT EXISTS 'PARCELAMENTO'"))
+            elif novo not in labels:
+                conn.execute(text(f"ALTER TYPE tipofechamento ADD VALUE IF NOT EXISTS '{novo}'"))
+        except Exception:
+            pass
+
+    # Conversão one-shot: tipos oficiais retainer / sucesso / parcelamento
+    with engine.connect() as conn:
+        try:
+            labels = [r[0] for r in conn.execute(text(
+                "SELECT e.enumlabel FROM pg_enum e "
+                "JOIN pg_type t ON e.enumtypid = t.oid "
+                "WHERE t.typname = 'tipofechamento'"
+            )).fetchall()]
+            if labels:
+                use_names = any(lb == "RETAINER" for lb in labels)
+                lab_ret = "RETAINER" if use_names else "retainer"
+                lab_suc = "SUCESSO" if use_names else "sucesso"
+                lab_par = "PARCELAMENTO" if use_names else "parcelamento"
+                has_ab = conn.execute(text(
+                    "SELECT 1 FROM nfs WHERE tipo_abertura_fechamento IN ('abertura','fechamento') "
+                    "UNION ALL SELECT 1 FROM dh WHERE tipo_abertura_fechamento IN ('abertura','fechamento') "
+                    "LIMIT 1"
+                )).first()
+                has_par = conn.execute(text(
+                    "SELECT 1 FROM nfs WHERE tipo::text = :p "
+                    "UNION ALL SELECT 1 FROM dh WHERE tipo_fechamento::text = :p "
+                    "LIMIT 1"
+                ), {"p": lab_par}).first()
+                if has_ab:
+                    conn.execute(text(
+                        "UPDATE nfs SET tipo = CAST(:p AS tipofechamento) WHERE tipo::text = :s"
+                    ), {"p": lab_par, "s": lab_suc})
+                    conn.execute(text(
+                        "UPDATE dh SET tipo_fechamento = CAST(:p AS tipofechamento) "
+                        "WHERE tipo_fechamento::text = :s"
+                    ), {"p": lab_par, "s": lab_suc})
+                    conn.execute(text(
+                        "UPDATE nfs SET tipo = CAST(:s AS tipofechamento) "
+                        "WHERE tipo::text = :r AND tipo_abertura_fechamento = 'fechamento'"
+                    ), {"s": lab_suc, "r": lab_ret})
+                    conn.execute(text(
+                        "UPDATE dh SET tipo_fechamento = CAST(:s AS tipofechamento) "
+                        "WHERE tipo_fechamento::text = :r AND tipo_abertura_fechamento = 'fechamento'"
+                    ), {"s": lab_suc, "r": lab_ret})
+                    conn.execute(text(
+                        "UPDATE nfs SET tipo_abertura_fechamento = NULL "
+                        "WHERE tipo_abertura_fechamento IS NOT NULL"
+                    ))
+                    conn.execute(text(
+                        "UPDATE dh SET tipo_abertura_fechamento = NULL "
+                        "WHERE tipo_abertura_fechamento IS NOT NULL"
+                    ))
+                elif not has_par:
+                    conn.execute(text(
+                        "UPDATE nfs SET tipo = CAST(:p AS tipofechamento) WHERE tipo::text = :s"
+                    ), {"p": lab_par, "s": lab_suc})
+                    conn.execute(text(
+                        "UPDATE dh SET tipo_fechamento = CAST(:p AS tipofechamento) "
+                        "WHERE tipo_fechamento::text = :s"
+                    ), {"p": lab_par, "s": lab_suc})
+                    conn.execute(text(
+                        "UPDATE nfs SET tipo_abertura_fechamento = NULL "
+                        "WHERE tipo_abertura_fechamento IS NOT NULL"
+                    ))
+                    conn.execute(text(
+                        "UPDATE dh SET tipo_abertura_fechamento = NULL "
+                        "WHERE tipo_abertura_fechamento IS NOT NULL"
+                    ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
 _migrar()
 

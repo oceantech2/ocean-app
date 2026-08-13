@@ -158,7 +158,7 @@ def obter_conta(
 def criar_conta(
     conta: ContaPagarCreate,
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(require_admin),
 ):
     """Criar uma nova conta a pagar"""
     try:
@@ -195,7 +195,7 @@ def atualizar_conta(
     conta_id: int,
     conta_update: ContaPagarUpdate,
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(require_admin),
 ):
     """Atualizar uma conta. Pagamento/descrição sem forçar reclassificação."""
     db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
@@ -250,7 +250,7 @@ def atualizar_conta(
 def deletar_conta(
     conta_id: int,
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(require_admin),
 ):
     """Deletar uma conta"""
     db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
@@ -269,7 +269,7 @@ async def upload_comprovante(
     conta_id: int,
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    current_user: str = Depends(require_admin),
 ):
     db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
     if not db_conta:

@@ -129,14 +129,6 @@ export function PatrimonioIcon(p: IconProps) {
   );
 }
 
-export function RelatoriosIcon(p: IconProps) {
-  return (
-    <IconBase {...p}>
-      <path d="M18 20V10M12 20V4M6 20v-6" />
-    </IconBase>
-  );
-}
-
 export function AuditoriaIcon(p: IconProps) {
   return (
     <IconBase {...p}>
@@ -192,7 +184,6 @@ const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   '/colaboradores': ColaboradoresIcon,
   '/ferias': FeriasIcon,
   '/patrimonio': PatrimonioIcon,
-  '/relatorios': RelatoriosIcon,
   '/auditoria': AuditoriaIcon,
   '/seguranca': SegurancaIcon,
   '/configuracoes': ConfiguracoesIcon,

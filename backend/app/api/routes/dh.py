@@ -56,16 +56,20 @@ def criar_dh(
 ):
     """Criar um novo DH"""
     # Gerar assunto automaticamente
-    # Formato: DH :: nome da empresa :: posição :: tipo de fechamento retainer (abertura ou fechamento) ou sucesso
+    # Formato: DH :: nome da empresa :: posição :: Retainer | Sucesso | Parcelamento
     
     assunto = f"DH :: {dh.empresa} :: {dh.posicao} :: "
-    
-    if dh.tipo_fechamento == "retainer":
-        assunto += f"retainer ({dh.tipo_abertura_fechamento})"
-    else:
-        assunto += "sucesso"
-    
-    novo_dh = DH(**dh.dict())
+    nomes = {
+        "retainer": "Retainer",
+        "sucesso": "Sucesso",
+        "parcelamento": "Parcelamento",
+    }
+    tf = (dh.tipo_fechamento or "").strip().lower()
+    assunto += nomes.get(tf, tf or "Retainer")
+
+    payload = dh.dict()
+    payload["tipo_abertura_fechamento"] = None
+    novo_dh = DH(**payload)
     novo_dh.assunto = assunto
     
     db.add(novo_dh)

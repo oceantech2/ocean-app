@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, extract
+from sqlalchemy import and_, extract, func, cast, Date as SADate
 from sqlalchemy.exc import IntegrityError
 from typing import List, Set, Optional, Literal, Tuple
 from datetime import date
@@ -18,30 +18,42 @@ from app.services import nf_duplicidade as dup
 router = APIRouter()
 
 _MSG_EXCLUSAO_DESABILITADA = "Exclusão desabilitada — Contas a Receber são geridas pela fonte Maggo"
-_MSG_CAIXA_OBRIGATORIA = (
-    "Caixa é obrigatória quando a conta está recebida. Informe corrente ou investimento."
-)
-_MSG_CAMPO_MAGGO_RO = "Campos de negócio de origem Maggo não podem ser alterados"
-_CAMPOS_NEGOCIO = {
-    "razao_social", "posicao", "candidato", "valor_bruto", "valor_liquido",
-    "data_emissao", "data_vencimento", "tipo", "tipo_abertura_fechamento",
-}
+_MSG_NF_EXIGE_EMISSAO = "Data de emissão é obrigatória quando o número da NF é informado"
 
 
-def _parse_tipo_maggo(tipo: str, tipo_ab: str | None) -> tuple[TipoFechamento, str | None]:
-    t = (tipo or "sucesso").lower()
+def _parse_tipo_maggo(tipo: str | None, tipo_ab: str | None) -> TipoFechamento | None:
+    """Converte payload Maggo (semântica antiga) para o enum oficial. None = tipo desconhecido."""
+    t = (tipo or "").strip().lower()
+    ab = (tipo_ab or "").strip().lower() or None
     if t == "retainer":
-        ab = tipo_ab if tipo_ab in ("abertura", "fechamento") else "abertura"
-        return TipoFechamento.RETAINER, ab
-    return TipoFechamento.SUCESSO, None
+        if ab == "fechamento":
+            return TipoFechamento.SUCESSO
+        return TipoFechamento.RETAINER
+    if t == "sucesso":
+        return TipoFechamento.PARCELAMENTO
+    if t == "parcelamento":
+        return TipoFechamento.PARCELAMENTO
+    return None
 
 
-def _parse_tipo_create(tipo: str, tipo_ab: str | None) -> tuple[TipoFechamento, str | None]:
-    return _parse_tipo_maggo(tipo, tipo_ab)
+def _parse_tipo_create(tipo: str, tipo_ab: str | None = None) -> TipoFechamento:
+    """Create/update manual: só valores oficiais (retainer | sucesso | parcelamento)."""
+    t = (tipo or "").strip().lower()
+    mapping = {
+        "retainer": TipoFechamento.RETAINER,
+        "sucesso": TipoFechamento.SUCESSO,
+        "parcelamento": TipoFechamento.PARCELAMENTO,
+    }
+    if t not in mapping:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="tipo deve ser retainer, sucesso ou parcelamento",
+        )
+    return mapping[t]
 
 
-def _calcular_status_nf(data_vencimento: date, data_pagamento) -> StatusNF:
-    """Paga se tem data_pagamento, vencida se passou do vencimento sem pagamento, senão pendente."""
+def _calcular_status_nf(data_vencimento: date | None, data_pagamento) -> StatusNF:
+    """Paga se tem data_pagamento; vencida só com vencimento passado; senão pendente (incl. sem vencimento)."""
     if data_pagamento:
         return StatusNF.PAGA
     if data_vencimento and data_vencimento < date.today():
@@ -49,53 +61,73 @@ def _calcular_status_nf(data_vencimento: date, data_pagamento) -> StatusNF:
     return StatusNF.PENDENTE
 
 
+def _expr_data_ref():
+    """Data de referência da listagem: emissão, senão data ent. pgto, senão criado_em."""
+    return func.coalesce(NF.data_emissao, NF.data_ent_pgto, cast(NF.criado_em, SADate))
+
+
+def _filtrar_periodo(query, mes: int | None, ano: int | None):
+    ref = _expr_data_ref()
+    if mes and ano:
+        inicio = date(ano, mes, 1)
+        fim = date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1)
+        return query.filter(and_(ref >= inicio, ref < fim))
+    if ano:
+        return query.filter(extract("year", ref) == ano)
+    return query
+
+
+def _exigir_emissao_se_numero(numero, data_emissao) -> None:
+    if numero and not data_emissao:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=_MSG_NF_EXIGE_EMISSAO,
+        )
+
+
 def _sync_maggo_stub(db: Session) -> Tuple[Set[str], List[str]]:
-    """Merge stub Maggo → nfs por numero. Preserva enriquecimento Ocean e registros manuais.
-    Retorna (números no stub, números ignorados por colisão com origem manual).
+    """Merge stub Maggo → nfs por maggo_id. Preserva grupo Ocean e registros manuais.
+    Retorna (ids no stub, maggo_ids ignorados por colisão com origem manual).
     """
     itens = listar_contas_receber()
-    numeros: Set[str] = set()
+    ids: Set[str] = set()
     colisoes: List[str] = []
     for item in itens:
-        numero = dup.normalizar_numero(item["numero"])
-        numeros.add(numero)
-        tipo_enum, tipo_ab = _parse_tipo_maggo(item.get("tipo", "sucesso"), item.get("tipo_abertura_fechamento"))
-        db_nf = db.query(NF).filter(NF.numero == numero).first()
+        maggo_id = (item.get("maggo_id") or "").strip()
+        if not maggo_id:
+            continue
+        ids.add(maggo_id)
+        tipo_enum = _parse_tipo_maggo(item.get("tipo"), item.get("tipo_abertura_fechamento"))
+        if tipo_enum is None:
+            continue
+        db_nf = db.query(NF).filter(NF.maggo_id == maggo_id).first()
         if db_nf:
             if (db_nf.origem or "maggo") == "manual":
-                colisoes.append(numero)
+                colisoes.append(maggo_id)
                 continue
-            db_nf.razao_social = item["razao_social"]
-            db_nf.posicao = item.get("posicao")
-            db_nf.candidato = item.get("candidato")
-            db_nf.valor_bruto = item["valor_bruto"]
-            db_nf.valor_liquido = item["valor_liquido"]
-            db_nf.data_emissao = item["data_emissao"]
-            db_nf.data_vencimento = item["data_vencimento"]
-            db_nf.tipo = tipo_enum
-            db_nf.tipo_abertura_fechamento = tipo_ab
-            db_nf.origem = "maggo"
-            # Preserva data_pagamento, colaboradores, arquivada, caixa
-            db_nf.status = _calcular_status_nf(db_nf.data_vencimento, db_nf.data_pagamento)
+            # Não sobrescreve grupo Maggo em registro já existente — Ocean pode editar.
         else:
             db_nf = NF(
-                numero=numero,
+                maggo_id=maggo_id,
+                numero=None,
                 razao_social=item["razao_social"],
                 posicao=item.get("posicao"),
                 candidato=item.get("candidato"),
                 valor_bruto=item["valor_bruto"],
+                valor_imposto=item.get("valor_imposto"),
                 valor_liquido=item["valor_liquido"],
-                data_emissao=item["data_emissao"],
-                data_vencimento=item["data_vencimento"],
+                data_ent_pgto=item.get("data_ent_pgto"),
+                data_emissao=None,
+                data_vencimento=None,
                 tipo=tipo_enum,
-                tipo_abertura_fechamento=tipo_ab,
-                status=_calcular_status_nf(item["data_vencimento"], None),
+                tipo_abertura_fechamento=None,
+                status=StatusNF.PENDENTE,
                 arquivada=False,
                 origem="maggo",
             )
             db.add(db_nf)
     db.commit()
-    return numeros, colisoes
+    return ids, colisoes
 
 
 def _aplicar_campos_arquivo(db_nf: NF, r: dict) -> None:
@@ -145,15 +177,7 @@ def listar_nfs(
     if not incluir_arquivadas:
         query = query.filter(NF.arquivada == False)
 
-    if mes and ano:
-        query = query.filter(
-            and_(
-                NF.data_emissao >= date(ano, mes, 1),
-                NF.data_emissao < date(ano if mes < 12 else ano + 1, (mes % 12) + 1 if mes < 12 else 1, 1)
-            )
-        )
-    elif ano:
-        query = query.filter(extract('year', NF.data_emissao) == ano)
+    query = _filtrar_periodo(query, mes, ano)
 
     if status_filtro:
         query = query.filter(NF.status == status_filtro)
@@ -261,7 +285,7 @@ def importar_nfs_xlsx(
         # Novo registro
         try:
             db.begin_nested()
-            tipo_enum, tipo_ab = TipoFechamento.SUCESSO, None
+            tipo_enum = TipoFechamento.PARCELAMENTO
             if r.get("cancelada"):
                 status_nf = StatusNF.CANCELADA
             else:
@@ -276,7 +300,7 @@ def importar_nfs_xlsx(
                 data_vencimento=r.get("data_vencimento") or date.today(),
                 data_pagamento=r.get("data_pagamento"),
                 tipo=tipo_enum,
-                tipo_abertura_fechamento=tipo_ab,
+                tipo_abertura_fechamento=None,
                 status=status_nf,
                 arquivada=False,
             )
@@ -313,17 +337,9 @@ def exportar_nfs_xlsx(
 ):
     """Exporta as NFs do banco preenchendo o template oficial (aba 'Entradas')."""
     query = db.query(NF)
-    if mes and ano:
-        query = query.filter(
-            and_(
-                NF.data_emissao >= date(ano, mes, 1),
-                NF.data_emissao < date(ano if mes < 12 else ano + 1, (mes % 12) + 1 if mes < 12 else 1, 1)
-            )
-        )
-    elif ano:
-        query = query.filter(extract('year', NF.data_emissao) == ano)
+    query = _filtrar_periodo(query, mes, ano)
 
-    nfs = query.order_by(NF.data_emissao).all()
+    nfs = query.order_by(NF.data_emissao.nulls_last()).all()
 
     dados = []
     for nf in nfs:
@@ -332,7 +348,9 @@ def exportar_nfs_xlsx(
             "razao_social": nf.razao_social,
             "posicao": nf.posicao,
             "valor_bruto": nf.valor_bruto,
+            "valor_imposto": nf.valor_imposto,
             "valor_liquido": nf.valor_liquido,
+            "data_ent_pgto": nf.data_ent_pgto,
             "data_emissao": nf.data_emissao,
             "data_vencimento": nf.data_vencimento,
             "data_pagamento": nf.data_pagamento,
@@ -362,8 +380,6 @@ def resumo_nfs(
     Retorna resumo de Contas a Receber (Maggo sync + locais).
     Opcional: filtrar por mês e ano.
     """
-    from sqlalchemy import extract as sa_extract
-
     try:
         _sync_maggo_stub(db)
     except MaggoStubError as e:
@@ -377,11 +393,7 @@ def resumo_nfs(
             detail=f"Falha ao consultar fonte Maggo: {e}",
         ) from e
     query = db.query(NF)
-
-    if ano:
-        query = query.filter(sa_extract("year", NF.data_emissao) == ano)
-    if mes:
-        query = query.filter(sa_extract("month", NF.data_emissao) == mes)
+    query = _filtrar_periodo(query, mes, ano)
 
     nfs_pagas = query.filter(NF.status == StatusNF.PAGA).all()
     nfs_pendentes = query.filter(NF.status == StatusNF.PENDENTE).all()
@@ -422,32 +434,31 @@ def criar_nf(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    """Criar conta a receber manualmente (origem=manual; unicidade por número)."""
+    """Criar conta a receber manualmente (origem=manual; NF e datas Ocean opcionais)."""
     numero = dup.garantir_numero_livre(db, nf.numero)
-    tipo_enum, tipo_ab = _parse_tipo_create(nf.tipo, nf.tipo_abertura_fechamento)
+    _exigir_emissao_se_numero(numero, nf.data_emissao)
+    tipo_enum = _parse_tipo_create(nf.tipo)
 
     data_pag = nf.data_pagamento
-    caixa = nf.caixa
-    if data_pag is not None and caixa not in ("corrente", "investimento"):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=_MSG_CAIXA_OBRIGATORIA,
-        )
+    caixa = "corrente" if data_pag is not None else None
 
     status_nf = _calcular_status_nf(nf.data_vencimento, data_pag)
 
     db_nf = NF(
+        maggo_id=None,
         numero=numero,
         razao_social=nf.razao_social,
-        posicao=None,
-        candidato=None,
+        posicao=nf.posicao,
+        candidato=nf.candidato,
         valor_bruto=nf.valor_bruto,
+        valor_imposto=nf.valor_imposto,
         valor_liquido=nf.valor_liquido,
+        data_ent_pgto=nf.data_ent_pgto,
         data_emissao=nf.data_emissao,
         data_vencimento=nf.data_vencimento,
         data_pagamento=data_pag,
         tipo=tipo_enum,
-        tipo_abertura_fechamento=tipo_ab,
+        tipo_abertura_fechamento=None,
         status=status_nf,
         caixa=caixa,
         colaborador_lead_id=None,
@@ -459,7 +470,7 @@ def criar_nf(
     try:
         db.add(db_nf)
         db.flush()
-        registrar_auditoria(db, current_user, "criar", "NF", db_nf.id, f"NF {numero} criada (manual)")
+        registrar_auditoria(db, current_user, "criar", "NF", db_nf.id, f"NF {numero or '(sem número)'} criada (manual)")
         db.commit()
         db.refresh(db_nf)
     except IntegrityError as e:
@@ -473,7 +484,7 @@ def atualizar_nf(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    """Atualizar: manuais = negócio + enriquecimento; Maggo = só enriquecimento."""
+    """Atualizar conta a receber (grupos Maggo e Ocean)."""
     db_nf = db.query(NF).filter(NF.id == nf_id).first()
 
     if not db_nf:
@@ -482,48 +493,38 @@ def atualizar_nf(
             detail="NF não encontrada"
         )
 
+    pagamento_antes = db_nf.data_pagamento
     dados_atualizacao = nf_update.model_dump(exclude_unset=True)
-    origem = db_nf.origem or "maggo"
-
-    if origem != "manual":
-        negocio = _CAMPOS_NEGOCIO.intersection(dados_atualizacao.keys())
-        if negocio:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=_MSG_CAMPO_MAGGO_RO,
-            )
+    dados_atualizacao.pop("caixa", None)
 
     if "numero" in dados_atualizacao:
-        novo = dup.normalizar_numero(dados_atualizacao["numero"])
-        if novo != db_nf.numero:
-            dados_atualizacao["numero"] = dup.garantir_numero_livre(db, novo, excluir_id=db_nf.id)
-        else:
-            dados_atualizacao["numero"] = db_nf.numero
+        dados_atualizacao["numero"] = dup.garantir_numero_livre(
+            db, dados_atualizacao.get("numero"), excluir_id=db_nf.id
+        )
 
     if "tipo" in dados_atualizacao:
-        tipo_ab = dados_atualizacao.get("tipo_abertura_fechamento", db_nf.tipo_abertura_fechamento)
-        tipo_enum, tipo_ab_n = _parse_tipo_create(dados_atualizacao["tipo"], tipo_ab)
-        dados_atualizacao["tipo"] = tipo_enum
-        if "tipo_abertura_fechamento" in dados_atualizacao or dados_atualizacao.get("tipo"):
-            dados_atualizacao["tipo_abertura_fechamento"] = tipo_ab_n
+        dados_atualizacao["tipo"] = _parse_tipo_create(dados_atualizacao["tipo"])
+        dados_atualizacao["tipo_abertura_fechamento"] = None
 
     for campo, valor in dados_atualizacao.items():
-        if campo == "origem":
+        if campo in ("origem", "maggo_id"):
             continue
         setattr(db_nf, campo, valor)
+
+    try:
+        _exigir_emissao_se_numero(db_nf.numero, db_nf.data_emissao)
+    except HTTPException:
+        db.rollback()
+        raise
 
     if "data_pagamento" in dados_atualizacao or "data_vencimento" in dados_atualizacao:
         db_nf.status = _calcular_status_nf(db_nf.data_vencimento, db_nf.data_pagamento)
 
-    if db_nf.data_pagamento is not None and db_nf.caixa not in ("corrente", "investimento"):
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=_MSG_CAIXA_OBRIGATORIA,
-        )
+    if pagamento_antes is None and db_nf.data_pagamento is not None:
+        db_nf.caixa = "corrente"
 
     try:
-        registrar_auditoria(db, current_user, "editar", "NF", db_nf.id, f"NF {db_nf.numero} — campos: {', '.join(dados_atualizacao.keys())}")
+        registrar_auditoria(db, current_user, "editar", "NF", db_nf.id, f"NF {db_nf.numero or '(sem número)'} — campos: {', '.join(dados_atualizacao.keys())}")
         db.commit()
         db.refresh(db_nf)
     except IntegrityError as e:

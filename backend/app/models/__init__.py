@@ -7,6 +7,7 @@ from app.database import Base
 class TipoFechamento(str, enum.Enum):
     RETAINER = "retainer"
     SUCESSO = "sucesso"
+    PARCELAMENTO = "parcelamento"
 
 class StatusNF(str, enum.Enum):
     PAGA = "paga"
@@ -64,14 +65,17 @@ class NF(Base):
     __tablename__ = "nfs"
 
     id = Column(Integer, primary_key=True, index=True)
-    numero = Column(String(50), unique=True, nullable=False, index=True)
+    maggo_id = Column(String(80), nullable=True, index=True)
+    numero = Column(String(50), unique=True, nullable=True, index=True)
     razao_social = Column(String(255), nullable=False)
     posicao = Column(String(100))
     candidato = Column(String(255))
     valor_bruto = Column(Float, nullable=False)
+    valor_imposto = Column(Float, nullable=True)
     valor_liquido = Column(Float, nullable=False)
-    data_emissao = Column(Date, nullable=False, index=True)
-    data_vencimento = Column(Date, nullable=False)
+    data_ent_pgto = Column(Date, nullable=True)
+    data_emissao = Column(Date, nullable=True, index=True)
+    data_vencimento = Column(Date, nullable=True)
     data_pagamento = Column(Date, nullable=True)
     tipo = Column(Enum(TipoFechamento), nullable=False)
     tipo_abertura_fechamento = Column(String(20), nullable=True)

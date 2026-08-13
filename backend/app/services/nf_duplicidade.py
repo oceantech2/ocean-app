@@ -39,21 +39,20 @@ def raise_duplicado(nf: NF) -> None:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail_duplicado(nf))
 
 
-def garantir_numero_livre(db: Session, numero: str, excluir_id: Optional[int] = None) -> str:
-    """Normaliza e garante que o número não pertence a outra NF. Retorna o número trimado."""
+def garantir_numero_livre(
+    db: Session, numero: str | None, excluir_id: Optional[int] = None
+) -> Optional[str]:
+    """Normaliza o número. Vazio → None (sem checagem). Preenchido → unique ou 409."""
     num = normalizar_numero(numero)
     if not num:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Número da conta a receber é obrigatório",
-        )
+        return None
     existente = buscar_por_numero(db, num, excluir_id=excluir_id)
     if existente:
         raise_duplicado(existente)
     return num
 
 
-def raise_se_integrity_numero(db: Session, exc: IntegrityError, numero: str) -> None:
+def raise_se_integrity_numero(db: Session, exc: IntegrityError, numero: str | None) -> None:
     """Se IntegrityError for de unique em numero, relança 409; senão relança a original."""
     db.rollback()
     msg = str(getattr(exc, "orig", exc)).lower()

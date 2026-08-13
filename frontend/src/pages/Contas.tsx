@@ -212,8 +212,19 @@ export default function Contas() {
   };
 
   const marcarPago = async (conta: ContaPagar) => {
-    try { await contasService.atualizar(conta.id, { pago: true, data_pagamento: new Date().toISOString().split('T')[0] }); toast.success('Marcada como paga!'); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh(); }
-    catch { toast.error('Erro ao atualizar'); }
+    const agora = new Date();
+    const hoje = [
+      agora.getFullYear(),
+      String(agora.getMonth() + 1).padStart(2, '0'),
+      String(agora.getDate()).padStart(2, '0'),
+    ].join('-');
+    try {
+      await contasService.atualizar(conta.id, { pago: true, data_pagamento: hoje });
+      toast.success('Marcada como paga!');
+      carregarContas();
+      triggerNotifRefresh();
+      triggerCalendarioRefresh();
+    } catch { toast.error('Erro ao atualizar'); }
   };
 
   const deletar = async (conta: ContaPagar) => {

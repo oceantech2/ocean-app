@@ -415,27 +415,22 @@ def _inferir_centro_custo(descricao: str) -> str:
     return cat
 
 
-def _rotulo_caixa_export(caixa: str | None) -> str:
-    if caixa == "corrente":
-        return "Corrente"
-    if caixa == "investimento":
-        return "Investimento"
-    return ""
-
-
 # ==================== EXPORT: NFs ====================
 def preencher_template_nfs(nfs: list[dict]) -> bytes:
     """Preenche a aba 'Entradas' do template com as NFs (em memória).
 
-    Coluna Caixa é acrescentada após Placement (template não a possui).
+    Origem / Imposto / Data ent. pgto são acrescentados após Placement.
+    Caixa não é exportada nesta planilha (019).
     """
     wb = openpyxl.load_workbook(TEMPLATE_NFS_PATH)
     ws = wb[NF_SHEET]
 
-    col_caixa = max(NF_COLS.values()) + 1
-    col_origem = col_caixa + 1
-    ws.cell(row=NF_HEADER_ROW, column=col_caixa, value="Caixa")
+    col_origem = max(NF_COLS.values()) + 1
+    col_imposto = col_origem + 1
+    col_ent_pgto = col_imposto + 1
     ws.cell(row=NF_HEADER_ROW, column=col_origem, value="Origem")
+    ws.cell(row=NF_HEADER_ROW, column=col_imposto, value="Imposto")
+    ws.cell(row=NF_HEADER_ROW, column=col_ent_pgto, value="Data ent. pgto")
 
     row = NF_DATA_START_ROW
     for nf in nfs:
@@ -450,9 +445,10 @@ def preencher_template_nfs(nfs: list[dict]) -> bytes:
         ws.cell(row=row, column=NF_COLS["lead"],           value=nf.get("lead_nome"))
         ws.cell(row=row, column=NF_COLS["conducao"],       value=nf.get("conducao_nome"))
         ws.cell(row=row, column=NF_COLS["placement"],      value=nf.get("placement_nome"))
-        ws.cell(row=row, column=col_caixa, value=_rotulo_caixa_export(nf.get("caixa")))
         orig = nf.get("origem") or "maggo"
         ws.cell(row=row, column=col_origem, value="Manual" if orig == "manual" else "Maggo")
+        ws.cell(row=row, column=col_imposto, value=nf.get("valor_imposto"))
+        ws.cell(row=row, column=col_ent_pgto, value=nf.get("data_ent_pgto"))
         row += 1
 
     buf = io.BytesIO()

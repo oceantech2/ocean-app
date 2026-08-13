@@ -19,37 +19,38 @@ function trimestreBg(mes: number) {
     : 'bg-white dark:bg-gray-800';
 }
 
-// Opções unificadas de tipo
 const TIPOS_DH = [
-  { value: 'sucesso', label: 'Sucesso', tipo_fechamento: 'sucesso', tipo_abertura_fechamento: null },
-  { value: 'retainer_abertura', label: 'Retainer - Abertura', tipo_fechamento: 'retainer', tipo_abertura_fechamento: 'abertura' },
-  { value: 'retainer_fechamento', label: 'Retainer - Fechamento', tipo_fechamento: 'retainer', tipo_abertura_fechamento: 'fechamento' },
-];
+  { value: 'retainer', label: 'Retainer' },
+  { value: 'sucesso', label: 'Sucesso' },
+  { value: 'parcelamento', label: 'Parcelamento' },
+] as const;
 
-function tipoValue(tipo_fechamento: string, tipo_abertura_fechamento?: string): string {
-  if (tipo_fechamento === 'sucesso') return 'sucesso';
-  if (tipo_abertura_fechamento === 'fechamento') return 'retainer_fechamento';
-  return 'retainer_abertura';
-}
-
-function tipoLabel(tipo_fechamento: string, tipo_abertura_fechamento?: string): string {
+function tipoLabel(tipo_fechamento: string): string {
+  if (tipo_fechamento === 'parcelamento') return 'Parcelamento';
   if (tipo_fechamento === 'sucesso') return 'Sucesso';
-  if (tipo_abertura_fechamento === 'fechamento') return 'Retainer - Fechamento';
-  return 'Retainer - Abertura';
+  return 'Retainer';
 }
 
-function tipoColor(tipo_fechamento: string, tipo_abertura_fechamento?: string): string {
-  if (tipo_fechamento === 'sucesso') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400';
-  if (tipo_abertura_fechamento === 'fechamento') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400';
+function tipoColor(tipo_fechamento: string): string {
+  if (tipo_fechamento === 'parcelamento') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400';
+  if (tipo_fechamento === 'sucesso') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400';
   return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400';
 }
 
-function gerarAssunto(tipo: string, empresa: string, posicao: string, tipoAbertura?: string): string {
-  const tipoStr = tipo === 'sucesso' ? 'Sucesso' : tipoAbertura === 'abertura' ? 'Retainer - Abertura' : 'Retainer - Fechamento';
-  return `DH :: ${empresa} :: ${posicao} :: ${tipoStr}`;
+function gerarAssunto(tipo: string, empresa: string, posicao: string): string {
+  return `DH :: ${empresa} :: ${posicao} :: ${tipoLabel(tipo)}`;
 }
 
-const FORM_INICIAL = { empresa: '', posicao: '', tipo_combined: 'sucesso', colaborador_preencheu: '' };
+function mapTipoImport(raw: string): 'retainer' | 'sucesso' | 'parcelamento' {
+  const t = (raw || '').trim().toLowerCase();
+  if (t === 'parcelamento' || t.includes('parcelamento')) return 'parcelamento';
+  if (t.includes('fechamento')) return 'sucesso';
+  if (t === 'retainer' || t.includes('abertura')) return 'retainer';
+  if (t === 'sucesso') return 'sucesso';
+  return 'retainer';
+}
+
+const FORM_INICIAL = { empresa: '', posicao: '', tipo_fechamento: 'retainer' as 'retainer' | 'sucesso' | 'parcelamento', colaborador_preencheu: '' };
 
 export default function DHPage() {
   const papel = useAuthStore((s) => s.papel);
@@ -75,9 +76,9 @@ export default function DHPage() {
     finally { setLoading(false); }
   };
 
-  const tipoSelecionado = TIPOS_DH.find((t) => t.value === form.tipo_combined) || TIPOS_DH[0];
+  const tipoSelecionado = form.tipo_fechamento;
   const assuntoPreview = form.empresa && form.posicao
-    ? gerarAssunto(tipoSelecionado.tipo_fechamento, form.empresa, form.posicao, tipoSelecionado.tipo_abertura_fechamento || undefined)
+    ? gerarAssunto(tipoSelecionado, form.empresa, form.posicao)
     : '';
 
   const salvar = async () => {
@@ -87,8 +88,7 @@ export default function DHPage() {
       await dhService.criar({
         empresa: form.empresa,
         posicao: form.posicao,
-        tipo_fechamento: tipoSelecionado.tipo_fechamento,
-        tipo_abertura_fechamento: tipoSelecionado.tipo_abertura_fechamento,
+        tipo_fechamento: form.tipo_fechamento,
         colaborador_preencheu: form.colaborador_preencheu,
       });
       toast.success('DH criado!');
@@ -100,8 +100,7 @@ export default function DHPage() {
   };
 
   const exportar = () => exportarCSV(dhs.map((d) => ({
-    Empresa: d.empresa, Posição: d.posicao, Tipo: d.tipo,
-    Mês: MESES[d.mes - 1], Ano: d.ano,
+    Empresa: d.empresa, Posição: d.posicao, Tipo: tipoLabel(d.tipo_fechamento),
     'Colaborador Preencheu': d.colaborador_preencheu,
     'Enviado Financeiro': d.enviado_financeiro ? 'Sim' : 'Não',
     'Enviado CEO': d.enviado_ceo ? 'Sim' : 'Não',
@@ -125,8 +124,9 @@ export default function DHPage() {
   const paginados = dhs.slice(pagina * ITENS_POR_PAGINA, (pagina + 1) * ITENS_POR_PAGINA);
 
   const totalDhs = dhs.length;
-  const totalSucesso = dhs.filter((d) => d.tipo_fechamento === 'sucesso').length;
   const totalRetainer = dhs.filter((d) => d.tipo_fechamento === 'retainer').length;
+  const totalSucesso = dhs.filter((d) => d.tipo_fechamento === 'sucesso').length;
+  const totalParcelamento = dhs.filter((d) => d.tipo_fechamento === 'parcelamento').length;
   const totalPendentes = dhs.filter((d) => !d.enviado_financeiro || !d.enviado_ceo).length;
 
   const INPUT = 'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm';
@@ -173,18 +173,22 @@ export default function DHPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Total DHs</p>
           <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">{totalDhs}</p>
         </div>
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Sucesso</p>
-          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{totalSucesso}</p>
-        </div>
         <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
           <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">Retainer</p>
           <p className="text-2xl font-bold text-purple-700 dark:text-purple-300 mt-1">{totalRetainer}</p>
+        </div>
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4">
+          <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Sucesso</p>
+          <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300 mt-1">{totalSucesso}</p>
+        </div>
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Parcelamento</p>
+          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{totalParcelamento}</p>
         </div>
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
           <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">Pendentes de Envio</p>
@@ -240,7 +244,7 @@ export default function DHPage() {
                           {md.dhs.length === 0
                             ? <span className="text-gray-300 dark:text-gray-600">—</span>
                             : md.dhs.map((d) => (
-                              <span key={d.id} className={`px-1.5 py-0.5 rounded text-xs ${tipoColor(d.tipo_fechamento, d.tipo_abertura_fechamento)}`}>
+                              <span key={d.id} className={`px-1.5 py-0.5 rounded text-xs ${tipoColor(d.tipo_fechamento)}`}>
                                 {d.empresa}
                               </span>
                             ))}
@@ -283,8 +287,8 @@ export default function DHPage() {
                         <div className="text-xs text-gray-400 dark:text-gray-500">{dh.empresa}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${tipoColor(dh.tipo_fechamento, dh.tipo_abertura_fechamento)}`}>
-                          {tipoLabel(dh.tipo_fechamento, dh.tipo_abertura_fechamento)}
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${tipoColor(dh.tipo_fechamento)}`}>
+                          {tipoLabel(dh.tipo_fechamento)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{dh.colaborador_preencheu}</td>
@@ -338,7 +342,7 @@ export default function DHPage() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tipo de Fechamento *</label>
-                <select className={INPUT} value={form.tipo_combined} onChange={(e) => setForm({ ...form, tipo_combined: e.target.value })}>
+                <select className={INPUT} value={form.tipo_fechamento} onChange={(e) => setForm({ ...form, tipo_fechamento: e.target.value as 'retainer' | 'sucesso' | 'parcelamento' })}>
                   {TIPOS_DH.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
@@ -372,10 +376,7 @@ export default function DHPage() {
               await dhService.criar({
                 empresa: l.empresa,
                 posicao: l.posicao,
-                tipo: l.tipo || 'sucesso',
-                tipo_abertura_fechamento: null,
-                mes: parseInt(l.mes),
-                ano: parseInt(l.ano),
+                tipo_fechamento: mapTipoImport(l.tipo || l.tipo_fechamento || ''),
                 colaborador_preencheu: l.colaborador_preencheu || '',
               });
             }

@@ -21,7 +21,6 @@ const MENU = [
   { label: 'Colaboradores', path: '/colaboradores', desc: 'Equipe e salários', permKey: 'colaboradores' },
   { label: 'Férias', path: '/ferias', desc: 'Gestão de férias', notifKey: 'feriasAguardando', permKey: 'ferias' },
   { label: 'Patrimônio', path: '/patrimonio', desc: 'Equipamentos por colaborador', permKey: 'patrimonio' },
-  { label: 'Relatórios', path: '/relatorios', desc: 'Relatórios financeiros', permKey: 'relatorios' },
   { label: 'Auditoria', path: '/auditoria', desc: 'Histórico de alterações', adminOnly: true },
   { label: 'Segurança', path: '/seguranca', desc: 'Autenticação em duas etapas', adminOnly: true },
   { label: 'Configurações', path: '/configuracoes', desc: 'Usuários e permissões', adminOnly: true },
