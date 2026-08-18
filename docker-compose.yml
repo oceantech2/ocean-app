@@ -44,6 +44,7 @@ services:
       REDIS_URL: redis://redis:6379
       DEBUG: "True"
       SECRET_KEY: dev-secret-key-change-in-production
+      MAGGO_STUB_EMPTY: "true"
       UPLOAD_DIR: /app/uploads
       # Alertas por e-mail (deixe ALERT_EMAILS vazio para desativar / modo dry-run)
       ALERT_EMAILS: "${ALERT_EMAILS:-}"

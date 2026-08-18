@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
-import { nfsService } from '../services/api';
+import { useState, useEffect, useRef } from 'react';
+import { nfsService, contasCorrentesService, impostosService } from '../services/api';
 import { mensagemErro, detalheObjeto } from '../utils/erros';
-import { NF } from '../types';
+import { ContaCorrente, NF } from '../types';
+import { caixaInicialForm, codigoPadrao, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
+import { anosCompetencia, mapaAliquotas, textoTooltipAliquota } from '../utils/aliquotaMes';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import Pagination from '../components/Pagination';
 import { exportarCSV } from '../utils/export';
@@ -23,10 +25,17 @@ function tipoColor(tipo: string) {
 }
 
 function rowBg(status: string) {
-  if (status === 'paga') return 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100/80 dark:hover:bg-green-900/20';
-  if (status === 'pendente') return 'bg-yellow-50 dark:bg-yellow-900/10 hover:bg-yellow-100/80 dark:hover:bg-yellow-900/20';
-  if (status === 'cancelada') return 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100/80 dark:hover:bg-red-900/20 opacity-60';
-  return 'bg-orange-50 dark:bg-orange-900/10 hover:bg-orange-100/60 dark:hover:bg-orange-900/20';
+  if (status === 'paga') return 'bg-green-50 dark:bg-[#15241c] hover:bg-green-100 dark:hover:bg-[#1c3328]';
+  if (status === 'pendente') return 'bg-yellow-50 dark:bg-[#242015] hover:bg-yellow-100 dark:hover:bg-[#332c18]';
+  if (status === 'cancelada') return 'bg-red-50 dark:bg-[#241515] hover:bg-red-100 dark:hover:bg-[#331c1c]';
+  return 'bg-orange-50 dark:bg-[#241c15] hover:bg-orange-100 dark:hover:bg-[#332818]';
+}
+
+function stickyBg(status: string) {
+  if (status === 'paga') return 'bg-green-50 dark:bg-[#15241c] group-hover:bg-green-100 dark:group-hover:bg-[#1c3328]';
+  if (status === 'pendente') return 'bg-yellow-50 dark:bg-[#242015] group-hover:bg-yellow-100 dark:group-hover:bg-[#332c18]';
+  if (status === 'cancelada') return 'bg-red-50 dark:bg-[#241515] group-hover:bg-red-100 dark:group-hover:bg-[#331c1c]';
+  return 'bg-orange-50 dark:bg-[#241c15] group-hover:bg-orange-100 dark:group-hover:bg-[#332818]';
 }
 
 function statusColor(s: string) {
@@ -93,11 +102,31 @@ const FORM_INICIAL = {
   data_ent_pgto: '', data_emissao: '', data_vencimento: '',
   data_pagamento: '',
   pagamento_estado: 'pendente' as 'pendente' | 'recebido',
+  caixa: '',
   tipo: 'retainer' as 'retainer' | 'sucesso' | 'parcelamento',
 };
 
 const INPUT = 'border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full';
 const INPUT_RO = INPUT + ' bg-gray-50 dark:bg-gray-900/40 text-gray-600 dark:text-gray-400 cursor-not-allowed';
+
+const COLUNAS: { label: string; campo: string | null; className: string; width: string }[] = [
+  { label: 'Projeto', campo: 'posicao', width: '8.5rem', className: 'sticky left-0 z-[2] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
+  { label: 'Origem', campo: 'origem', width: '5.5rem', className: '' },
+  { label: 'Método de pagamento', campo: 'tipo', width: '6.5rem', className: '' },
+  { label: 'Bruto', campo: 'valor_bruto', width: '6.5rem', className: '' },
+  { label: 'Imposto', campo: 'valor_imposto', width: '5.5rem', className: '' },
+  { label: 'Líquido', campo: 'valor_liquido', width: '6.5rem', className: '' },
+  { label: 'Data de fechamento', campo: 'data_ent_pgto', width: '6.5rem', className: '' },
+  { label: 'NF', campo: 'numero', width: '4.5rem', className: '' },
+  { label: 'Emissão', campo: 'data_emissao', width: '5.5rem', className: '' },
+  { label: 'Vencimento', campo: 'data_vencimento', width: '5.5rem', className: '' },
+  { label: 'Pagamento', campo: 'data_pagamento', width: '5.5rem', className: '' },
+  { label: 'Conta corrente', campo: 'caixa', width: '7rem', className: '' },
+  { label: 'Status', campo: 'status', width: '5.5rem', className: '' },
+  { label: 'Ações', campo: null, width: '6.5rem', className: 'sticky right-0 z-[2] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
+];
+
+const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1020px]';
 
 export default function NFs() {
   const papel = useAuthStore((s) => s.papel);
@@ -106,6 +135,8 @@ export default function NFs() {
   const triggerCalendarioRefresh = useNotifStore((s) => s.triggerCalendarioRefresh);
 
   const [nfs, setNfs] = useState<NF[]>([]);
+  const [aliquotaPorMes, setAliquotaPorMes] = useState<Record<string, number>>({});
+  const [contasCorrentes, setContasCorrentes] = useState<ContaCorrente[]>([]);
   const [loading, setLoading] = useState(true);
   const [resumo, setResumo] = useState<any>(null);
   const [pagina, setPagina] = useState(0);
@@ -123,7 +154,15 @@ export default function NFs() {
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
   const [dataPagamentoForm, setDataPagamentoForm] = useState('');
+  const [caixaReceberForm, setCaixaReceberForm] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
+  const headScrollRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const syncingScroll = useRef(false);
+
+  useEffect(() => {
+    contasCorrentesService.listar(true).then((res) => setContasCorrentes(res.data || [])).catch(() => setContasCorrentes([]));
+  }, []);
 
   useEffect(() => { carregarNFs(); setPagina(0); }, [nfsMes, nfsAno, nfsStatus, nfsSemNumero, mostrarArquivadas]);
 
@@ -146,10 +185,23 @@ export default function NFs() {
         ).catch(() => null),
       ]);
       const lista = Array.isArray(nfsRes.data) ? nfsRes.data : [];
-      setNfs(semNumero
+      const visiveis = semNumero
         ? lista.filter((n: NF) => n.status !== 'cancelada' && !(n.numero ?? '').trim())
-        : lista);
+        : lista;
+      setNfs(visiveis);
       setResumo(resumoRes?.data ?? null);
+      const anos = anosCompetencia(visiveis);
+      try {
+        if (anos.length === 0) {
+          setAliquotaPorMes({});
+        } else {
+          const respostas = await Promise.all(anos.map((ano) => impostosService.deContas(ano)));
+          const itens = respostas.flatMap((r) => (Array.isArray(r.data) ? r.data : []));
+          setAliquotaPorMes(mapaAliquotas(itens));
+        }
+      } catch {
+        setAliquotaPorMes({});
+      }
       const headers = nfsRes.headers || {};
       const maggoStatus = headers['x-ocean-maggo-status'];
       const ignorados = headers['x-ocean-maggo-ignorados'];
@@ -161,6 +213,7 @@ export default function NFs() {
       }
     } catch (e: any) {
       setNfs([]);
+      setAliquotaPorMes({});
       setResumo(null);
       toast.error(mensagemErro(e, 'Erro ao carregar Contas a Receber'));
     } finally {
@@ -181,6 +234,7 @@ export default function NFs() {
       data_emissao: nf.data_emissao || '',
       data_vencimento: nf.data_vencimento || '', data_pagamento: nf.data_pagamento || '',
       pagamento_estado: nf.data_pagamento ? 'recebido' : 'pendente',
+      caixa: caixaInicialForm(nf.caixa, contasCorrentes),
       tipo: (nf.tipo === 'sucesso' || nf.tipo === 'parcelamento' ? nf.tipo : 'retainer'),
     });
     setModalAberto(true);
@@ -190,7 +244,7 @@ export default function NFs() {
     setCriando(true);
     setEditando(null);
     setConflitoNfId(null);
-    setForm({ ...FORM_INICIAL });
+    setForm({ ...FORM_INICIAL, caixa: codigoPadrao(contasCorrentes) });
     setModalAberto(true);
   };
 
@@ -246,7 +300,7 @@ export default function NFs() {
           data_vencimento: form.data_vencimento || null,
           tipo: form.tipo,
           data_pagamento: recebido ? form.data_pagamento : null,
-          caixa: recebido ? 'corrente' : null,
+          caixa: recebido ? (form.caixa || codigoPadrao(contasCorrentes)) : null,
         });
         toast.success('Conta a receber criada!');
         setModalAberto(false);
@@ -264,11 +318,6 @@ export default function NFs() {
     const isManual = editando.origem === 'manual';
     const recebido = form.pagamento_estado === 'recebido';
     const dataPagamento = recebido ? (form.data_pagamento || null) : null;
-    if (recebido && !dataPagamento) {
-      toast.error(MSG_DATA_PAGAMENTO);
-      return;
-    }
-    const transicionaRecebido = recebido && !editando.data_pagamento;
     try {
       setSalvando(true);
       setConflitoNfId(null);
@@ -278,8 +327,8 @@ export default function NFs() {
         data_vencimento: form.data_vencimento || null,
         data_pagamento: dataPagamento,
       };
-      if (transicionaRecebido) {
-        dados.caixa = 'corrente';
+      if (recebido && form.caixa) {
+        dados.caixa = form.caixa;
       }
       if (isManual) {
         if (!form.razao_social.trim() || !form.valor_bruto || !form.valor_liquido) {
@@ -311,6 +360,7 @@ export default function NFs() {
 
   const abrirPagar = (nf: NF) => {
     setDataPagamentoForm(new Date().toISOString().split('T')[0]);
+    setCaixaReceberForm(caixaInicialForm(nf.caixa, contasCorrentes));
     setPagarModal(nf);
   };
 
@@ -320,10 +370,14 @@ export default function NFs() {
       toast.error(MSG_DATA_PAGAMENTO);
       return;
     }
+    if (!caixaReceberForm) {
+      toast.error('Selecione a conta corrente');
+      return;
+    }
     try {
       await nfsService.atualizar(pagarModal.id, {
         data_pagamento: dataPagamentoForm,
-        caixa: 'corrente',
+        caixa: caixaReceberForm,
       });
       toast.success('Marcada como recebida!');
       setPagarModal(null);
@@ -355,17 +409,18 @@ export default function NFs() {
   const exportar = () => {
     exportarCSV(nfs.map((n) => ({
       NF: n.numero || '',
-      Vaga: n.posicao || '',
+      Projeto: n.posicao || '',
       Empresa: n.razao_social,
       Origem: origemLabel(n.origem),
       'Método de pagamento': tipoLabel(n.tipo),
       Bruto: n.valor_bruto,
       Imposto: n.valor_imposto ?? '',
       Líquido: n.valor_liquido,
-      'Data ent. pgto': n.data_ent_pgto || '',
+      'Data de fechamento': n.data_ent_pgto || '',
       Emissão: n.data_emissao || '',
       Vencimento: n.data_vencimento || '',
       Pagamento: n.data_pagamento || '',
+      'Conta corrente': rotuloContaOrigem(n.caixa, contasCorrentes),
       Status: statusLabel(n.status),
     })), `contas_receber_${nfsAno}`);
   };
@@ -388,6 +443,33 @@ export default function NFs() {
   })();
 
   const paginados = nfsFiltradas.slice(pagina * itensPorPagina, (pagina + 1) * itensPorPagina);
+
+  const sincronizarScroll = (origem: 'head' | 'body') => {
+    if (syncingScroll.current) return;
+    const head = headScrollRef.current;
+    const body = bodyScrollRef.current;
+    if (!head || !body) return;
+    syncingScroll.current = true;
+    if (origem === 'head') body.scrollLeft = head.scrollLeft;
+    else head.scrollLeft = body.scrollLeft;
+    syncingScroll.current = false;
+  };
+
+  useEffect(() => {
+    const body = bodyScrollRef.current;
+    if (!body) return;
+    const onWheel = (e: WheelEvent) => {
+      const horizontal = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      if (!horizontal) return;
+      const dx = e.shiftKey && Math.abs(e.deltaX) < 1 ? e.deltaY : e.deltaX;
+      if (!dx) return;
+      e.preventDefault();
+      body.scrollLeft += dx;
+      if (headScrollRef.current) headScrollRef.current.scrollLeft = body.scrollLeft;
+    };
+    body.addEventListener('wheel', onWheel, { passive: false });
+    return () => body.removeEventListener('wheel', onWheel);
+  }, [loading, nfs.length]);
 
   const SortIcon = ({ campo }: { campo: string }) => (
     <span className="ml-1 text-xs opacity-50">{sortField === campo ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
@@ -499,49 +581,59 @@ export default function NFs() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+      <div className="relative z-0 isolate bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden h-[36rem] flex flex-col">
         {loading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+          <div className="flex-1 p-8 text-center text-gray-500 dark:text-gray-400 flex flex-col items-center justify-center">
             <div className="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2" />
             <p>Carregando...</p>
           </div>
         ) : nfs.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 dark:text-gray-500">Nenhuma conta a receber encontrada</div>
+          <div className="flex-1 p-8 text-center text-gray-400 dark:text-gray-500 flex items-center justify-center">Nenhuma conta a receber encontrada</div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[1120px]">
-              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                <tr>
-                  {[
-                    { label: 'Vaga', campo: 'posicao', className: 'text-left' },
-                    { label: 'Origem', campo: 'origem', className: 'text-left' },
-                    { label: 'Método de pagamento', campo: 'tipo', className: 'text-left' },
-                    { label: 'Bruto', campo: 'valor_bruto', className: 'text-right' },
-                    { label: 'Imposto', campo: 'valor_imposto', className: 'text-right' },
-                    { label: 'Líquido', campo: 'valor_liquido', className: 'text-right' },
-                    { label: 'Data ent. pgto', campo: 'data_ent_pgto', className: 'text-left' },
-                    { label: 'NF', campo: 'numero', className: 'text-left' },
-                    { label: 'Emissão', campo: 'data_emissao', className: 'text-left' },
-                    { label: 'Vencimento', campo: 'data_vencimento', className: 'text-left' },
-                    { label: 'Pagamento', campo: 'data_pagamento', className: 'text-left' },
-                    { label: 'Status', campo: 'status', className: 'text-left' },
-                    { label: 'Ações', campo: null, className: 'text-right sticky right-0 bg-gray-50 dark:bg-gray-700 z-20 shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)]' },
-                  ].map(({ label, campo, className }) => (
-                    <th
-                      key={label || 'acoes'}
-                      onClick={campo ? () => alternarOrdenacao(campo) : undefined}
-                      className={`px-2 py-2.5 text-gray-600 dark:text-gray-300 font-medium whitespace-nowrap ${className} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
-                    >
-                      {label}{campo && <SortIcon campo={campo} />}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+            <div
+              ref={headScrollRef}
+              className="nfs-grade-head shrink-0"
+              onScroll={() => sincronizarScroll('head')}
+            >
+              <table className={TABELA_CLASSE}>
+                <colgroup>
+                  {COLUNAS.map((c) => <col key={c.label} style={{ width: c.width }} />)}
+                </colgroup>
+                <thead>
+                  <tr>
+                    {COLUNAS.map(({ label, campo, className }) => (
+                      <th
+                        key={label}
+                        title={label}
+                        onClick={campo ? () => alternarOrdenacao(campo) : undefined}
+                        className={`px-2 py-2.5 align-middle text-center text-gray-600 dark:text-gray-300 font-medium bg-gray-100 dark:bg-gray-700 ${className} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
+                      >
+                        <span className="inline-flex items-center justify-center gap-0.5 w-full min-w-0">
+                          <span className="line-clamp-2 break-words leading-tight whitespace-normal text-center min-w-0">{label}</span>
+                          {campo && <SortIcon campo={campo} />}
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              </table>
+            </div>
+            <div
+              ref={bodyScrollRef}
+              className="nfs-grade-body flex-1 min-h-0"
+              onScroll={() => sincronizarScroll('body')}
+            >
+            <table className={TABELA_CLASSE}>
+              <colgroup>
+                {COLUNAS.map((c) => <col key={c.label} style={{ width: c.width }} />)}
+              </colgroup>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {paginados.map((nf) => (
-                  <tr key={nf.id} className={`${rowBg(nf.status)} transition-colors ${nf.arquivada ? 'opacity-50' : ''} group`}>
-                    <td className="px-2 py-2.5 text-gray-700 dark:text-gray-300 max-w-[200px]">
+                {paginados.map((nf) => {
+                  const tipImposto = textoTooltipAliquota(nf, aliquotaPorMes);
+                  return (
+                  <tr key={nf.id} className={`${rowBg(nf.status)} transition-colors ${nf.arquivada ? 'text-gray-400 dark:text-gray-500' : ''} group`}>
+                    <td className={`px-2 py-2.5 text-gray-700 dark:text-gray-300 max-w-[8.5rem] sticky left-0 z-[1] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.12)] ${stickyBg(nf.status)}`}>
                       <div className="font-medium text-gray-800 dark:text-gray-100 truncate" title={nf.posicao || ''}>{dash(nf.posicao)}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={nf.razao_social}>{nf.razao_social}</div>
                     </td>
@@ -556,7 +648,11 @@ export default function NFs() {
                       </span>
                     </td>
                     <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_bruto)}</td>
-                    <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmtImposto(nf.valor_imposto)}</td>
+                    <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">
+                      <span tabIndex={0} title={tipImposto} aria-label={tipImposto} className="outline-none">
+                        {fmtImposto(nf.valor_imposto)}
+                      </span>
+                    </td>
                     <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_liquido)}</td>
                     <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{dash(nf.data_ent_pgto)}</td>
                     <td className="px-2 py-2.5 font-mono font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
@@ -572,10 +668,11 @@ export default function NFs() {
                         ? <span className="text-green-700 dark:text-green-400 font-medium">{nf.data_pagamento}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
+                    <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{rotuloContaOrigem(nf.caixa, contasCorrentes)}</td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${statusColor(nf.status)}`}>{statusLabel(nf.status)}</span>
                     </td>
-                    <td className={`px-2 py-2.5 sticky right-0 z-10 shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.12)] ${rowBg(nf.status)}`}>
+                    <td className={`px-2 py-2.5 sticky right-0 z-[1] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)] ${stickyBg(nf.status)}`}>
                       {papel === 'admin' && (
                         <div className="flex gap-0.5 justify-end">
                           <button
@@ -619,11 +716,14 @@ export default function NFs() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             </div>
-            <Pagination total={nfsFiltradas.length} pagina={pagina} tamanho={itensPorPagina} onChange={setPagina} />
+            <div className="shrink-0">
+              <Pagination total={nfsFiltradas.length} pagina={pagina} tamanho={itensPorPagina} onChange={setPagina} />
+            </div>
           </>
         )}
       </div>
@@ -654,7 +754,7 @@ export default function NFs() {
               <div className="grid grid-cols-2 gap-4">
               <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Dados Maggo</p>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Vaga</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Projeto</label>
                 <input
                   className={maggoEditavel ? INPUT : INPUT_RO}
                   value={form.posicao}
@@ -738,7 +838,7 @@ export default function NFs() {
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data ent. pgto</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de fechamento</label>
                 <input
                   type="date"
                   className={maggoEditavel ? INPUT : INPUT_RO}
@@ -785,8 +885,9 @@ export default function NFs() {
                     const v = e.target.value as 'pendente' | 'recebido';
                     setForm({
                       ...form,
-                      pagamento_estado: v,
-                      data_pagamento: v === 'pendente' ? '' : (form.data_pagamento || new Date().toISOString().split('T')[0]),
+                    pagamento_estado: v,
+                    data_pagamento: v === 'pendente' ? '' : (form.data_pagamento || new Date().toISOString().split('T')[0]),
+                    caixa: v === 'recebido' ? (form.caixa || codigoPadrao(contasCorrentes)) : form.caixa,
                     });
                   }}
                 >
@@ -804,6 +905,21 @@ export default function NFs() {
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento *</label>
                   <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
+                </div>
+              )}
+              {form.pagamento_estado === 'recebido' && (
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
+                  <select
+                    className={INPUT}
+                    value={form.caixa || codigoPadrao(contasCorrentes)}
+                    onChange={(e) => setForm({ ...form, caixa: e.target.value })}
+                    disabled={papel !== 'admin'}
+                  >
+                    {contasCorrentes.filter((c) => c.ativo).map((c) => (
+                      <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                    ))}
+                  </select>
                 </div>
               )}
               </div>
@@ -846,6 +962,18 @@ export default function NFs() {
                   value={dataPagamentoForm}
                   onChange={(e) => setDataPagamentoForm(e.target.value)}
                 />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
+                <select
+                  className={INPUT}
+                  value={caixaReceberForm}
+                  onChange={(e) => setCaixaReceberForm(e.target.value)}
+                >
+                  {contasCorrentes.filter((c) => c.ativo).map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">

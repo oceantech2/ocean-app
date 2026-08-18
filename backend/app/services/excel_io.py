@@ -419,8 +419,7 @@ def _inferir_centro_custo(descricao: str) -> str:
 def preencher_template_nfs(nfs: list[dict]) -> bytes:
     """Preenche a aba 'Entradas' do template com as NFs (em memória).
 
-    Origem / Imposto / Data ent. pgto são acrescentados após Placement.
-    Caixa não é exportada nesta planilha (019).
+    Origem / Imposto / Data ent. pgto / Conta corrente são acrescentados após Placement.
     """
     wb = openpyxl.load_workbook(TEMPLATE_NFS_PATH)
     ws = wb[NF_SHEET]
@@ -428,9 +427,11 @@ def preencher_template_nfs(nfs: list[dict]) -> bytes:
     col_origem = max(NF_COLS.values()) + 1
     col_imposto = col_origem + 1
     col_ent_pgto = col_imposto + 1
+    col_conta = col_ent_pgto + 1
     ws.cell(row=NF_HEADER_ROW, column=col_origem, value="Origem")
     ws.cell(row=NF_HEADER_ROW, column=col_imposto, value="Imposto")
-    ws.cell(row=NF_HEADER_ROW, column=col_ent_pgto, value="Data ent. pgto")
+    ws.cell(row=NF_HEADER_ROW, column=col_ent_pgto, value="Data de fechamento")
+    ws.cell(row=NF_HEADER_ROW, column=col_conta, value="Conta corrente")
 
     row = NF_DATA_START_ROW
     for nf in nfs:
@@ -449,6 +450,7 @@ def preencher_template_nfs(nfs: list[dict]) -> bytes:
         ws.cell(row=row, column=col_origem, value="Manual" if orig == "manual" else "Maggo")
         ws.cell(row=row, column=col_imposto, value=nf.get("valor_imposto"))
         ws.cell(row=row, column=col_ent_pgto, value=nf.get("data_ent_pgto"))
+        ws.cell(row=row, column=col_conta, value=nf.get("caixa_rotulo") or nf.get("caixa") or "")
         row += 1
 
     buf = io.BytesIO()
@@ -497,6 +499,7 @@ def preencher_template_contas(contas: list[dict], mes: int | None = None, ano: i
         mes_str = MESES_NOME.get(mes, str(mes))
         ws.cell(row=1, column=1, value=f"Fluxo de Caixa - Ocean - Conta de movimentação - {mes_str} {ano}")
 
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=6, value="Conta corrente")
     row = CONTAS_DATA_START_ROW
     for conta in contas:
         data = conta.get("data_pagamento") or conta.get("data_vencimento")
@@ -504,6 +507,7 @@ def preencher_template_contas(contas: list[dict], mes: int | None = None, ano: i
         ws.cell(row=row, column=CONTAS_COLS["descricao"],  value=conta.get("descricao"))
         ws.cell(row=row, column=CONTAS_COLS["forma_pgto"], value="Pix" if conta.get("pago") else "")
         ws.cell(row=row, column=CONTAS_COLS["debito"],     value=conta.get("valor"))
+        ws.cell(row=row, column=6, value=conta.get("caixa_rotulo") or "")
         row += 1
 
     buf = io.BytesIO()

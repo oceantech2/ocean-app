@@ -111,7 +111,7 @@ class NFBase(BaseModel):
 class NFCreate(NFBase):
     status: Optional[str] = None
     data_pagamento: Optional[date] = None
-    caixa: Optional[Literal["corrente", "investimento"]] = None
+    caixa: Optional[str] = None
     colaborador_lead_id: Optional[int] = None
     colaborador_conducao_id: Optional[int] = None
     colaborador_placement_id: Optional[int] = None
@@ -124,8 +124,8 @@ class NFCreate(NFBase):
     @field_validator("caixa")
     @classmethod
     def validar_caixa_create(cls, v):
-        if v is not None and v not in ("corrente", "investimento"):
-            raise ValueError("caixa deve ser 'corrente', 'investimento' ou null")
+        if v is not None and not str(v).strip():
+            raise ValueError("caixa inválido")
         return v
 
     @model_validator(mode="after")
@@ -153,7 +153,7 @@ class NFUpdate(BaseModel):
     colaborador_conducao_id: Optional[int] = None
     colaborador_placement_id: Optional[int] = None
     arquivada: Optional[bool] = None
-    caixa: Optional[Literal["corrente", "investimento"]] = None
+    caixa: Optional[str] = None
 
     @field_validator("numero", mode="before")
     @classmethod
@@ -173,8 +173,8 @@ class NFUpdate(BaseModel):
     @field_validator("caixa")
     @classmethod
     def validar_caixa(cls, v):
-        if v is not None and v not in ("corrente", "investimento"):
-            raise ValueError("caixa deve ser 'corrente', 'investimento' ou null")
+        if v is not None and not str(v).strip():
+            raise ValueError("caixa inválido")
         return v
 
 class NFResponse(NFBase):
@@ -266,6 +266,42 @@ class FeriasResponse(FeriasBase):
         from_attributes = True
 
 # ==================== CONTAS A PAGAR ====================
+class CategoriaOficialItem(BaseModel):
+    codigo: str
+    nome: str
+    exige_subcategoria: bool
+
+
+class CategoriaCadastradaItem(BaseModel):
+    id: int
+    codigo: str
+    nome: str
+
+
+class SubcategoriaRhItem(BaseModel):
+    codigo: str
+    nome: str
+
+
+class CatalogoCategoriasContas(BaseModel):
+    oficiais: List[CategoriaOficialItem]
+    cadastradas: List[CategoriaCadastradaItem]
+    subcategorias_rh: List[SubcategoriaRhItem]
+
+
+class CategoriaCadastradaCreate(BaseModel):
+    nome: str
+
+
+class CategoriaCadastradaResponse(BaseModel):
+    id: int
+    codigo: str
+    nome: str
+
+    class Config:
+        from_attributes = True
+
+
 class ContaPagarBase(BaseModel):
     descricao: str
     categoria: str
@@ -276,6 +312,7 @@ class ContaPagarBase(BaseModel):
 class ContaPagarCreate(ContaPagarBase):
     data_pagamento: Optional[date] = None
     fornecedor_id: Optional[int] = None
+    caixa: Optional[str] = None
 
 class ContaPagarUpdate(BaseModel):
     descricao: Optional[str] = None
@@ -286,12 +323,14 @@ class ContaPagarUpdate(BaseModel):
     data_pagamento: Optional[date] = None
     pago: Optional[bool] = None
     fornecedor_id: Optional[int] = None
+    caixa: Optional[str] = None
 
 class ContaPagarResponse(ContaPagarBase):
     id: int
     categoria_pendente: bool = False
     pago: bool
     data_pagamento: Optional[date]
+    caixa: Optional[str] = None
     comprovante_nome: Optional[str] = None
     fornecedor_id: Optional[int] = None
     fornecedor_nome: Optional[str] = None
@@ -362,6 +401,37 @@ class UsuarioAppResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ==================== CONTAS CORRENTES ====================
+class ContaCorrenteCreate(BaseModel):
+    nome: str
+    banco: str
+    agencia: Optional[str] = None
+    numero: Optional[str] = None
+
+
+class ContaCorrenteUpdate(BaseModel):
+    nome: Optional[str] = None
+    banco: Optional[str] = None
+    agencia: Optional[str] = None
+    numero: Optional[str] = None
+    padrao: Optional[bool] = None
+    ativo: Optional[bool] = None
+
+
+class ContaCorrenteResponse(BaseModel):
+    id: int
+    codigo: str
+    nome: str
+    banco: str
+    agencia: Optional[str] = None
+    numero: Optional[str] = None
+    padrao: bool
+    ativo: bool
+
+    class Config:
+        from_attributes = True
+
 
 # ==================== SALDO / FLUXO DE CAIXA ====================
 class SaldoBase(BaseModel):

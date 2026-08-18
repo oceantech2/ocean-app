@@ -8,6 +8,22 @@ def so_digitos(valor: Optional[str]) -> str:
     return re.sub(r"\D", "", valor or "")
 
 
+def normalizar_cnpj(valor: Optional[str]) -> str:
+    """14 posições: A–Z e 0–9, maiúsculas, sem pontuação (RFB/Serpro)."""
+    return re.sub(r"[^0-9A-Z]", "", (valor or "").upper())[:14]
+
+
+def _valor_cnpj(caractere: str) -> int:
+    # RFB: valor = ASCII - 48 ('0'=0 … '9'=9, 'A'=17 …)
+    return ord(caractere) - 48
+
+
+def _dv_cnpj(corpo: str, pesos: list[int]) -> int:
+    soma = sum(_valor_cnpj(corpo[i]) * pesos[i] for i in range(len(pesos)))
+    d = 11 - (soma % 11)
+    return 0 if d >= 10 else d
+
+
 def validar_cpf(cpf: str) -> bool:
     c = so_digitos(cpf)
     if len(c) != 11 or c == c[0] * 11:
@@ -26,15 +42,15 @@ def validar_cpf(cpf: str) -> bool:
 
 
 def validar_cnpj(cnpj: str) -> bool:
-    c = so_digitos(cnpj)
+    c = normalizar_cnpj(cnpj)
     if len(c) != 14 or c == c[0] * 14:
+        return False
+    if not c[12:].isdigit():
         return False
     pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
     pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
-    d1 = 11 - (sum(int(c[i]) * pesos1[i] for i in range(12)) % 11)
-    d1 = 0 if d1 >= 10 else d1
-    d2 = 11 - (sum(int(c[i]) * pesos2[i] for i in range(13)) % 11)
-    d2 = 0 if d2 >= 10 else d2
+    d1 = _dv_cnpj(c[:12], pesos1)
+    d2 = _dv_cnpj(c[:13], pesos2)
     return d1 == int(c[12]) and d2 == int(c[13])
 
 
@@ -46,10 +62,16 @@ def formatar_cpf(cpf: str) -> str:
 
 
 def formatar_cnpj(cnpj: str) -> str:
-    c = so_digitos(cnpj)[:14]
-    if len(c) != 14:
+    c = normalizar_cnpj(cnpj)
+    if len(c) <= 2:
         return c
-    return f"{c[:2]}.{c[2:5]}.{c[5:8]}/{c[8:12]}-{c[12:]}"
+    if len(c) <= 5:
+        return f"{c[:2]}.{c[2:]}"
+    if len(c) <= 8:
+        return f"{c[:2]}.{c[2:5]}.{c[5:]}"
+    if len(c) <= 12:
+        return f"{c[:2]}.{c[2:5]}.{c[5:8]}/{c[8:]}"
+    return f"{c[:2]}.{c[2:5]}.{c[5:8]}/{c[8:12]}-{c[12:14]}"
 
 
 def formatar_documento(tipo_documento: str, documento: str) -> str:

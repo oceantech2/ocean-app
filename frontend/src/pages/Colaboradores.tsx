@@ -28,15 +28,18 @@ function validarCPF(cpf: string): boolean {
 }
 
 function validarCNPJ(cnpj: string): boolean {
-  const c = cnpj.replace(/\D/g, '');
-  if (c.length !== 14 || /^(\d)\1+$/.test(c)) return false;
+  const c = normalizarCNPJ(cnpj);
+  if (c.length !== 14 || /^([0-9A-Z])\1{13}$/.test(c)) return false;
+  if (!/[0-9]{2}$/.test(c)) return false;
+  const valor = (ch: string) => ch.charCodeAt(0) - 48;
+  const dv = (corpo: string, pesos: number[]) => {
+    const soma = pesos.reduce((s, p, i) => s + valor(corpo[i]) * p, 0);
+    const d = 11 - (soma % 11);
+    return d >= 10 ? 0 : d;
+  };
   const pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
   const pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-  const d1calc = 11 - (pesos1.reduce((s, p, i) => s + parseInt(c[i]) * p, 0) % 11);
-  const d1 = d1calc >= 10 ? 0 : d1calc;
-  const d2calc = 11 - (pesos2.reduce((s, p, i) => s + parseInt(c[i]) * p, 0) % 11);
-  const d2 = d2calc >= 10 ? 0 : d2calc;
-  return d1 === parseInt(c[12]) && d2 === parseInt(c[13]);
+  return dv(c.slice(0, 12), pesos1) === parseInt(c[12], 10) && dv(c.slice(0, 13), pesos2) === parseInt(c[13], 10);
 }
 
 function formatarCPF(cpf: string): string {
@@ -44,9 +47,17 @@ function formatarCPF(cpf: string): string {
   return c.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 }
 
+function normalizarCNPJ(cnpj: string): string {
+  return cnpj.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 14);
+}
+
 function formatarCNPJ(cnpj: string): string {
-  const c = cnpj.replace(/\D/g, '').slice(0, 14);
-  return c.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  const c = normalizarCNPJ(cnpj);
+  if (c.length <= 2) return c;
+  if (c.length <= 5) return `${c.slice(0, 2)}.${c.slice(2)}`;
+  if (c.length <= 8) return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5)}`;
+  if (c.length <= 12) return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8)}`;
+  return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
 }
 
 function formatarDoc(tipo: 'cpf' | 'cnpj', v: string): string {
@@ -103,8 +114,9 @@ export default function Colaboradores() {
   const cargos = [...new Set(colaboradores.map((c) => c.cargo).filter(Boolean) as string[])].sort();
   const filtrados = colaboradores.filter((c) => {
     if (filtroCargo && c.cargo !== filtroCargo) return false;
-    const doc = c.cpf || c.documento || '';
-    if (busca && !c.nome.toLowerCase().includes(busca.toLowerCase()) && !doc.includes(busca.replace(/\D/g, '')) && !doc.includes(busca)) return false;
+    const doc = (c.cpf || c.documento || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const buscaDoc = busca.toUpperCase().replace(/[^0-9A-Z]/g, '');
+    if (busca && !c.nome.toLowerCase().includes(busca.toLowerCase()) && !(buscaDoc && doc.includes(buscaDoc)) && !(c.razao_social || '').toLowerCase().includes(busca.toLowerCase())) return false;
     return true;
   });
   const paginados = filtrados.slice(pagina * ITENS_POR_PAGINA, (pagina + 1) * ITENS_POR_PAGINA);
@@ -134,9 +146,9 @@ export default function Colaboradores() {
   const salvar = async () => {
     if (!form.nome || !form.documento) { toast.error('Preencha os campos obrigatórios'); return; }
     if (!ehFornecedor && (!form.cargo || !form.salario || !form.data_nascimento)) { toast.error('Preencha os campos obrigatórios'); return; }
-    const digitos = form.documento.replace(/\D/g, '');
-    if (form.tipo_documento === 'cpf' && !validarCPF(digitos)) { toast.error('CPF inválido'); return; }
-    if (form.tipo_documento === 'cnpj' && !validarCNPJ(digitos)) { toast.error('CNPJ inválido'); return; }
+    const chave = form.tipo_documento === 'cnpj' ? normalizarCNPJ(form.documento) : form.documento.replace(/\D/g, '');
+    if (form.tipo_documento === 'cpf' && !validarCPF(chave)) { toast.error('CPF inválido'); return; }
+    if (form.tipo_documento === 'cnpj' && !validarCNPJ(chave)) { toast.error('CNPJ inválido'); return; }
     if (form.tipo_documento === 'cnpj' && !form.razao_social.trim()) { toast.error('Razão Social é obrigatória para CNPJ'); return; }
     if (!emailOk(form.email)) { toast.error('E-mail inválido'); return; }
     try {
@@ -144,7 +156,7 @@ export default function Colaboradores() {
       const dados: Record<string, unknown> = {
         tipo: visao,
         tipo_documento: form.tipo_documento,
-        documento: digitos,
+        documento: chave,
         nome: form.nome,
         razao_social: form.tipo_documento === 'cnpj' ? form.razao_social.trim() : null,
         telefone: form.telefone.trim() || null,
@@ -501,7 +513,8 @@ export default function Colaboradores() {
                   className={INPUT}
                   value={form.documento}
                   onChange={(e) => setForm({ ...form, documento: formatarDoc(form.tipo_documento, e.target.value) })}
-                  placeholder={form.tipo_documento === 'cnpj' ? '00.000.000/0000-00' : '000.000.000-00'}
+                  placeholder={form.tipo_documento === 'cnpj' ? '12.ABC.345/01DE-35' : '000.000.000-00'}
+                  autoCapitalize={form.tipo_documento === 'cnpj' ? 'characters' : 'off'}
                 />
               </div>
               {form.tipo_documento === 'cnpj' && (

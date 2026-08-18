@@ -43,7 +43,7 @@ export interface NF {
   colaborador_conducao_id?: number;
   colaborador_placement_id?: number;
   arquivada?: boolean;
-  caixa?: 'corrente' | 'investimento' | null;
+  caixa?: string | null;
   origem?: 'manual' | 'maggo' | null;
 }
 
@@ -92,7 +92,18 @@ export interface ResumoFeriasAno {
   tem_pendencia: boolean;
 }
 
-export type FluxoConta = 'corrente' | 'investimento';
+export type FluxoConta = string;
+
+export interface ContaCorrente {
+  id: number;
+  codigo: string;
+  nome: string;
+  banco: string;
+  agencia?: string | null;
+  numero?: string | null;
+  padrao: boolean;
+  ativo: boolean;
+}
 
 export type OrigemMovimentoFluxo = 'contas_receber' | 'contas_pagar' | 'manual' | 'transferencia';
 
@@ -120,10 +131,34 @@ export interface ContaPagar {
   data_vencimento?: string | null;
   data_pagamento?: string;
   pago: boolean;
+  caixa?: string | null;
   comprovante_nome?: string;
   fornecedor_id?: number | null;
   fornecedor_nome?: string | null;
   fornecedor_ativo?: boolean | null;
+}
+
+export interface CategoriaOficialItem {
+  codigo: string;
+  nome: string;
+  exige_subcategoria: boolean;
+}
+
+export interface CategoriaCadastradaItem {
+  id: number;
+  codigo: string;
+  nome: string;
+}
+
+export interface SubcategoriaRhItem {
+  codigo: string;
+  nome: string;
+}
+
+export interface CatalogoCategoriasContas {
+  oficiais: CategoriaOficialItem[];
+  cadastradas: CategoriaCadastradaItem[];
+  subcategorias_rh: SubcategoriaRhItem[];
 }
 
 // DH

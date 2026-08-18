@@ -11,7 +11,7 @@ from app.api.routes import (
     auditoria, metas, documentos, alertas, configuracoes
 )
 from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrimonio
-from app.api.routes import arquivos_nfs
+from app.api.routes import arquivos_nfs, contas_correntes
 
 # Criar tabelas
 Base.metadata.create_all(bind=engine)
@@ -110,6 +110,19 @@ def _migrar():
                 "ALTER TABLE contas_pagar ADD CONSTRAINT contas_pagar_fornecedor_id_fkey "
                 "FOREIGN KEY (fornecedor_id) REFERENCES colaboradores(id); "
                 "EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+            ))
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS categorias_pagar_cadastradas ("
+                "id SERIAL PRIMARY KEY, "
+                "codigo VARCHAR(64) UNIQUE, "
+                "nome VARCHAR(20) NOT NULL, "
+                "criado_em TIMESTAMP NOT NULL DEFAULT NOW(), "
+                "criado_por VARCHAR(255)"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_categorias_pagar_cadastradas_nome_lower "
+                "ON categorias_pagar_cadastradas (LOWER(nome))"
             ))
             conn.commit()
         except Exception:
@@ -252,6 +265,43 @@ def _migrar():
         except Exception:
             conn.rollback()
 
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS contas_correntes (
+                    id SERIAL PRIMARY KEY,
+                    codigo VARCHAR(64) UNIQUE NOT NULL,
+                    nome VARCHAR(80) NOT NULL,
+                    banco VARCHAR(80) NOT NULL,
+                    agencia VARCHAR(20),
+                    numero VARCHAR(32),
+                    padrao BOOLEAN NOT NULL DEFAULT FALSE,
+                    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                    criado_em TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                )
+                """
+            ))
+            conn.execute(text(
+                """
+                INSERT INTO contas_correntes (codigo, nome, banco, padrao, ativo)
+                SELECT 'corrente', 'Conta corrente', 'A definir', TRUE, TRUE
+                WHERE NOT EXISTS (SELECT 1 FROM contas_correntes WHERE codigo = 'corrente')
+                """
+            ))
+            conn.execute(text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_contas_correntes_nome_ativo
+                ON contas_correntes (LOWER(nome)) WHERE ativo IS TRUE
+                """
+            ))
+            conn.execute(text("ALTER TABLE nfs ALTER COLUMN caixa TYPE VARCHAR(64)"))
+            conn.execute(text("ALTER TABLE fluxo_movimentos ALTER COLUMN conta TYPE VARCHAR(64)"))
+            conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS caixa VARCHAR(64)"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
 _migrar()
 
 # Inicializar aplicação
@@ -296,6 +346,7 @@ app.include_router(impostos.router, prefix="/api/impostos", tags=["Impostos"])
 app.include_router(historico.router, prefix="/api/historico", tags=["Histórico"])
 app.include_router(fluxo_movimentos.router, prefix="/api/fluxo-movimentos", tags=["Fluxo Movimentos"])
 app.include_router(fluxo_movimentos.transferencias_router, prefix="/api/fluxo-transferencias", tags=["Fluxo Transferências"])
+app.include_router(contas_correntes.router, prefix="/api/contas-correntes", tags=["Contas correntes"])
 app.include_router(patrimonio.router, prefix="/api/patrimonio", tags=["Patrimônio"])
 app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arquivos NFs"])
 

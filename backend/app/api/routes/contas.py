@@ -2,17 +2,26 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import extract
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import io
 import os
 import uuid
 from app.database import get_db
 from app.models import ContaPagar, Colaborador
-from app.schemas import ContaPagarCreate, ContaPagarResponse, ContaPagarUpdate
+from app.schemas import (
+    CatalogoCategoriasContas,
+    CategoriaCadastradaCreate,
+    CategoriaCadastradaResponse,
+    ContaPagarCreate,
+    ContaPagarResponse,
+    ContaPagarUpdate,
+)
 from app.api.routes.auth import get_current_user, require_admin
 from app.services.audit import registrar_auditoria
 from app.services import excel_io
 from app.services import categorias_contas as cat_svc
+from app.services.caixas import exigir_conta_corrente, mapa_rotulos
 from app.config import settings
 
 router = APIRouter()
@@ -75,7 +84,10 @@ def importar_contas_xlsx(
     for r in registros:
         try:
             db.begin_nested()
-            cat, sub = cat_svc.validar_classificacao(r.get("categoria"), r.get("subcategoria"))
+            resolvida = cat_svc.resolver_import_categoria(r.get("categoria"), db) or r.get("categoria")
+            cat, sub = cat_svc.validar_classificacao(
+                resolvida, r.get("subcategoria"), db=db
+            )
             nova = ContaPagar(
                 descricao=r["descricao"],
                 categoria=cat,
@@ -99,6 +111,48 @@ def importar_contas_xlsx(
     return {"ok": ok, "erros": erros}
 
 
+@router.get("/categorias", response_model=CatalogoCategoriasContas)
+def listar_categorias_contas(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    return cat_svc.listar_catalogo(db)
+
+
+@router.post(
+    "/categorias",
+    response_model=CategoriaCadastradaResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def criar_categoria_cadastrada(
+    body: CategoriaCadastradaCreate,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    try:
+        row = cat_svc.criar_cadastrada(db, body.nome, criado_por=current_user)
+        registrar_auditoria(
+            db,
+            current_user,
+            "criar",
+            "CategoriaPagarCadastrada",
+            row.id,
+            row.nome,
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Já existe uma categoria com este nome",
+        )
+
+
 @router.get("/exportar-xlsx")
 def exportar_contas_xlsx(
     mes: int = Query(None, ge=1, le=12),
@@ -117,6 +171,7 @@ def exportar_contas_xlsx(
         query = query.filter(extract("year", ContaPagar.data_vencimento) == ano)
 
     contas = query.all()
+    rotulos = mapa_rotulos(db)
     dados = [
         {
             "descricao": c.descricao,
@@ -124,6 +179,7 @@ def exportar_contas_xlsx(
             "pago": c.pago,
             "data_vencimento": c.data_vencimento,
             "data_pagamento": c.data_pagamento,
+            "caixa_rotulo": rotulos.get(c.caixa) if c.caixa else "",
         }
         for c in contas
     ]
@@ -190,7 +246,7 @@ def criar_conta(
 ):
     """Criar uma nova conta a pagar"""
     try:
-        cat, sub = cat_svc.validar_classificacao(conta.categoria, conta.subcategoria)
+        cat, sub = cat_svc.validar_classificacao(conta.categoria, conta.subcategoria, db=db)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
@@ -204,12 +260,15 @@ def criar_conta(
     dados["categoria"] = cat
     dados["subcategoria"] = sub
     dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"))
+    caixa_in = dados.pop("caixa", None)
     data_pag = dados.get("data_pagamento")
     if data_pag:
         dados["pago"] = True
+        dados["caixa"] = exigir_conta_corrente(db, caixa_in)
     else:
         dados["data_pagamento"] = None
         dados["pago"] = False
+        dados["caixa"] = None
     nova_conta = ContaPagar(**dados, categoria_pendente=False)
     db.add(nova_conta)
     db.flush()
@@ -233,6 +292,8 @@ def atualizar_conta(
         raise HTTPException(status_code=404, detail="Conta não encontrada")
 
     dados = conta_update.dict(exclude_unset=True)
+    caixa_pedido = dados.pop("caixa") if "caixa" in dados else None
+    caixa_informado = "caixa" in conta_update.model_fields_set
 
     if "fornecedor_id" in dados:
         dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"), db_conta)
@@ -242,6 +303,7 @@ def atualizar_conta(
             cat, sub = cat_svc.validar_classificacao(
                 dados.get("categoria"),
                 dados.get("subcategoria") if "subcategoria" in dados else db_conta.subcategoria,
+                db=db,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
@@ -250,7 +312,9 @@ def atualizar_conta(
         dados["categoria_pendente"] = False
     elif "subcategoria" in dados and not db_conta.categoria_pendente:
         try:
-            cat, sub = cat_svc.validar_classificacao(db_conta.categoria, dados.get("subcategoria"))
+            cat, sub = cat_svc.validar_classificacao(
+                db_conta.categoria, dados.get("subcategoria"), db=db
+            )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
         dados["categoria"] = cat
@@ -271,6 +335,13 @@ def atualizar_conta(
             db_conta.data_pagamento = _date.today()
         elif not dados["pago"]:
             db_conta.data_pagamento = None
+
+    if not db_conta.pago:
+        db_conta.caixa = None
+    elif caixa_informado:
+        db_conta.caixa = exigir_conta_corrente(db, caixa_pedido)
+    elif not db_conta.caixa:
+        raise HTTPException(status_code=400, detail="caixa inválido")
 
     acao_desc = "marcou como paga" if dados.get("pago") else f"campos: {', '.join(dados.keys())}"
     registrar_auditoria(db, current_user, "editar", "ContaPagar", db_conta.id, f"{db_conta.descricao} — {acao_desc}")

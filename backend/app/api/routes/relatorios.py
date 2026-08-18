@@ -227,15 +227,21 @@ def placement_por_consultor(
 def resumo_financeiro(
     ano: int = Query(None),
     mes: int = Query(None, ge=1, le=12),
+    mes_ate: int = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Resumo geral financeiro. Filtra por ano e, se informado, pelo mês de data_emissao."""
+    """Resumo geral financeiro. Filtra por ano e, se informado, pelo mês de data_emissao.
+
+    `mes` (exato) tem precedência. Sem `mes`, `mes_ate` restringe a janeiro–mes_ate.
+    """
     query = db.query(NF)
     if ano:
         query = query.filter(extract("year", NF.data_emissao) == ano)
     if mes:
         query = query.filter(extract("month", NF.data_emissao) == mes)
+    elif mes_ate:
+        query = query.filter(extract("month", NF.data_emissao) <= mes_ate)
 
     nfs_pagas = query.filter(NF.status == StatusNF.PAGA).all()
     nfs_pendentes = query.filter(NF.status == StatusNF.PENDENTE).all()
@@ -348,7 +354,7 @@ def custo_por_categoria(
             "categoria": key,
             "centro_custo": key,  # compat Dashboard até migração completa do front
             "valor": valor,
-            "label": "Pendente de reclassificação" if key == "pendente" else label_categoria(key),
+            "label": "Pendente de reclassificação" if key == "pendente" else label_categoria(key, db=db),
         })
 
     categorias.sort(key=lambda c: (-c["valor"], c["categoria"]))

@@ -1,4 +1,6 @@
-import type { ContaPagar, FluxoConta, MovimentoFluxo, NF } from '../types';
+import type { ContaCorrente, ContaPagar, FluxoConta, MovimentoFluxo, NF } from '../types';
+
+export const CODIGO_INVESTIMENTO = 'investimento';
 
 export type MovimentoManualOrigem = {
   id: number;
@@ -55,12 +57,46 @@ export function elegivelPagar(conta: ContaPagar): boolean {
   return Number(conta.valor) > 0;
 }
 
-export function fluxoDeReceber(caixa: string | null | undefined): FluxoConta {
-  return caixa === 'investimento' ? 'investimento' : 'corrente';
+export function codigoPadrao(contas: ContaCorrente[]): string {
+  return contas.find((c) => c.ativo && c.padrao)?.codigo
+    || contas.find((c) => c.ativo)?.codigo
+    || 'corrente';
 }
 
-function contaManual(conta: string | null | undefined): FluxoConta {
-  return conta === 'investimento' ? 'investimento' : 'corrente';
+export function fluxoDeReceber(caixa: string | null | undefined, padrao: string): FluxoConta {
+  if (caixa === CODIGO_INVESTIMENTO) return CODIGO_INVESTIMENTO;
+  if (!caixa) return padrao;
+  return caixa;
+}
+
+export function fluxoDePagar(caixa: string | null | undefined, padrao: string): FluxoConta {
+  if (caixa === CODIGO_INVESTIMENTO) return CODIGO_INVESTIMENTO;
+  if (!caixa) return padrao;
+  return caixa;
+}
+
+export function rotuloContaOrigem(codigo: string | null | undefined, contas: ContaCorrente[]): string {
+  if (!codigo) return '—';
+  if (codigo === CODIGO_INVESTIMENTO) return 'Conta investimento';
+  return contas.find((c) => c.codigo === codigo)?.nome || codigo;
+}
+
+export function caixaInicialForm(caixa: string | null | undefined, contas: ContaCorrente[]): string {
+  if (caixa && caixa !== CODIGO_INVESTIMENTO && contas.some((c) => c.ativo && c.codigo === caixa)) {
+    return caixa;
+  }
+  return codigoPadrao(contas);
+}
+
+export function destinoInicialTransferencia(origem: FluxoConta, contas: ContaCorrente[]): FluxoConta {
+  if (origem === CODIGO_INVESTIMENTO) return codigoPadrao(contas);
+  return CODIGO_INVESTIMENTO;
+}
+
+function contaManual(conta: string | null | undefined, padrao: string): FluxoConta {
+  if (conta === CODIGO_INVESTIMENTO) return CODIGO_INVESTIMENTO;
+  if (!conta) return padrao;
+  return conta;
 }
 
 function descricaoReceber(nf: NF): string {
@@ -77,12 +113,13 @@ export function mapearMovimentos(
   mes: number | '',
   ano: number,
   fluxo: FluxoConta,
+  padrao: string,
 ): MovimentoFluxo[] {
   const entradas: MovimentoFluxo[] = nfs
     .filter((nf) => (
       elegivelReceber(nf)
       && noPeriodoPagamento(nf.data_pagamento, mes, ano)
-      && fluxoDeReceber(nf.caixa) === fluxo
+      && fluxoDeReceber(nf.caixa, padrao) === fluxo
     ))
     .map((nf) => ({
       id: `receber-${nf.id}`,
@@ -95,25 +132,27 @@ export function mapearMovimentos(
       manual: false,
     }));
 
-  const saidas: MovimentoFluxo[] = fluxo === 'corrente'
-    ? contas
-      .filter((c) => elegivelPagar(c) && noPeriodoPagamento(c.data_pagamento, mes, ano))
-      .map((c) => ({
-        id: `pagar-${c.id}`,
-        data: c.data_pagamento as string,
-        tipo: 'saida' as const,
-        origem: 'contas_pagar' as const,
-        origem_rotulo: 'Contas a Pagar' as const,
-        desc: c.descricao,
-        valor: -Number(c.valor),
-        manual: false,
-      }))
-    : [];
+  const saidas: MovimentoFluxo[] = contas
+    .filter((c) => (
+      elegivelPagar(c)
+      && noPeriodoPagamento(c.data_pagamento, mes, ano)
+      && fluxoDePagar(c.caixa, padrao) === fluxo
+    ))
+    .map((c) => ({
+      id: `pagar-${c.id}`,
+      data: c.data_pagamento as string,
+      tipo: 'saida' as const,
+      origem: 'contas_pagar' as const,
+      origem_rotulo: 'Contas a Pagar' as const,
+      desc: c.descricao,
+      valor: -Number(c.valor),
+      manual: false,
+    }));
 
   const manuaisMap: MovimentoFluxo[] = manuais
     .filter((m) => (
       noPeriodoPagamento(m.data_movimento, mes, ano)
-      && contaManual(m.conta) === fluxo
+      && contaManual(m.conta, padrao) === fluxo
     ))
     .map((m) => {
       const entrada = m.tipo === 'receita';
@@ -144,19 +183,18 @@ export function movimentosSinalizadosDaConta(
   contas: ContaPagar[],
   manuais: MovimentoManualOrigem[],
   fluxo: FluxoConta,
+  padrao: string,
 ): MovimentoSinalizado[] {
   const cr: MovimentoSinalizado[] = nfs
-    .filter((nf) => elegivelReceber(nf) && fluxoDeReceber(nf.caixa) === fluxo)
+    .filter((nf) => elegivelReceber(nf) && fluxoDeReceber(nf.caixa, padrao) === fluxo)
     .map((nf) => ({ data: nf.data_pagamento as string, valor: Number(nf.valor_liquido) }));
 
-  const cp: MovimentoSinalizado[] = fluxo === 'corrente'
-    ? contas
-      .filter((c) => elegivelPagar(c))
-      .map((c) => ({ data: c.data_pagamento as string, valor: -Number(c.valor) }))
-    : [];
+  const cp: MovimentoSinalizado[] = contas
+    .filter((c) => elegivelPagar(c) && fluxoDePagar(c.caixa, padrao) === fluxo)
+    .map((c) => ({ data: c.data_pagamento as string, valor: -Number(c.valor) }));
 
   const man: MovimentoSinalizado[] = manuais
-    .filter((m) => contaManual(m.conta) === fluxo)
+    .filter((m) => contaManual(m.conta, padrao) === fluxo)
     .map((m) => ({
       data: m.data_movimento,
       valor: m.tipo === 'receita' ? Number(m.valor) : -Number(m.valor),

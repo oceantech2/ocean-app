@@ -4,9 +4,11 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { relatoriosService, metasService, contasService, saldosService } from '../services/api';
+import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService } from '../services/api';
+import { codigoPadrao, movimentosSinalizadosDaConta, saldoVisivel, CODIGO_INVESTIMENTO } from '../utils/fluxoCaixaMovimentos';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
+import type { ContaCorrente, ContaPagar, NF } from '../types';
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -258,6 +260,13 @@ function mapCustoResposta(data: any): { fatias: CustoFatia[]; total: number } {
 }
 
 const MSG_SELECIONE_MES = 'Selecione um mês para ver este indicador';
+const RESUMO_VAZIO = {
+  faturamento_liquido_pago: 0,
+  faturamento_bruto_pago: 0,
+  faturamento_bruto_pendente: 0,
+  quantidade_pagas: 0,
+  quantidade_pendentes: 0,
+};
 
 function DonutCustoBloco({
   titulo,
@@ -374,7 +383,7 @@ export default function Dashboard() {
 
   // Retirada de Lucro e Saldos
   const [, setTotalRetiradas] = useState(0);
-  const [saldoCorrente, setSaldoCorrente] = useState<any>(null);
+  const [saldoCorrente, setSaldoCorrente] = useState<number | null>(null);
   const [saldoInvestimento, setSaldoInvestimento] = useState<any>(null);
 
   // DRE
@@ -387,6 +396,7 @@ export default function Dashboard() {
   const dreMousePos = useRef({ x: 0, y: 0 });
   const dreRaf = useRef(0);
   const [dreTipPos, setDreTipPos] = useState({ x: 0, y: 0 });
+  const cargaSeq = useRef(0);
 
   // Custo por categoria (donuts mês / ano)
   const [custoMesFatias, setCustoMesFatias] = useState<CustoFatia[]>([]);
@@ -407,6 +417,7 @@ export default function Dashboard() {
   };
 
   const carregarDados = async () => {
+    const idCarga = ++cargaSeq.current;
     try {
       setLoading(true);
       setDreErro(null);
@@ -439,13 +450,15 @@ export default function Dashboard() {
 
       const resumoPromise = temMes
         ? relatoriosService.resumoFinanceiro(ano, mes)
-        : Promise.resolve({ data: null });
+        : mesAteAnual != null
+          ? relatoriosService.resumoFinanceiro(ano, undefined, mesAteAnual)
+          : Promise.resolve({ data: null });
 
       const metaMesPromise = temMes
         ? metasService.progresso(mes, ano).catch(() => ({ data: null }))
         : Promise.resolve({ data: null });
 
-      const [faturRes, faturAntRes, fechRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes] = await Promise.all([
+      const [faturRes, faturAntRes, fechRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes] = await Promise.all([
         relatoriosService.faturamentoLiquidoMes(ano),
         relatoriosService.faturamentoLiquidoMes(anoComparar),
         relatoriosService.fechamentosPorTipo(ano),
@@ -460,7 +473,13 @@ export default function Dashboard() {
         }),
         custoMesPromise,
         custoAnoPromise,
+        contasCorrentesService.listar(true).catch(() => ({ data: [] })),
+        nfsService.listar(0, 1000, undefined, undefined, 'paga', false).catch(() => ({ data: [] })),
+        contasService.listar(0, 1000, undefined, true).catch(() => ({ data: [] })),
+        fluxoMovimentosService.listar().catch(() => ({ data: [] })),
       ]);
+
+      if (idCarga !== cargaSeq.current) return;
 
       const ant: Record<number, number> = {};
       (faturAntRes.data.dados || []).forEach((d: any) => { ant[d.mes] = d.valor; });
@@ -472,17 +491,7 @@ export default function Dashboard() {
         }))
       );
       setFechamentos(fechRes.data || {});
-      if (temMes && resumoRes.data) {
-        setResumo(resumoRes.data);
-      } else if (!temMes) {
-        setResumo({
-          faturamento_liquido_pago: 0,
-          faturamento_bruto_pago: 0,
-          faturamento_bruto_pendente: 0,
-          quantidade_pagas: 0,
-          quantidade_pendentes: 0,
-        });
-      }
+      setResumo(resumoRes.data || RESUMO_VAZIO);
       setMeta(temMes ? metaRes.data : null);
       setValorMeta(temMes && metaRes.data?.valor_meta ? String(metaRes.data.valor_meta) : '');
       setMetaAnual(metaAnualRes.data);
@@ -497,9 +506,20 @@ export default function Dashboard() {
       const saldosLista: any[] = saldosRes.data || [];
       const limiteMes = mes ?? 12;
       const saldosAteMes = saldosLista.filter((s) => s.ano === ano && s.mes <= limiteMes);
-      const corrente = [...saldosAteMes].filter((s) => s.conta === 'corrente').sort((a, b) => b.mes - a.mes)[0] || null;
-      const investimento = [...saldosAteMes].filter((s) => s.conta === 'investimento').sort((a, b) => b.mes - a.mes)[0] || null;
-      setSaldoCorrente(corrente);
+      const contasCc: ContaCorrente[] = contasCcRes.data || [];
+      const nfsLista: NF[] = Array.isArray(nfsRes.data) ? nfsRes.data : [];
+      const contasPagarLista: ContaPagar[] = Array.isArray(contasPagarRes.data) ? contasPagarRes.data : [];
+      const manuaisLista = manuaisRes.data || [];
+      const padrao = codigoPadrao(contasCc);
+      const somaCorrente = contasCc.reduce((acc, cc) => (
+        acc + saldoVisivel(
+          cc.codigo,
+          saldosAteMes,
+          movimentosSinalizadosDaConta(nfsLista, contasPagarLista, manuaisLista, cc.codigo, padrao),
+        )
+      ), 0);
+      const investimento = [...saldosAteMes].filter((s) => s.conta === CODIGO_INVESTIMENTO).sort((a, b) => b.mes - a.mes)[0] || null;
+      setSaldoCorrente(contasCc.length ? somaCorrente : null);
       setSaldoInvestimento(investimento);
 
       const dreBruto: DrePonto[] = (dreRes.data?.dados || []).map((d: any) => {
@@ -539,9 +559,10 @@ export default function Dashboard() {
         setCustoAnoTotal(mapped.total);
       }
     } catch {
+      if (idCarga !== cargaSeq.current) return;
       toast.error('Erro ao carregar dados do dashboard');
     } finally {
-      setLoading(false);
+      if (idCarga === cargaSeq.current) setLoading(false);
     }
   };
 
@@ -581,6 +602,13 @@ export default function Dashboard() {
     : `Sem despesas por categoria para ${MESES_NOME[mes - 1]}/${ano}`;
   const rotuloCustoAno = `Custo por categoria — ${ano}`;
   const rotuloCustoAnoVazio = `Sem despesas por categoria para ${ano}`;
+  const mesAteKpi = mesAteAno(ano);
+  const rotuloRecorteKpi =
+    mes === null && mesAteKpi != null
+      ? `Jan–${MESES_NOME[mesAteKpi - 1]}/${ano}`
+      : mes === null
+        ? String(ano)
+        : null;
 
   const pct = metaMensalValida ? Math.min(meta.percentual, 100) : 0;
   const corBarra = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : 'bg-orange-500';
@@ -660,8 +688,8 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          {/* Metas — anual primeiro, mensal segundo; lado a lado em md+ (~768px) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+          {/* Metas — anual em largura total sem mês; lado a lado com mensal quando há mês */}
+          <div className={mes === null ? 'w-full' : 'grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch'}>
             {/* Meta Anual */}
             <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
               {editandoMetaAnual ? (
@@ -736,20 +764,10 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Meta de Faturamento (mês) */}
+            {/* Meta de Faturamento (mês) — só com mês concreto */}
+            {mes !== null && (
             <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
-              {mes === null ? (
-                <>
-                  <div className="flex items-start gap-2 mb-4">
-                    <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                      {rotuloMetaMensal}
-                    </span>
-                  </div>
-                  <p className="mt-auto text-sm text-gray-500 dark:text-gray-400 text-center py-2">
-                    {MSG_SELECIONE_MES}
-                  </p>
-                </>
-              ) : editandoMeta ? (
+              {editandoMeta ? (
                 <>
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                     {rotuloMetaMensal}
@@ -820,92 +838,42 @@ export default function Dashboard() {
                 </>
               )}
             </div>
+            )}
           </div>
 
           {/* KPI Cards — ordem: Bruto / Líquido / NFs com pagamento pendente (R$) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Faturamento Bruto</h3>
-              {mes === null ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{MSG_SELECIONE_MES}</p>
-              ) : (
-                <>
-                  <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
-                    {fmt(resumo.faturamento_bruto_pago)}
-                  </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Valor total</p>
-                </>
+              <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
+                {fmt(resumo.faturamento_bruto_pago)}
+              </p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Valor total</p>
+              {rotuloRecorteKpi && (
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
               )}
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Faturamento Líquido</h3>
-              {mes === null ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{MSG_SELECIONE_MES}</p>
-              ) : (
-                <>
-                  <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">
-                    {fmt(resumo.faturamento_liquido_pago)}
-                  </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
-                </>
+              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">
+                {fmt(resumo.faturamento_liquido_pago)}
+              </p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
+              {rotuloRecorteKpi && (
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
               )}
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">NFs com pagamento pendente (R$)</h3>
-              {mes === null ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{MSG_SELECIONE_MES}</p>
-              ) : (
-                <>
-                  <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
-                    {fmt(resumo.faturamento_bruto_pendente ?? 0)}
-                  </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                    {resumo.quantidade_pendentes ?? 0} NFs pendentes
-                  </p>
-                </>
+              <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
+                {fmt(resumo.faturamento_bruto_pendente ?? 0)}
+              </p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                {resumo.quantidade_pendentes ?? 0} NFs pendentes
+              </p>
+              {rotuloRecorteKpi && (
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
               )}
-            </div>
-          </div>
-
-          {/* Mix de tipos — Retainer / Sucesso / Parcelamento */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Fechamentos por tipo — {ano}</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">Retainer</p>
-                  <p className="text-2xl font-bold text-purple-700 dark:text-purple-300 mt-1">{fechamentos.retainer || 0}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Sucesso</p>
-                  <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300 mt-1">{fechamentos.sucesso || 0}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Parcelamento</p>
-                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{fechamentos.parcelamento || 0}</p>
-                </div>
-              </div>
-              <ResponsiveContainer width="100%" height={180}>
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'Retainer', value: fechamentos.retainer || 0 },
-                      { name: 'Sucesso', value: fechamentos.sucesso || 0 },
-                      { name: 'Parcelamento', value: fechamentos.parcelamento || 0 },
-                    ]}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={70}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                  >
-                    <Cell fill="#8B5CF6" />
-                    <Cell fill="#6366F1" />
-                    <Cell fill="#3B82F6" />
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
             </div>
           </div>
 
@@ -914,10 +882,10 @@ export default function Dashboard() {
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5">
               <h3 className="text-blue-600 dark:text-blue-400 text-sm font-medium">Saldo Conta Corrente</h3>
               <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-2">
-                {saldoCorrente ? fmt(saldoCorrente.saldo) : '—'}
+                {saldoCorrente != null ? fmt(saldoCorrente) : '—'}
               </p>
               <p className="text-xs text-blue-500 mt-1">
-                {saldoCorrente ? `${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][saldoCorrente.mes - 1]}/${saldoCorrente.ano}` : 'Sem registro'}
+                Consolidado das contas correntes ativas
               </p>
             </div>
             <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5">
@@ -1055,10 +1023,11 @@ export default function Dashboard() {
             />
           )}
 
-          {/* Gráficos */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">Faturamento Líquido por Mês</h2>
-              <ResponsiveContainer width="100%" height={280}>
+          {/* Gráficos — linha e pizza lado a lado (layout original de Relatórios) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Faturamento Líquido por Mês</h2>
+              <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={faturamento}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
@@ -1071,6 +1040,32 @@ export default function Dashboard() {
                   <Line type="monotone" dataKey="valor" stroke="#3B82F6" dot={{ r: 3 }} name={`${ano}`} />
                 </LineChart>
               </ResponsiveContainer>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Fechamentos por Tipo</h2>
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={[
+                      { name: 'Retainer', value: fechamentos.retainer || 0 },
+                      { name: 'Sucesso', value: fechamentos.sucesso || 0 },
+                      { name: 'Parcelamento', value: fechamentos.parcelamento || 0 },
+                    ]}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    dataKey="value"
+                    label={({ name, value }) => `${name}: ${value}`}
+                  >
+                    <Cell fill="#3B82F6" />
+                    <Cell fill="#10B981" />
+                    <Cell fill="#F59E0B" />
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </>
       )}

@@ -92,7 +92,7 @@ class NF(Base):
     colaborador_conducao_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=True)
     colaborador_placement_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=True)
     arquivada = Column(Boolean, default=False, nullable=False, server_default='false')
-    caixa = Column(String(20), nullable=True)  # corrente | investimento | null
+    caixa = Column(String(64), nullable=True)  # codigo conta corrente | investimento | null
     origem = Column(String(20), nullable=False, default="maggo", server_default="maggo")  # manual | maggo
 
     criado_em = Column(DateTime, default=datetime.utcnow)
@@ -150,6 +150,7 @@ class ContaPagar(Base):
     data_vencimento = Column(Date, nullable=True)
     data_pagamento = Column(Date, nullable=True)
     pago = Column(Boolean, default=False, index=True)
+    caixa = Column(String(64), nullable=True)  # codigo conta corrente | null
     comprovante_path = Column(Text, nullable=True)
     comprovante_nome = Column(String(255), nullable=True)
     fornecedor_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=True, index=True)
@@ -157,6 +158,32 @@ class ContaPagar(Base):
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     fornecedor = relationship("Colaborador", back_populates="contas_pagar")
+
+
+class CategoriaPagarCadastrada(Base):
+    __tablename__ = "categorias_pagar_cadastradas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String(64), unique=True, nullable=True, index=True)
+    nome = Column(String(20), nullable=False)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    criado_por = Column(String(255), nullable=True)
+
+
+# ==================== CONTAS CORRENTES ====================
+class ContaCorrente(Base):
+    __tablename__ = "contas_correntes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String(64), unique=True, nullable=False, index=True)
+    nome = Column(String(80), nullable=False)
+    banco = Column(String(80), nullable=False)
+    agencia = Column(String(20), nullable=True)
+    numero = Column(String(32), nullable=True)
+    padrao = Column(Boolean, default=False, nullable=False)
+    ativo = Column(Boolean, default=True, nullable=False, index=True)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+
 
 # ==================== MOVIMENTOS MANUAIS DO FLUXO ====================
 class FluxoMovimento(Base):
@@ -169,7 +196,7 @@ class FluxoMovimento(Base):
     data_movimento = Column(Date, nullable=False, index=True)
     mes = Column(Integer, nullable=False)
     ano = Column(Integer, nullable=False)
-    conta = Column(String(20), nullable=False, default="corrente")  # corrente | investimento
+    conta = Column(String(64), nullable=False, default="corrente")  # codigo corrente | investimento
     par_id = Column(String(36), nullable=True, index=True)  # UUID do par de transferência
     criado_em = Column(DateTime, default=datetime.utcnow)
 
@@ -180,7 +207,7 @@ class Saldo(Base):
     id = Column(Integer, primary_key=True, index=True)
     mes = Column(Integer, nullable=False)
     ano = Column(Integer, nullable=False)
-    conta = Column(String(50), nullable=False)  # "corrente", "investimento"
+    conta = Column(String(64), nullable=False)  # codigo corrente | investimento
     saldo = Column(Float, nullable=False)
     data_registro = Column(Date, nullable=False, index=True)
     criado_em = Column(DateTime, default=datetime.utcnow)

@@ -22,13 +22,14 @@ def _normalizar_cadastro(tipo: str, tipo_documento: str, documento_ou_cpf: Optio
     tipo_documento = (tipo_documento or "cpf").strip().lower()
     if tipo_documento not in ("cpf", "cnpj"):
         raise HTTPException(status_code=400, detail="Tipo de documento inválido")
-    digitos = doc.so_digitos(documento_ou_cpf)
     if tipo_documento == "cpf":
-        if not doc.validar_cpf(digitos):
+        chave = doc.so_digitos(documento_ou_cpf)
+        if not doc.validar_cpf(chave):
             raise HTTPException(status_code=400, detail="CPF inválido")
         razao = None
     else:
-        if not doc.validar_cnpj(digitos):
+        chave = doc.normalizar_cnpj(documento_ou_cpf)
+        if not doc.validar_cnpj(chave):
             raise HTTPException(status_code=400, detail="CNPJ inválido")
         razao = (razao_social or "").strip() or None
         if not razao:
@@ -38,7 +39,7 @@ def _normalizar_cadastro(tipo: str, tipo_documento: str, documento_ou_cpf: Optio
     if eh_colaborador:
         if not cargo or salario is None or not data_nascimento:
             raise HTTPException(status_code=400, detail="Preencha os campos obrigatórios")
-    return tipo, tipo_documento, digitos, razao, (email.strip() if email else None)
+    return tipo, tipo_documento, chave, razao, (email.strip() if email else None)
 
 
 def _checar_duplicidade(db: Session, tipo: str, documento: str, excluir_id: Optional[int] = None):

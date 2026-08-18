@@ -13,7 +13,7 @@ const MENU = [
   { label: 'Calendário', path: '/calendario', desc: 'Vencimentos de NFs e contas', permKey: 'calendario' },
   { label: 'Contas a Receber', path: '/nfs', desc: 'Valores a receber (Maggo)', notifKey: 'nfsVencidas', permKey: 'nfs' },
   { label: 'Contas a Pagar', path: '/contas', desc: 'Despesas por categorias', notifKey: 'contasAlertasTotal', permKey: 'contas' },
-  { label: 'Fluxo de Caixa', path: '/fluxo-caixa', desc: 'Saldo corrente e investimento', permKey: 'fluxo_caixa' },
+  { label: 'Fluxo de Caixa', path: '/fluxo-caixa', desc: 'Contas correntes e investimento', permKey: 'fluxo_caixa' },
   { label: 'Impostos', path: '/impostos', desc: 'Acompanhamento mensal de impostos', permKey: 'impostos' },
   { label: 'Retiradas (Sócios)', path: '/retiradas', desc: 'Retiradas de lucro dos sócios', permKey: 'retiradas' },
   { label: 'Bônus', path: '/bonus', desc: 'Bônus por colaborador', permKey: 'bonus' },
@@ -129,7 +129,7 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm sticky top-0 z-30">
+      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm sticky top-0 z-50 shrink-0">
         <div className="px-4 py-3 flex items-center justify-between gap-4">
           <Link to="/dashboard" className="flex items-center shrink-0">
             <img src="/logo.png" alt="Ocean Talent Solutions" className="h-16 w-auto" />

@@ -19,6 +19,10 @@ def listar_contas_receber() -> list[dict]:
     if flag in ("1", "true", "yes", "on"):
         raise MaggoStubError("Fonte Maggo (stub) indisponível")
 
+    empty = os.getenv("MAGGO_STUB_EMPTY", "").strip().lower()
+    if empty in ("1", "true", "yes", "on"):
+        return []
+
     hoje = date.today()
     ano = hoje.year
     mes = hoje.month

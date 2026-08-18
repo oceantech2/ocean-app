@@ -62,3 +62,42 @@ code {
 .print-only {
   display: none;
 }
+
+/* Cabeçalho da tabela: scroll horizontal fica abaixo dos títulos */
+.nfs-grade-head {
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: rgb(243 244 246);
+}
+.dark .nfs-grade-head {
+  background: rgb(55 65 81);
+}
+.nfs-grade-head::-webkit-scrollbar {
+  height: 8px;
+}
+.nfs-grade-head::-webkit-scrollbar-thumb {
+  background: rgb(156 163 175 / 0.9);
+  border-radius: 999px;
+}
+.nfs-grade-head::-webkit-scrollbar-track {
+  background: rgb(229 231 235);
+}
+.dark .nfs-grade-head::-webkit-scrollbar-track {
+  background: rgb(75 85 99);
+}
+
+/* Corpo: só scroll vertical visível; horizontal acompanha o cabeçalho */
+.nfs-grade-body {
+  overflow: auto;
+}
+.nfs-grade-body::-webkit-scrollbar {
+  width: 8px;
+  height: 0;
+}
+.nfs-grade-body::-webkit-scrollbar-thumb {
+  background: rgb(156 163 175 / 0.85);
+  border-radius: 999px;
+}
+.nfs-grade-body::-webkit-scrollbar-track {
+  background: transparent;
+}

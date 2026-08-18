@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { saldosService, contasService, nfsService, fluxoMovimentosService } from '../services/api';
+import { saldosService, contasService, nfsService, fluxoMovimentosService, contasCorrentesService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
 import { exportarCSV } from '../utils/export';
 import {
+  CODIGO_INVESTIMENTO,
+  codigoPadrao,
+  destinoInicialTransferencia,
   mapearMovimentos,
   movimentosSinalizadosDaConta,
   saldoVisivel,
 } from '../utils/fluxoCaixaMovimentos';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
-import type { ContaPagar, FluxoConta, NF } from '../types';
+import type { ContaCorrente, ContaPagar, FluxoConta, NF } from '../types';
 
 const LIMITE_PAGINA = 1000;
 const HOJE = new Date().toISOString().split('T')[0];
@@ -39,17 +42,23 @@ const ANOS = Array.from({ length: 27 }, (_, i) => ANO_ATUAL - 2 + i);
 const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const fmt = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-function rotuloFluxo(fluxo: FluxoConta) {
-  return fluxo === 'corrente' ? 'Conta corrente' : 'Conta investimento';
+const FORM_CONTA_VAZIO = { nome: '', banco: '', agencia: '', numero: '' };
+
+function rotuloFluxo(fluxo: FluxoConta, contas: ContaCorrente[]) {
+  if (fluxo === CODIGO_INVESTIMENTO) return 'Conta investimento';
+  return contas.find((c) => c.codigo === fluxo)?.nome || fluxo;
 }
 
-function outraConta(fluxo: FluxoConta): FluxoConta {
-  return fluxo === 'corrente' ? 'investimento' : 'corrente';
+function caixasOpcoes(contas: ContaCorrente[]): { codigo: string; nome: string }[] {
+  return [
+    ...contas.filter((c) => c.ativo).map((c) => ({ codigo: c.codigo, nome: c.nome })),
+    { codigo: CODIGO_INVESTIMENTO, nome: 'Conta investimento' },
+  ];
 }
 
 const TRANSF_INICIAL = {
   origem: 'corrente' as FluxoConta,
-  destino: 'investimento' as FluxoConta,
+  destino: CODIGO_INVESTIMENTO as FluxoConta,
   valor: '',
   data_movimento: HOJE,
   observacao: '',
@@ -88,15 +97,37 @@ export default function FluxoCaixa() {
   const [contasPagas, setContasPagas] = useState<any[]>([]);
   const [movimentos, setMovimentos] = useState<any[]>([]);
   const [manuaisTodasContas, setManuaisTodasContas] = useState<any[]>([]);
+  const [contasCorrentes, setContasCorrentes] = useState<ContaCorrente[]>([]);
+  const [fluxoPronto, setFluxoPronto] = useState(false);
 
   const [transfAberto, setTransfAberto] = useState(false);
   const [transfForm, setTransfForm] = useState({ ...TRANSF_INICIAL });
   const [salvandoTransf, setSalvandoTransf] = useState(false);
+  const [gerenciarAberto, setGerenciarAberto] = useState(false);
+  const [contaEditando, setContaEditando] = useState<ContaCorrente | null>(null);
+  const [contaForm, setContaForm] = useState({ ...FORM_CONTA_VAZIO });
+  const [salvandoConta, setSalvandoConta] = useState(false);
+
+  const padraoCodigo = codigoPadrao(contasCorrentes);
+  const rotuloAtivo = rotuloFluxo(fluxoAtivo, contasCorrentes);
+  const ehInvestimento = fluxoAtivo === CODIGO_INVESTIMENTO;
 
   const sortSaldos = useOrdenacao('mes');
   const sortMovimentos = useOrdenacao('data');
 
-  useEffect(() => { carregarDados(); }, [ano, mes, fluxoAtivo]);
+  useEffect(() => {
+    contasCorrentesService.listar(true).then((res) => {
+      const lista: ContaCorrente[] = res.data || [];
+      setContasCorrentes(lista);
+      setFluxoAtivo(codigoPadrao(lista));
+      setFluxoPronto(true);
+    }).catch(() => {
+      toast.error('Erro ao carregar contas correntes');
+      setFluxoPronto(true);
+    });
+  }, []);
+
+  useEffect(() => { if (fluxoPronto) carregarDados(); }, [ano, mes, fluxoAtivo, fluxoPronto]);
 
   const carregarDados = async () => {
     setLoading(true);
@@ -160,10 +191,21 @@ export default function FluxoCaixa() {
     setLoading(false);
   };
 
+  const recarregarContas = async () => {
+    const res = await contasCorrentesService.listar(true);
+    const lista: ContaCorrente[] = res.data || [];
+    setContasCorrentes(lista);
+    if (!lista.some((c) => c.codigo === fluxoAtivo) && fluxoAtivo !== CODIGO_INVESTIMENTO) {
+      setFluxoAtivo(codigoPadrao(lista));
+    }
+    return lista;
+  };
+
   const abrirTransferencia = () => {
+    const origem = fluxoAtivo;
     setTransfForm({
-      origem: fluxoAtivo,
-      destino: outraConta(fluxoAtivo),
+      origem,
+      destino: destinoInicialTransferencia(origem, contasCorrentes),
       valor: '',
       data_movimento: HOJE,
       observacao: '',
@@ -171,18 +213,10 @@ export default function FluxoCaixa() {
     setTransfAberto(true);
   };
 
-  const inverterPar = () => {
-    setTransfForm((atual) => ({
-      ...atual,
-      origem: atual.destino,
-      destino: atual.origem,
-    }));
-  };
-
   const saldoDaOrigem = (origem: FluxoConta) => saldoVisivel(
     origem,
     saldosHistorico,
-    movimentosSinalizadosDaConta(nfsPagas, contasPagas, manuaisTodasContas, origem),
+    movimentosSinalizadosDaConta(nfsPagas, contasPagas, manuaisTodasContas, origem, padraoCodigo),
   );
 
   const salvarTransferencia = async () => {
@@ -242,24 +276,87 @@ export default function FluxoCaixa() {
     } catch { toast.error('Erro ao desfazer'); }
   };
 
+  const abrirEditarConta = (c: ContaCorrente) => {
+    setContaEditando(c);
+    setContaForm({
+      nome: c.nome,
+      banco: c.banco,
+      agencia: c.agencia || '',
+      numero: c.numero || '',
+    });
+  };
+
+  const salvarConta = async () => {
+    if (!contaForm.nome.trim() || !contaForm.banco.trim()) {
+      toast.error('Nome e banco são obrigatórios');
+      return;
+    }
+    try {
+      setSalvandoConta(true);
+      const payload = {
+        nome: contaForm.nome.trim(),
+        banco: contaForm.banco.trim(),
+        agencia: contaForm.agencia.trim() || undefined,
+        numero: contaForm.numero.trim() || undefined,
+      };
+      if (contaEditando) {
+        await contasCorrentesService.atualizar(contaEditando.id, payload);
+        toast.success('Conta atualizada');
+      } else {
+        await contasCorrentesService.criar(payload);
+        toast.success('Conta corrente criada');
+      }
+      setContaEditando(null);
+      setContaForm({ ...FORM_CONTA_VAZIO });
+      await recarregarContas();
+      carregarDados();
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Erro ao salvar conta'));
+    } finally {
+      setSalvandoConta(false);
+    }
+  };
+
+  const tornarPadrao = async (c: ContaCorrente) => {
+    try {
+      await contasCorrentesService.atualizar(c.id, { padrao: true });
+      toast.success(`${c.nome} é a conta padrão`);
+      await recarregarContas();
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Erro ao definir padrão'));
+    }
+  };
+
+  const desativarConta = async (c: ContaCorrente) => {
+    if (!confirm(`Desativar "${c.nome}"? O histórico permanece consultável.`)) return;
+    try {
+      await contasCorrentesService.atualizar(c.id, { ativo: false });
+      toast.success('Conta desativada');
+      await recarregarContas();
+      carregarDados();
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Não foi possível desativar'));
+    }
+  };
+
   const valorCard = saldoVisivel(
     fluxoAtivo,
     saldosHistorico,
-    movimentosSinalizadosDaConta(nfsPagas, contasPagas, manuaisTodasContas, fluxoAtivo),
+    movimentosSinalizadosDaConta(nfsPagas, contasPagas, manuaisTodasContas, fluxoAtivo, padraoCodigo),
   );
-  const todosMovimentos = mapearMovimentos(nfsPagas, contasPagas, movimentos, mes, ano, fluxoAtivo);
+  const todosMovimentos = mapearMovimentos(nfsPagas, contasPagas, movimentos, mes, ano, fluxoAtivo, padraoCodigo);
   const totalEntradas = todosMovimentos.filter((m) => m.tipo === 'entrada').reduce((s, m) => s + Math.abs(m.valor), 0);
   const totalSaidas = todosMovimentos.filter((m) => m.tipo === 'saida').reduce((s, m) => s + Math.abs(m.valor), 0);
 
   const SELECT = 'border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100';
   const INPUT = 'border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full';
-  const strokeGrafico = fluxoAtivo === 'corrente' ? '#3B82F6' : '#10B981';
+  const strokeGrafico = ehInvestimento ? '#10B981' : '#3B82F6';
 
   return (
     <div className="space-y-6">
       <div className="sticky top-0 z-20 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">
-          Fluxo de Caixa <span className="text-lg font-normal text-gray-500 dark:text-gray-400">— {rotuloFluxo(fluxoAtivo)}</span>
+          Fluxo de Caixa <span className="text-lg font-normal text-gray-500 dark:text-gray-400">— {rotuloAtivo}</span>
         </h1>
         <div className="flex items-center gap-3 flex-wrap mt-3">
           <label className="text-sm text-gray-500 dark:text-gray-400">Fluxo:</label>
@@ -268,8 +365,9 @@ export default function FluxoCaixa() {
             onChange={(e) => setFluxoAtivo(e.target.value as FluxoConta)}
             className={SELECT}
           >
-            <option value="corrente">Conta corrente</option>
-            <option value="investimento">Conta investimento</option>
+            {caixasOpcoes(contasCorrentes).map((c) => (
+              <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+            ))}
           </select>
           <label className="text-sm text-gray-500 dark:text-gray-400">Mês:</label>
           <select value={mes} onChange={(e) => setMes(e.target.value === '' ? '' : parseInt(e.target.value))}
@@ -303,15 +401,21 @@ export default function FluxoCaixa() {
               Transferência
             </button>
           )}
+          <button
+            onClick={() => { setContaEditando(null); setContaForm({ ...FORM_CONTA_VAZIO }); setGerenciarAberto(true); }}
+            className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+          >
+            Gerenciar contas
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className={fluxoAtivo === 'corrente' ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5' : 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5'}>
-          <p className={`text-xs font-medium ${fluxoAtivo === 'corrente' ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}`}>
-            Saldo {rotuloFluxo(fluxoAtivo)}
+        <div className={ehInvestimento ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5' : 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5'}>
+          <p className={`text-xs font-medium ${ehInvestimento ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>
+            Saldo {rotuloAtivo}
           </p>
-          <p className={`text-2xl font-bold mt-1 ${fluxoAtivo === 'corrente' ? 'text-blue-700 dark:text-blue-300' : 'text-green-700 dark:text-green-300'}`}>
+          <p className={`text-2xl font-bold mt-1 ${ehInvestimento ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
             {fmt(valorCard)}
           </p>
         </div>
@@ -327,7 +431,7 @@ export default function FluxoCaixa() {
 
       {!loading && chartData.some((d) => d.saldo !== null) && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Evolução de Saldo — {rotuloFluxo(fluxoAtivo)} {ano}</h2>
+          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Evolução de Saldo — {rotuloAtivo} {ano}</h2>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -335,7 +439,7 @@ export default function FluxoCaixa() {
               <YAxis tickFormatter={(v) => v.toLocaleString('pt-BR')} tick={{ fontSize: 11 }} />
               <Tooltip formatter={(v: any) => fmt(v)} />
               <Legend />
-              <Line type="monotone" dataKey="saldo" name={rotuloFluxo(fluxoAtivo)} stroke={strokeGrafico} dot={{ r: 4 }} connectNulls />
+              <Line type="monotone" dataKey="saldo" name={rotuloAtivo} stroke={strokeGrafico} dot={{ r: 4 }} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -343,12 +447,12 @@ export default function FluxoCaixa() {
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
         <div className="p-4 border-b dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Registros de Saldo — {rotuloFluxo(fluxoAtivo)}</h2>
+          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Registros de Saldo — {rotuloAtivo}</h2>
         </div>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
         ) : saldos.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 dark:text-gray-500">Nenhum saldo registrado para {rotuloFluxo(fluxoAtivo)} em {ano}</div>
+          <div className="p-8 text-center text-gray-400 dark:text-gray-500">Nenhum saldo registrado para {rotuloAtivo} em {ano}</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
@@ -384,7 +488,7 @@ export default function FluxoCaixa() {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
         <div className="p-4 border-b dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-            Movimentos — {rotuloFluxo(fluxoAtivo)} {mes !== '' ? `${MESES_NOME[Number(mes) - 1]}/` : ''}{ano}
+            Movimentos — {rotuloAtivo} {mes !== '' ? `${MESES_NOME[Number(mes) - 1]}/` : ''}{ano}
           </h2>
           <div className="flex gap-4 text-sm">
             <span className="text-green-600 dark:text-green-400 font-medium">Entradas: {fmt(totalEntradas)}</span>
@@ -396,7 +500,7 @@ export default function FluxoCaixa() {
         </div>
         {todosMovimentos.length === 0 ? (
           <div className="p-8 text-center text-gray-400 dark:text-gray-500">
-            Nenhum movimento em {rotuloFluxo(fluxoAtivo)} neste período
+            Nenhum movimento em {rotuloAtivo} neste período
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -470,23 +574,37 @@ export default function FluxoCaixa() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Origem</p>
-                <p className={`${INPUT} bg-gray-50 dark:bg-gray-900/40 cursor-default`}>
-                  {rotuloFluxo(transfForm.origem)}
-                </p>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Origem</label>
+                <select
+                  className={SELECT + ' w-full'}
+                  value={transfForm.origem}
+                  onChange={(e) => {
+                    const origem = e.target.value;
+                    setTransfForm((atual) => ({
+                      ...atual,
+                      origem,
+                      destino: atual.destino === origem
+                        ? destinoInicialTransferencia(origem, contasCorrentes)
+                        : atual.destino,
+                    }));
+                  }}
+                >
+                  {caixasOpcoes(contasCorrentes).map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
+                </select>
               </div>
-              <button
-                type="button"
-                onClick={inverterPar}
-                className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium"
-              >
-                Inverter
-              </button>
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Destino</p>
-                <p className={`${INPUT} bg-gray-50 dark:bg-gray-900/40 cursor-default`}>
-                  {rotuloFluxo(transfForm.destino)}
-                </p>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Destino</label>
+                <select
+                  className={SELECT + ' w-full'}
+                  value={transfForm.destino}
+                  onChange={(e) => setTransfForm({ ...transfForm, destino: e.target.value })}
+                >
+                  {caixasOpcoes(contasCorrentes).map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor (R$) *</label>
@@ -529,6 +647,57 @@ export default function FluxoCaixa() {
               >
                 {salvandoTransf ? 'Salvando...' : 'Confirmar'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gerenciarAberto && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Gerenciar contas correntes</h2>
+              <button onClick={() => setGerenciarAberto(false)} className="text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Fechar</button>
+            </div>
+            <div className="p-6 space-y-4">
+              {contasCorrentes.map((c) => (
+                <div key={c.id} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 flex flex-wrap gap-3 justify-between items-start">
+                  <div>
+                    <p className="font-medium text-gray-800 dark:text-gray-100">
+                      {c.nome}{c.padrao ? ' · padrão' : ''}
+                    </p>
+                    <p className="text-sm text-gray-500">{c.banco}{c.agencia ? ` · ag. ${c.agencia}` : ''}{c.numero ? ` · ${c.numero}` : ''}</p>
+                  </div>
+                  {papel === 'admin' && (
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => abrirEditarConta(c)} className="text-xs px-2 py-1 border rounded-lg">Editar</button>
+                      {!c.padrao && (
+                        <button onClick={() => tornarPadrao(c)} className="text-xs px-2 py-1 border rounded-lg">Tornar padrão</button>
+                      )}
+                      <button onClick={() => desativarConta(c)} className="text-xs px-2 py-1 border border-red-200 text-red-700 rounded-lg">Desativar</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {papel === 'admin' && (
+                <div className="border-t dark:border-gray-700 pt-4 space-y-3">
+                  <h3 className="font-medium text-gray-800 dark:text-gray-100">{contaEditando ? 'Editar conta' : 'Nova conta corrente'}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input className={INPUT} placeholder="Nome *" value={contaForm.nome} onChange={(e) => setContaForm({ ...contaForm, nome: e.target.value })} />
+                    <input className={INPUT} placeholder="Banco *" value={contaForm.banco} onChange={(e) => setContaForm({ ...contaForm, banco: e.target.value })} />
+                    <input className={INPUT} placeholder="Agência" value={contaForm.agencia} onChange={(e) => setContaForm({ ...contaForm, agencia: e.target.value })} />
+                    <input className={INPUT} placeholder="Número" value={contaForm.numero} onChange={(e) => setContaForm({ ...contaForm, numero: e.target.value })} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={salvarConta} disabled={salvandoConta} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                      {salvandoConta ? 'Salvando...' : 'Salvar'}
+                    </button>
+                    {contaEditando && (
+                      <button onClick={() => { setContaEditando(null); setContaForm({ ...FORM_CONTA_VAZIO }); }} className="px-4 py-2 text-gray-600">Cancelar edição</button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -187,6 +187,7 @@ export type ContaPagarCreatePayload = {
   data_vencimento?: string | null;
   data_pagamento?: string | null;
   fornecedor_id?: number | null;
+  caixa?: string | null;
 };
 
 export type ContaPagarUpdatePayload = Partial<ContaPagarCreatePayload> & {
@@ -199,6 +200,12 @@ export const contasService = {
 
   obter: (id: number) =>
     api.get(`/contas/${id}`),
+
+  catalogoCategorias: () =>
+    api.get('/contas/categorias'),
+
+  criarCategoria: (nome: string) =>
+    api.post('/contas/categorias', { nome }),
 
   criar: (dados: ContaPagarCreatePayload) =>
     api.post('/contas', dados),
@@ -319,8 +326,13 @@ export const relatoriosService = {
   placementPorConsultor: (ano?: number) =>
     api.get('/relatorios/placement-por-consultor', { params: { ano } }),
 
-  resumoFinanceiro: (ano?: number, mes?: number) =>
-    api.get('/relatorios/resumo-financeiro', { params: { ano, mes } }),
+  resumoFinanceiro: (ano?: number, mes?: number, mesAte?: number) => {
+    const params: Record<string, number> = {};
+    if (ano != null) params.ano = ano;
+    if (mes != null) params.mes = mes;
+    if (mesAte != null) params.mes_ate = mesAte;
+    return api.get('/relatorios/resumo-financeiro', { params });
+  },
 
   dreMensal: (ano: number) =>
     api.get('/relatorios/dre-mensal', { params: { ano } }),
@@ -441,9 +453,17 @@ export const patrimonioService = {
     api.delete(`/patrimonio/${id}`),
 };
 
+export const contasCorrentesService = {
+  listar: (ativas = true) => api.get('/contas-correntes', { params: { ativas } }),
+  criar: (dados: { nome: string; banco: string; agencia?: string; numero?: string }) =>
+    api.post('/contas-correntes', dados),
+  atualizar: (id: number, dados: Record<string, unknown>) =>
+    api.put(`/contas-correntes/${id}`, dados),
+};
+
 // Fluxo de Caixa — Movimentos Manuais
 export const fluxoMovimentosService = {
-  listar: (mes?: number, ano?: number, conta?: 'corrente' | 'investimento') =>
+  listar: (mes?: number, ano?: number, conta?: string) =>
     api.get('/fluxo-movimentos', { params: { mes, ano, conta } }),
 
   criar: (dados: {
@@ -451,7 +471,7 @@ export const fluxoMovimentosService = {
     descricao: string;
     valor: number;
     data_movimento: string;
-    conta: 'corrente' | 'investimento';
+    conta: string;
   }) =>
     api.post('/fluxo-movimentos', dados),
 
@@ -459,8 +479,8 @@ export const fluxoMovimentosService = {
     api.delete(`/fluxo-movimentos/${id}`),
 
   transferir: (dados: {
-    origem: 'corrente' | 'investimento';
-    destino: 'corrente' | 'investimento';
+    origem: string;
+    destino: string;
     valor: number;
     data_movimento: string;
     observacao?: string;

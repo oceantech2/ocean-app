@@ -5,15 +5,10 @@ from uuid import uuid4
 from app.database import get_db
 from app.models import FluxoMovimento
 from app.api.routes.auth import get_current_user, require_admin
+from app.services.caixas import exigir_caixa, rotulo as rotulo_caixa
 
 router = APIRouter()
 transferencias_router = APIRouter()
-
-CONTAS_VALIDAS = ("corrente", "investimento")
-ROTULOS_CONTA = {
-    "corrente": "Conta corrente",
-    "investimento": "Conta investimento",
-}
 
 
 def _serializar(r: FluxoMovimento) -> dict:
@@ -30,11 +25,11 @@ def _serializar(r: FluxoMovimento) -> dict:
     }
 
 
-def _descricao_perna(lado: str, origem: str, destino: str, observacao: str | None) -> str:
+def _descricao_perna(db, lado: str, origem: str, destino: str, observacao: str | None) -> str:
     if lado == "origem":
-        base = f"Transferência para {ROTULOS_CONTA[destino]}"
+        base = f"Transferência para {rotulo_caixa(db, destino)}"
     else:
-        base = f"Transferência de {ROTULOS_CONTA[origem]}"
+        base = f"Transferência de {rotulo_caixa(db, origem)}"
     extra = (observacao or "").strip()
     return f"{base} — {extra}" if extra else base
 
@@ -53,8 +48,7 @@ def listar_movimentos(
     if ano is not None:
         q = q.filter(FluxoMovimento.ano == ano)
     if conta:
-        if conta not in CONTAS_VALIDAS:
-            raise HTTPException(status_code=400, detail="conta deve ser 'corrente' ou 'investimento'")
+        exigir_caixa(db, conta, exigir_ativa=False)
         q = q.filter(FluxoMovimento.conta == conta)
     registros = q.order_by(FluxoMovimento.data_movimento.desc()).all()
     return [_serializar(r) for r in registros]
@@ -70,9 +64,7 @@ def criar_movimento(
     if tipo not in ("receita", "despesa"):
         raise HTTPException(status_code=400, detail="tipo deve ser 'receita' ou 'despesa'")
 
-    conta = dados.get("conta") or "corrente"
-    if conta not in CONTAS_VALIDAS:
-        raise HTTPException(status_code=400, detail="conta deve ser 'corrente' ou 'investimento'")
+    conta = exigir_caixa(db, dados.get("conta") or "corrente")
 
     data_str = dados.get("data_movimento") or str(date_type.today())
     data_obj = date_type.fromisoformat(data_str)
@@ -115,10 +107,8 @@ def criar_transferencia(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    origem = dados.get("origem")
-    destino = dados.get("destino")
-    if origem not in CONTAS_VALIDAS or destino not in CONTAS_VALIDAS:
-        raise HTTPException(status_code=400, detail="origem e destino devem ser 'corrente' ou 'investimento'")
+    origem = exigir_caixa(db, dados.get("origem"))
+    destino = exigir_caixa(db, dados.get("destino"))
     if origem == destino:
         raise HTTPException(status_code=400, detail="origem e destino devem ser caixas distintos")
 
@@ -142,7 +132,7 @@ def criar_transferencia(
 
     saida = FluxoMovimento(
         tipo="despesa",
-        descricao=_descricao_perna("origem", origem, destino, observacao),
+        descricao=_descricao_perna(db, "origem", origem, destino, observacao),
         valor=valor,
         data_movimento=data_obj,
         mes=data_obj.month,
@@ -152,7 +142,7 @@ def criar_transferencia(
     )
     entrada = FluxoMovimento(
         tipo="receita",
-        descricao=_descricao_perna("destino", origem, destino, observacao),
+        descricao=_descricao_perna(db, "destino", origem, destino, observacao),
         valor=valor,
         data_movimento=data_obj,
         mes=data_obj.month,

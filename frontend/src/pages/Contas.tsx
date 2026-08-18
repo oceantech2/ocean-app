@@ -1,31 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
-import { contasService, colaboradoresService } from '../services/api';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { contasService, colaboradoresService, contasCorrentesService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
-import { ContaPagar, Colaborador } from '../types';
+import { ContaPagar, Colaborador, CatalogoCategoriasContas, ContaCorrente } from '../types';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import { exportarCSV } from '../utils/export';
 import { formatarMoedaInput, isValorMoedaValido, numberParaMoedaInput, parseMoedaInput } from '../utils/moeda';
 import ImportCSV from '../components/ImportCSV';
 import { hojeISO, compararVencimento, venceEmMenosDe7Dias } from '../utils/dataCivil';
+import { agruparPorMes, chaveMesInicialAberta, totalGrupo } from '../utils/contasPagarAgrupamento';
+import { caixaInicialForm, codigoPadrao, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
 import toast from 'react-hot-toast';
 
-const CATEGORIAS_OPCOES = [
-  { value: 'adm_financeiro', label: 'Adm/Financeiro' },
-  { value: 'operacoes', label: 'Operações' },
-  { value: 'marketing', label: 'Marketing' },
-  { value: 'comercial', label: 'Comercial' },
-  { value: 'recursos_humanos', label: 'Recursos Humanos' },
-  { value: 'tecnologia', label: 'Tecnologia' },
-  { value: 'impostos', label: 'Impostos' },
-] as const;
-
-const SUB_RH_OPCOES = [
-  { value: 'salario', label: 'Salário' },
-  { value: 'bonus', label: 'Bônus' },
-  { value: 'comissao', label: 'Comissão' },
-  { value: 'retirada_socios', label: 'Retirada Sócios' },
-  { value: 'beneficios', label: 'Benefícios' },
-] as const;
+const SENTINELA_NOVA = '__nova__';
 
 const LABELS_LEGADO: Record<string, string> = {
   administrativo: 'Administrativo (legado)',
@@ -38,19 +24,34 @@ const LABELS_LEGADO: Record<string, string> = {
   evento: 'Evento (legado)',
 };
 
-const categoriaLabel = (c: ContaPagar | string, sub?: string | null, pendente?: boolean) => {
-  if (typeof c === 'string') {
-    const cat = c;
-    if (pendente) return LABELS_LEGADO[cat] ?? cat;
-    const base = CATEGORIAS_OPCOES.find((o) => o.value === cat)?.label ?? LABELS_LEGADO[cat] ?? cat;
-    if (cat === 'recursos_humanos' && sub) {
-      const subL = SUB_RH_OPCOES.find((o) => o.value === sub)?.label ?? sub;
-      return `${base} / ${subL}`;
-    }
-    return base;
+function nomeCategoriaCatalogo(
+  catalog: CatalogoCategoriasContas | null,
+  cat: string,
+  sub?: string | null,
+  pendente?: boolean,
+) {
+  if (pendente) return LABELS_LEGADO[cat] ?? cat;
+  const oficial = catalog?.oficiais.find((o) => o.codigo === cat);
+  const cadastrada = catalog?.cadastradas.find((o) => o.codigo === cat);
+  const base = oficial?.nome ?? cadastrada?.nome ?? LABELS_LEGADO[cat] ?? cat;
+  if (cat === 'recursos_humanos' && sub) {
+    const subL = catalog?.subcategorias_rh.find((o) => o.codigo === sub)?.nome ?? sub;
+    return `${base} / ${subL}`;
   }
-  return categoriaLabel(c.categoria, c.subcategoria, c.categoria_pendente);
-};
+  return base;
+}
+
+function validarNomeCategoriaLocal(nomeBruto: string): string | null {
+  const nome = nomeBruto.trim();
+  if (!nome) return 'Nome é obrigatório';
+  if (nome.length > 20) return 'Nome deve ter no máximo 20 caracteres';
+  for (const ch of nome) {
+    if (ch === '_' || !/^[\p{L}\p{N} \-/]$/u.test(ch)) {
+      return 'Use apenas letras, números, espaços, hífen e barra';
+    }
+  }
+  return null;
+}
 
 const ACCEPT_NF = '.pdf,.jpg,.jpeg,.png';
 const EXT_NF_OK = ['.pdf', '.jpg', '.jpeg', '.png'];
@@ -72,6 +73,7 @@ const FORM_INICIAL = {
   data_vencimento: '',
   data_pagamento: '',
   fornecedor_id: '',
+  caixa: '',
 };
 
 export default function Contas() {
@@ -95,13 +97,41 @@ export default function Contas() {
   const [editando, setEditando] = useState<ContaPagar | null>(null);
   const [form, setForm] = useState({ ...FORM_INICIAL });
   const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
+  const [contasCorrentes, setContasCorrentes] = useState<ContaCorrente[]>([]);
+  const [pagoModal, setPagoModal] = useState<ContaPagar | null>(null);
+  const [dataPagoForm, setDataPagoForm] = useState('');
+  const [caixaPagoForm, setCaixaPagoForm] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [sortField, setSortField] = useState<string>('data_vencimento');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [catalog, setCatalog] = useState<CatalogoCategoriasContas | null>(null);
+  const [novaAberto, setNovaAberto] = useState(false);
+  const [novaNome, setNovaNome] = useState('');
+  const [salvandoCategoria, setSalvandoCategoria] = useState(false);
+  const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set());
+  const resetColapsoMesRef = useRef(true);
+
+  const carregarCatalogo = async () => {
+    try {
+      const res = await contasService.catalogoCategorias();
+      setCatalog(res.data);
+    } catch {
+      toast.error('Erro ao carregar categorias');
+    }
+  };
+
+  const categoriaLabel = (c: ContaPagar | string, sub?: string | null, pendente?: boolean) => {
+    if (typeof c === 'string') return nomeCategoriaCatalogo(catalog, c, sub, pendente);
+    return nomeCategoriaCatalogo(catalog, c.categoria, c.subcategoria, c.categoria_pendente);
+  };
 
   useEffect(() => { carregarContas(); }, [contasCategoria, contasSubcategoria, contasPago]);
+  useEffect(() => { carregarCatalogo(); }, []);
   useEffect(() => {
     colaboradoresService.listar(0, 500, true, 'fornecedor').then((r) => setFornecedores(r.data || [])).catch(() => {});
+  }, []);
+  useEffect(() => {
+    contasCorrentesService.listar(true).then((r) => setContasCorrentes(r.data || [])).catch(() => setContasCorrentes([]));
   }, []);
 
   const carregarContas = async () => {
@@ -164,20 +194,23 @@ export default function Contas() {
         ? `rh:${c.subcategoria || 'all'}`
         : c.categoria;
 
-  const chaves = [...new Set(contasFiltradas.map(grupoKey))];
-  const grupos = chaves.reduce((acc, key) => {
-    acc[key] = contasFiltradas.filter((c) => grupoKey(c) === key);
-    return acc;
-  }, {} as Record<string, ContaPagar[]>);
-
   const totalPendente = contas.filter((c) => !c.pago).reduce((s, c) => s + c.valor, 0);
   const totalPago = contas.filter((c) => c.pago).reduce((s, c) => s + c.valor, 0);
   const totalVencido = contas.filter((c) => isVencida(c)).reduce((s, c) => s + c.valor, 0);
 
-  const abrirCriar = () => { setEditando(null); setForm({ ...FORM_INICIAL }); setArquivoNf(null); setModalAberto(true); };
+  const abrirCriar = () => {
+    setEditando(null);
+    setForm({ ...FORM_INICIAL, caixa: codigoPadrao(contasCorrentes) });
+    setArquivoNf(null);
+    setNovaAberto(false);
+    setNovaNome('');
+    setModalAberto(true);
+  };
   const abrirEditar = (c: ContaPagar) => {
     setEditando(c);
     setArquivoNf(null);
+    setNovaAberto(false);
+    setNovaNome('');
     setForm({
       descricao: c.descricao,
       categoria: c.categoria_pendente ? 'adm_financeiro' : (c.categoria || 'adm_financeiro'),
@@ -186,8 +219,30 @@ export default function Contas() {
       data_vencimento: c.data_vencimento ?? '',
       data_pagamento: c.data_pagamento || '',
       fornecedor_id: c.fornecedor_id ? String(c.fornecedor_id) : '',
+      caixa: caixaInicialForm(c.caixa, contasCorrentes),
     });
     setModalAberto(true);
+  };
+
+  const confirmarNovaCategoria = async () => {
+    const local = validarNomeCategoriaLocal(novaNome);
+    if (local) {
+      toast.error(local);
+      return;
+    }
+    try {
+      setSalvandoCategoria(true);
+      const res = await contasService.criarCategoria(novaNome.trim());
+      await carregarCatalogo();
+      setForm({ ...form, categoria: res.data.codigo, subcategoria: '' });
+      setNovaAberto(false);
+      setNovaNome('');
+      toast.success('Categoria cadastrada');
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Não foi possível cadastrar a categoria'));
+    } finally {
+      setSalvandoCategoria(false);
+    }
   };
 
   const salvar = async () => {
@@ -197,6 +252,10 @@ export default function Contas() {
     }
     if (!isValorMoedaValido(form.valor)) {
       toast.error('Informe um valor válido maior que zero');
+      return;
+    }
+    if (form.categoria === SENTINELA_NOVA) {
+      toast.error('Selecione uma categoria');
       return;
     }
     if (form.categoria === 'recursos_humanos' && !form.subcategoria) {
@@ -219,6 +278,7 @@ export default function Contas() {
         data_pagamento: string | null;
         fornecedor_id: number | null;
         pago?: boolean;
+        caixa?: string | null;
       } = {
         descricao: form.descricao,
         categoria: form.categoria,
@@ -228,6 +288,9 @@ export default function Contas() {
         data_pagamento: form.data_pagamento || null,
         fornecedor_id: form.fornecedor_id ? parseInt(form.fornecedor_id, 10) : null,
       };
+      if (form.data_pagamento) {
+        dados.caixa = form.caixa || codigoPadrao(contasCorrentes);
+      }
       if (editando) {
         dados.pago = !!form.data_pagamento;
         await contasService.atualizar(editando.id, dados);
@@ -268,16 +331,36 @@ export default function Contas() {
     finally { setSalvando(false); }
   };
 
-  const marcarPago = async (conta: ContaPagar) => {
+  const abrirPago = (conta: ContaPagar) => {
     const agora = new Date();
     const hoje = [
       agora.getFullYear(),
       String(agora.getMonth() + 1).padStart(2, '0'),
       String(agora.getDate()).padStart(2, '0'),
     ].join('-');
+    setDataPagoForm(hoje);
+    setCaixaPagoForm(caixaInicialForm(conta.caixa, contasCorrentes));
+    setPagoModal(conta);
+  };
+
+  const confirmarPago = async () => {
+    if (!pagoModal) return;
+    if (!dataPagoForm) {
+      toast.error('Informe a data de pagamento');
+      return;
+    }
+    if (!caixaPagoForm) {
+      toast.error('Selecione a conta corrente');
+      return;
+    }
     try {
-      await contasService.atualizar(conta.id, { pago: true, data_pagamento: hoje });
+      await contasService.atualizar(pagoModal.id, {
+        pago: true,
+        data_pagamento: dataPagoForm,
+        caixa: caixaPagoForm,
+      });
       toast.success('Marcada como paga!');
+      setPagoModal(null);
       carregarContas();
       triggerNotifRefresh();
       triggerCalendarioRefresh();
@@ -351,6 +434,7 @@ export default function Contas() {
     Valor: c.valor,
     Vencimento: c.data_vencimento,
     Pagamento: c.data_pagamento || '',
+    'Conta corrente': rotuloContaOrigem(c.caixa, contasCorrentes),
     Status: c.pago ? 'Pago' : isVencida(c) ? 'Vencida' : 'Pendente',
     Pendente_reclassificacao: c.categoria_pendente ? 'sim' : 'nao',
   })), 'contas_a_pagar');
@@ -363,6 +447,46 @@ export default function Contas() {
     if (!sample) return key;
     if (sample.categoria_pendente) return `⚠ Reclassificar — ${categoriaLabel(sample)}`;
     return categoriaLabel(sample);
+  };
+
+  const gruposLista = useMemo(() => {
+    return agruparPorMes(contasFiltradas).map((g) => {
+      const chavesCat = [...new Set(g.contas.map(grupoKey))];
+      const categorias = chavesCat.map((key) => {
+        const items = g.contas.filter((c) => grupoKey(c) === key);
+        return { chave: key, titulo: tituloGrupo(key, items), items, total: totalGrupo(items) };
+      });
+      return { chave: g.chave, titulo: g.rotulo, total: g.total, categorias };
+    });
+  }, [contasFiltradas, catalog]);
+
+  const chavesGrupos = gruposLista.map((g) => g.chave).join('|');
+
+  useEffect(() => {
+    const keys = gruposLista.map((g) => g.chave);
+    if (resetColapsoMesRef.current) {
+      resetColapsoMesRef.current = false;
+      const inicial = chaveMesInicialAberta(keys);
+      setGruposAbertos(inicial ? new Set([inicial]) : new Set());
+      return;
+    }
+    setGruposAbertos((prev) => {
+      const next = new Set([...prev].filter((k) => keys.includes(k)));
+      if (next.size === 0 && keys.length > 0) {
+        const inicial = chaveMesInicialAberta(keys);
+        if (inicial) next.add(inicial);
+      }
+      return next;
+    });
+  }, [chavesGrupos]);
+
+  const alternarGrupoMes = (chave: string) => {
+    setGruposAbertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(chave)) next.delete(chave);
+      else next.add(chave);
+      return next;
+    });
   };
 
   return (
@@ -443,7 +567,8 @@ export default function Contas() {
             onChange={(e) => setContasFilters(e.target.value, contasPago, e.target.value === 'recursos_humanos' ? contasSubcategoria : '')}
           >
             <option value="">Todas</option>
-            {CATEGORIAS_OPCOES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            {(catalog?.oficiais || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
+            {(catalog?.cadastradas || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
           </select>
         </div>
         {contasCategoria === 'recursos_humanos' && (
@@ -455,7 +580,7 @@ export default function Contas() {
               onChange={(e) => setContasFilters(contasCategoria, contasPago, e.target.value)}
             >
               <option value="">Todas de RH</option>
-              {SUB_RH_OPCOES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {(catalog?.subcategorias_rh || []).map((s) => <option key={s.codigo} value={s.codigo}>{s.nome}</option>)}
             </select>
           </div>
         )}
@@ -506,14 +631,30 @@ export default function Contas() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(grupos).map(([key, items]) => {
-            const totalGrupo = items.reduce((s, c) => s + c.valor, 0);
+          {gruposLista.map((grupo) => {
+            const aberto = gruposAbertos.has(grupo.chave);
             return (
-              <div key={key} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 border-b border-gray-200 dark:border-gray-600 flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-700 dark:text-gray-200">{tituloGrupo(key, items)}</h3>
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Total: {fmt(totalGrupo)}</span>
-                </div>
+              <div key={grupo.chave} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={aberto}
+                  onClick={() => alternarGrupoMes(grupo.chave)}
+                  className="w-full bg-gray-50 dark:bg-gray-700 px-4 py-3 border-b border-gray-200 dark:border-gray-600 flex items-center justify-between text-left hover:bg-gray-100 dark:hover:bg-gray-600/80 transition"
+                >
+                  <span className="font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                    <span className="text-gray-400 dark:text-gray-500 text-xs" aria-hidden>{aberto ? '▼' : '▶'}</span>
+                    {grupo.titulo}
+                  </span>
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Total: {fmt(grupo.total)}</span>
+                </button>
+                {aberto && (
+                <div>
+                  {grupo.categorias.map((cat) => (
+                    <div key={cat.chave}>
+                      <div className="px-4 py-2 bg-gray-50/80 dark:bg-gray-700/40 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-gray-600 dark:text-gray-300">{cat.titulo}</h4>
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Total: {fmt(cat.total)}</span>
+                      </div>
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50/50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
                     <tr>
@@ -523,6 +664,7 @@ export default function Contas() {
                         { label: 'Valor', campo: 'valor' },
                         { label: 'Vencimento', campo: 'data_vencimento' },
                         { label: 'Pagamento', campo: 'data_pagamento' },
+                        { label: 'Conta corrente', campo: 'caixa' },
                         { label: 'Status', campo: 'status' },
                         { label: 'Nota fiscal', campo: null },
                         { label: '', campo: null },
@@ -538,7 +680,7 @@ export default function Contas() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {ordenar(items).map((conta) => (
+                    {ordenar(cat.items).map((conta) => (
                       <tr key={conta.id} className={`transition-colors ${conta.pago ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100/80 dark:hover:bg-green-900/20' : isVencida(conta) ? 'bg-orange-50 dark:bg-orange-900/10 hover:bg-orange-100/80 dark:hover:bg-orange-900/20' : 'bg-yellow-50 dark:bg-yellow-900/10 hover:bg-yellow-100/80 dark:hover:bg-yellow-900/20'}`}>
                         <td className="px-4 py-3 text-gray-800 dark:text-gray-200">
                           {conta.descricao}
@@ -563,6 +705,9 @@ export default function Contas() {
                           {conta.pago && conta.data_pagamento && (
                             <span className="text-green-600 dark:text-green-400">Pago em {conta.data_pagamento}</span>
                           )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
+                          {rotuloContaOrigem(conta.caixa, contasCorrentes)}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${conta.pago ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400' : isVencida(conta) ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400'}`}>
@@ -615,7 +760,7 @@ export default function Contas() {
                           {papel === 'admin' && (
                             <div className="flex gap-1 justify-end">
                               {!conta.pago && (
-                                <button onClick={() => marcarPago(conta)} className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700">Pagar</button>
+                                <button onClick={() => abrirPago(conta)} className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700">Pagar</button>
                               )}
                               <button onClick={() => abrirEditar(conta)} className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded hover:bg-blue-200">Editar</button>
                               <button onClick={() => deletar(conta)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200">Deletar</button>
@@ -626,10 +771,14 @@ export default function Contas() {
                     ))}
                   </tbody>
                 </table>
+                    </div>
+                  ))}
+                </div>
+                )}
               </div>
             );
           })}
-          {Object.keys(grupos).length === 0 && (
+          {gruposLista.length === 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">Nenhuma conta encontrada</div>
           )}
         </div>
@@ -643,7 +792,12 @@ export default function Contas() {
           mapear={(l) => {
             if (!l.descricao || !l.valor || !l.data_vencimento) throw new Error('descricao, valor e data_vencimento são obrigatórios');
             if (!l.categoria) throw new Error('categoria é obrigatória (taxonomia nova)');
-            const cat = l.categoria.trim().toLowerCase();
+            const bruto = l.categoria.trim();
+            const chave = bruto.toLowerCase();
+            const oficial = catalog?.oficiais.find((o) => o.codigo === chave || o.nome.toLowerCase() === chave);
+            const cadastrada = catalog?.cadastradas.find((o) => o.codigo.toLowerCase() === chave || o.nome.toLowerCase() === chave);
+            const cat = oficial?.codigo || cadastrada?.codigo;
+            if (!cat) throw new Error(`categoria inválida: ${l.categoria}`);
             const sub = (l.subcategoria || '').trim().toLowerCase() || null;
             if (cat === 'recursos_humanos' && !sub) throw new Error('Recursos Humanos exige subcategoria');
             return {
@@ -698,21 +852,61 @@ export default function Contas() {
                 <select
                   className={INPUT}
                   value={form.categoria}
-                  onChange={(e) => setForm({
-                    ...form,
-                    categoria: e.target.value,
-                    subcategoria: e.target.value === 'recursos_humanos' ? form.subcategoria : '',
-                  })}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === SENTINELA_NOVA) {
+                      setNovaAberto(true);
+                      setNovaNome('');
+                      return;
+                    }
+                    setNovaAberto(false);
+                    setForm({
+                      ...form,
+                      categoria: v,
+                      subcategoria: v === 'recursos_humanos' ? form.subcategoria : '',
+                    });
+                  }}
                 >
-                  {CATEGORIAS_OPCOES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  {(catalog?.oficiais || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
+                  {(catalog?.cadastradas || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
+                  {papel === 'admin' && <option value={SENTINELA_NOVA}>Nova categoria…</option>}
                 </select>
               </div>
+              {novaAberto && papel === 'admin' && (
+                <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 space-y-2">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block">Nome da nova categoria *</label>
+                  <input
+                    className={INPUT}
+                    value={novaNome}
+                    maxLength={20}
+                    placeholder="Até 20 caracteres"
+                    onChange={(e) => setNovaNome(e.target.value)}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="text-xs px-3 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onClick={() => { setNovaAberto(false); setNovaNome(''); }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={salvandoCategoria}
+                      className="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                      onClick={confirmarNovaCategoria}
+                    >
+                      {salvandoCategoria ? 'Salvando...' : 'Confirmar'}
+                    </button>
+                  </div>
+                </div>
+              )}
               {form.categoria === 'recursos_humanos' && (
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Subcategoria RH *</label>
                   <select className={INPUT} value={form.subcategoria} onChange={(e) => setForm({ ...form, subcategoria: e.target.value })}>
                     <option value="">Selecione...</option>
-                    {SUB_RH_OPCOES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    {(catalog?.subcategorias_rh || []).map((s) => <option key={s.codigo} value={s.codigo}>{s.nome}</option>)}
                   </select>
                 </div>
               )}
@@ -733,9 +927,24 @@ export default function Contas() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Pagamento</label>
-                <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
+                <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value, caixa: e.target.value ? (form.caixa || codigoPadrao(contasCorrentes)) : form.caixa })} />
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Preencher apenas se já foi pago</p>
               </div>
+              {form.data_pagamento && (
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
+                  <select
+                    className={INPUT}
+                    value={form.caixa || codigoPadrao(contasCorrentes)}
+                    onChange={(e) => setForm({ ...form, caixa: e.target.value })}
+                    disabled={papel !== 'admin'}
+                  >
+                    {contasCorrentes.filter((c) => c.ativo).map((c) => (
+                      <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nota fiscal (PDF, JPEG ou PNG)</label>
                 {editando?.comprovante_nome && (
@@ -781,6 +990,35 @@ export default function Contas() {
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pagoModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="p-6 border-b dark:border-gray-700">
+              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Marcar como paga</h2>
+              <p className="text-sm text-gray-500 mt-1">{pagoModal.descricao}</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento *</label>
+                <input type="date" className={INPUT} value={dataPagoForm} onChange={(e) => setDataPagoForm(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
+                <select className={INPUT} value={caixaPagoForm} onChange={(e) => setCaixaPagoForm(e.target.value)}>
+                  {contasCorrentes.filter((c) => c.ativo).map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+              <button onClick={() => setPagoModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={confirmarPago} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Confirmar pagamento</button>
             </div>
           </div>
         </div>

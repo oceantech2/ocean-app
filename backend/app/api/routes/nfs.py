@@ -14,6 +14,7 @@ from app.services.audit import registrar_auditoria
 from app.services import excel_io
 from app.services.maggo_stub import listar_contas_receber, MaggoStubError
 from app.services import nf_duplicidade as dup
+from app.services.caixas import codigo_padrao, exigir_conta_corrente, mapa_rotulos
 
 router = APIRouter()
 
@@ -341,6 +342,7 @@ def exportar_nfs_xlsx(
 
     nfs = query.order_by(NF.data_emissao.nulls_last()).all()
 
+    rotulos = mapa_rotulos(db)
     dados = []
     for nf in nfs:
         dados.append({
@@ -358,6 +360,7 @@ def exportar_nfs_xlsx(
             "conducao_nome": nf.colaborador_conducao.nome if nf.colaborador_conducao else None,
             "placement_nome": nf.colaborador_placement.nome if nf.colaborador_placement else None,
             "caixa": nf.caixa,
+            "caixa_rotulo": rotulos.get(nf.caixa) if nf.caixa else "",
             "origem": nf.origem or "maggo",
         })
 
@@ -440,7 +443,10 @@ def criar_nf(
     tipo_enum = _parse_tipo_create(nf.tipo)
 
     data_pag = nf.data_pagamento
-    caixa = "corrente" if data_pag is not None else None
+    if data_pag is not None:
+        caixa = exigir_conta_corrente(db, nf.caixa) if nf.caixa else codigo_padrao(db)
+    else:
+        caixa = None
 
     status_nf = _calcular_status_nf(nf.data_vencimento, data_pag)
 
@@ -495,7 +501,7 @@ def atualizar_nf(
 
     pagamento_antes = db_nf.data_pagamento
     dados_atualizacao = nf_update.model_dump(exclude_unset=True)
-    dados_atualizacao.pop("caixa", None)
+    caixa_pedido = dados_atualizacao.pop("caixa", None)
 
     if "numero" in dados_atualizacao:
         dados_atualizacao["numero"] = dup.garantir_numero_livre(
@@ -521,7 +527,11 @@ def atualizar_nf(
         db_nf.status = _calcular_status_nf(db_nf.data_vencimento, db_nf.data_pagamento)
 
     if pagamento_antes is None and db_nf.data_pagamento is not None:
-        db_nf.caixa = "corrente"
+        db_nf.caixa = exigir_conta_corrente(db, caixa_pedido) if caixa_pedido else codigo_padrao(db)
+    elif db_nf.data_pagamento is None:
+        db_nf.caixa = None
+    elif caixa_pedido is not None:
+        db_nf.caixa = exigir_conta_corrente(db, caixa_pedido)
 
     try:
         registrar_auditoria(db, current_user, "editar", "NF", db_nf.id, f"NF {db_nf.numero or '(sem número)'} — campos: {', '.join(dados_atualizacao.keys())}")
