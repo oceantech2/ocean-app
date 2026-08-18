@@ -46,6 +46,8 @@ def _migrar():
             ))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_path TEXT"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS comprovante_nome VARCHAR(255)"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS anexo_path TEXT"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS anexo_nome VARCHAR(255)"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS categoria VARCHAR(64)"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(64)"))
             conn.execute(text(

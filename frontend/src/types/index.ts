@@ -45,6 +45,7 @@ export interface NF {
   arquivada?: boolean;
   caixa?: string | null;
   origem?: 'manual' | 'maggo' | null;
+  anexo_nome?: string | null;
 }
 
 // Bônus

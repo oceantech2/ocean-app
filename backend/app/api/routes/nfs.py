@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, extract, func, cast, Date as SADate
 from sqlalchemy.exc import IntegrityError
 from typing import List, Set, Optional, Literal, Tuple
 from datetime import date
 import io
+import os
 from app.database import get_db
 from app.models import NF, StatusNF, TipoFechamento
 from app.schemas import NFCreate, NFResponse, NFUpdate
@@ -15,6 +16,7 @@ from app.services import excel_io
 from app.services.maggo_stub import listar_contas_receber, MaggoStubError
 from app.services import nf_duplicidade as dup
 from app.services.caixas import codigo_padrao, exigir_conta_corrente, mapa_rotulos
+from app.services import anexo_nf
 
 router = APIRouter()
 
@@ -431,6 +433,65 @@ def obter_nf(
     
     return nf
 
+
+def _limpar_anexo_disco(db_nf: NF) -> None:
+    anexo_nf.remover_arquivo(db_nf.anexo_path)
+    db_nf.anexo_path = None
+    db_nf.anexo_nome = None
+
+
+@router.post("/{nf_id}/anexo", status_code=status.HTTP_201_CREATED)
+async def upload_anexo_nf(
+    nf_id: int,
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    db_nf = db.query(NF).filter(NF.id == nf_id).first()
+    if not db_nf:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NF não encontrada")
+    conteudo = await arquivo.read()
+    caminho = anexo_nf.gravar("anexo_nf", nf_id, arquivo.filename, conteudo, db_nf.anexo_path)
+    db_nf.anexo_path = caminho
+    db_nf.anexo_nome = arquivo.filename
+    registrar_auditoria(db, current_user, "editar", "NF", nf_id, f"NF anexada: {arquivo.filename}")
+    db.commit()
+    return {"anexo_nome": arquivo.filename}
+
+
+@router.get("/{nf_id}/anexo")
+def download_anexo_nf(
+    nf_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    db_nf = db.query(NF).filter(NF.id == nf_id).first()
+    if not db_nf or not db_nf.anexo_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
+    if not os.path.exists(db_nf.anexo_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado no servidor")
+    return FileResponse(
+        db_nf.anexo_path,
+        filename=db_nf.anexo_nome or "nota-fiscal",
+        media_type=anexo_nf.media_type(db_nf.anexo_path, db_nf.anexo_nome),
+        content_disposition_type="inline",
+    )
+
+
+@router.delete("/{nf_id}/anexo", status_code=status.HTTP_204_NO_CONTENT)
+def remover_anexo_nf(
+    nf_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    db_nf = db.query(NF).filter(NF.id == nf_id).first()
+    if not db_nf:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NF não encontrada")
+    _limpar_anexo_disco(db_nf)
+    db.commit()
+    return None
+
+
 @router.post("/", response_model=NFResponse, status_code=status.HTTP_201_CREATED)
 def criar_nf(
     nf: NFCreate,
@@ -548,4 +609,5 @@ def deletar_nf(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
+    # Exclusão desabilitada (Maggo). Se for reativada, chamar _limpar_anexo_disco antes do delete.
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_MSG_EXCLUSAO_DESABILITADA)

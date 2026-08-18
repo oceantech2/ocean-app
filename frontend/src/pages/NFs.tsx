@@ -7,6 +7,7 @@ import { anosCompetencia, mapaAliquotas, textoTooltipAliquota } from '../utils/a
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import Pagination from '../components/Pagination';
 import { exportarCSV } from '../utils/export';
+import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -118,6 +119,7 @@ const COLUNAS: { label: string; campo: string | null; className: string; width: 
   { label: 'Líquido', campo: 'valor_liquido', width: '6.5rem', className: '' },
   { label: 'Data de fechamento', campo: 'data_ent_pgto', width: '6.5rem', className: '' },
   { label: 'NF', campo: 'numero', width: '4.5rem', className: '' },
+  { label: 'Nota fiscal', campo: null, width: '7rem', className: '' },
   { label: 'Emissão', campo: 'data_emissao', width: '5.5rem', className: '' },
   { label: 'Vencimento', campo: 'data_vencimento', width: '5.5rem', className: '' },
   { label: 'Pagamento', campo: 'data_pagamento', width: '5.5rem', className: '' },
@@ -126,7 +128,7 @@ const COLUNAS: { label: string; campo: string | null; className: string; width: 
   { label: 'Ações', campo: null, width: '6.5rem', className: 'sticky right-0 z-[2] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
 ];
 
-const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1020px]';
+const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1132px]';
 
 export default function NFs() {
   const papel = useAuthStore((s) => s.papel);
@@ -151,6 +153,9 @@ export default function NFs() {
   const [salvando, setSalvando] = useState(false);
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false);
   const [conflitoNfId, setConflitoNfId] = useState<number | null>(null);
+  const [arquivoNfForm, setArquivoNfForm] = useState<File | null>(null);
+  const [uploadingAnexo, setUploadingAnexo] = useState<number | null>(null);
+  const anexoInputRef = useRef<HTMLInputElement>(null);
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
   const [dataPagamentoForm, setDataPagamentoForm] = useState('');
@@ -221,6 +226,44 @@ export default function NFs() {
     }
   };
 
+  const abrirUploadAnexo = (nf: NF) => {
+    setUploadingAnexo(nf.id);
+    anexoInputRef.current?.click();
+  };
+
+  const handleAnexoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!arquivo || !uploadingAnexo) return;
+    const motivo = motivoArquivoNf(arquivo);
+    if (motivo) {
+      toast.error(motivo);
+      setUploadingAnexo(null);
+      return;
+    }
+    try {
+      await nfsService.uploadAnexo(uploadingAnexo, arquivo);
+      toast.success('Nota fiscal vinculada!');
+      carregarNFs();
+    } catch (err: any) {
+      toast.error(mensagemErro(err, 'Erro ao anexar nota fiscal'));
+    } finally {
+      setUploadingAnexo(null);
+    }
+  };
+
+  const removerAnexoNf = async (nf: NF) => {
+    if (!confirm(`Remover a nota fiscal de "${nf.posicao || nf.razao_social}"?`)) return;
+    try {
+      await nfsService.deleteAnexo(nf.id);
+      toast.success('Nota fiscal removida');
+      if (editando?.id === nf.id) setEditando({ ...editando, anexo_nome: undefined });
+      carregarNFs();
+    } catch (err: any) {
+      toast.error(mensagemErro(err, 'Erro ao remover nota fiscal'));
+    }
+  };
+
   const abrirEditar = (nf: NF) => {
     setCriando(false);
     setConflitoNfId(null);
@@ -238,12 +281,14 @@ export default function NFs() {
       tipo: (nf.tipo === 'sucesso' || nf.tipo === 'parcelamento' ? nf.tipo : 'retainer'),
     });
     setModalAberto(true);
+    setArquivoNfForm(null);
   };
 
   const abrirCriar = () => {
     setCriando(true);
     setEditando(null);
     setConflitoNfId(null);
+    setArquivoNfForm(null);
     setForm({ ...FORM_INICIAL, caixa: codigoPadrao(contasCorrentes) });
     setModalAberto(true);
   };
@@ -288,7 +333,7 @@ export default function NFs() {
       try {
         setSalvando(true);
         setConflitoNfId(null);
-        await nfsService.criar({
+        const res = await nfsService.criar({
           numero: numeroTrim || null,
           razao_social: form.razao_social.trim(),
           posicao: form.posicao.trim() || null,
@@ -302,9 +347,28 @@ export default function NFs() {
           data_pagamento: recebido ? form.data_pagamento : null,
           caixa: recebido ? (form.caixa || codigoPadrao(contasCorrentes)) : null,
         });
+        const novaId = res.data?.id;
+        if (arquivoNfForm && novaId) {
+          const motivo = motivoArquivoNf(arquivoNfForm);
+          if (motivo) {
+            toast.error(`${motivo}. A conta foi criada sem o arquivo.`);
+          } else {
+            try {
+              await nfsService.uploadAnexo(novaId, arquivoNfForm);
+            } catch (err: any) {
+              toast.error(mensagemErro(err, 'Conta criada, mas a nota fiscal não foi anexada'));
+              setModalAberto(false);
+              setCriando(false);
+              setArquivoNfForm(null);
+              carregarNFs();
+              return;
+            }
+          }
+        }
         toast.success('Conta a receber criada!');
         setModalAberto(false);
         setCriando(false);
+        setArquivoNfForm(null);
         carregarNFs();
         triggerNotifRefresh();
         triggerCalendarioRefresh();
@@ -348,8 +412,25 @@ export default function NFs() {
         });
       }
       await nfsService.atualizar(editando.id, dados);
+      if (arquivoNfForm) {
+        const motivo = motivoArquivoNf(arquivoNfForm);
+        if (motivo) {
+          toast.error(`${motivo}. Os demais dados foram salvos.`);
+        } else {
+          try {
+            await nfsService.uploadAnexo(editando.id, arquivoNfForm);
+          } catch (err: any) {
+            toast.error(mensagemErro(err, 'Conta atualizada, mas a nota fiscal não foi anexada'));
+            setModalAberto(false);
+            setArquivoNfForm(null);
+            carregarNFs();
+            return;
+          }
+        }
+      }
       toast.success('Conta a receber atualizada!');
       setModalAberto(false);
+      setArquivoNfForm(null);
       carregarNFs();
       triggerNotifRefresh();
       triggerCalendarioRefresh();
@@ -581,6 +662,14 @@ export default function NFs() {
         </div>
       )}
 
+      <input
+        ref={anexoInputRef}
+        type="file"
+        accept={ACCEPT_NF}
+        className="hidden"
+        onChange={handleAnexoFile}
+      />
+
       <div className="relative z-0 isolate bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden h-[36rem] flex flex-col">
         {loading ? (
           <div className="flex-1 p-8 text-center text-gray-500 dark:text-gray-400 flex flex-col items-center justify-center">
@@ -660,6 +749,31 @@ export default function NFs() {
                         <span>{nf.numero || '—'}</span>
                         {nf.arquivada && <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-400 px-1 rounded">Arq.</span>}
                       </div>
+                    </td>
+                    <td className="px-2 py-2.5 text-xs">
+                      {nf.anexo_nome ? (
+                        <div className="flex flex-col gap-0.5 items-start">
+                          <button
+                            type="button"
+                            onClick={() => nfsService.downloadAnexo(nf.id)}
+                            className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline max-w-full"
+                            title={nf.anexo_nome}
+                          >
+                            <span>📎</span>
+                            <span className="max-w-[5.5rem] truncate">{nf.anexo_nome}</span>
+                          </button>
+                          {papel === 'admin' && !nf.arquivada && (
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => abrirUploadAnexo(nf)} className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400" title="Substituir nota fiscal">Substituir</button>
+                              <button type="button" onClick={() => removerAnexoNf(nf)} className="text-gray-400 hover:text-red-600 dark:hover:text-red-400" title="Remover nota fiscal">Remover</button>
+                            </div>
+                          )}
+                        </div>
+                      ) : papel === 'admin' && !nf.arquivada ? (
+                        <button type="button" onClick={() => abrirUploadAnexo(nf)} className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400" title="Anexar nota fiscal">+ Anexar</button>
+                      ) : (
+                        <span className="text-gray-300 dark:text-gray-600">—</span>
+                      )}
                     </td>
                     <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{dash(nf.data_emissao)}</td>
                     <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{dash(nf.data_vencimento)}</td>
@@ -858,6 +972,52 @@ export default function NFs() {
                   onChange={(e) => setForm({ ...form, numero: e.target.value })}
                 />
               </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nota fiscal (PDF, JPEG ou PNG, máx. 2 MB)</label>
+                {editando?.anexo_nome && (
+                  <div className="flex items-center gap-2 mb-1">
+                    <button
+                      type="button"
+                      onClick={() => nfsService.downloadAnexo(editando.id)}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      {editando.anexo_nome}
+                    </button>
+                    {papel === 'admin' && (
+                      <button type="button" onClick={() => removerAnexoNf(editando)} className="text-xs text-red-600 dark:text-red-400 hover:underline">
+                        Remover
+                      </button>
+                    )}
+                  </div>
+                )}
+                {papel === 'admin' && (
+                  <>
+                    <input
+                      type="file"
+                      accept={ACCEPT_NF}
+                      className="block w-full text-xs text-gray-500 dark:text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border file:border-gray-200 dark:file:border-gray-600 file:bg-white dark:file:bg-gray-700 file:text-gray-700 dark:file:text-gray-200"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] || null;
+                        e.target.value = '';
+                        if (!f) {
+                          setArquivoNfForm(null);
+                          return;
+                        }
+                        const motivo = motivoArquivoNf(f);
+                        if (motivo) {
+                          toast.error(motivo);
+                          setArquivoNfForm(null);
+                          return;
+                        }
+                        setArquivoNfForm(f);
+                      }}
+                    />
+                    {arquivoNfForm && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Selecionado: {arquivoNfForm.name}</p>
+                    )}
+                  </>
+                )}
+              </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de emissão{form.numero.trim() ? ' *' : ''}</label>
                 <input
@@ -936,7 +1096,7 @@ export default function NFs() {
               )}
             </div>
             <div className="shrink-0 px-6 py-4 border-t dark:border-gray-700 flex justify-end gap-3 bg-white dark:bg-gray-800">
-              <button onClick={() => { setModalAberto(false); setCriando(false); setConflitoNfId(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={() => { setModalAberto(false); setCriando(false); setConflitoNfId(null); setArquivoNfForm(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>

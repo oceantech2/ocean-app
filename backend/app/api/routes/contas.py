@@ -6,7 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import io
 import os
-import uuid
 from app.database import get_db
 from app.models import ContaPagar, Colaborador
 from app.schemas import (
@@ -22,26 +21,9 @@ from app.services.audit import registrar_auditoria
 from app.services import excel_io
 from app.services import categorias_contas as cat_svc
 from app.services.caixas import exigir_conta_corrente, mapa_rotulos
-from app.config import settings
+from app.services import anexo_nf
 
 router = APIRouter()
-
-EXTENSOES_NF = {".pdf", ".jpg", ".jpeg", ".png"}
-MEDIA_TYPE_NF = {
-    ".pdf": "application/pdf",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-}
-
-
-def _extensao(nome: str | None) -> str:
-    return os.path.splitext(nome or "")[1].lower()
-
-
-def _media_type_arquivo(path: str, nome_original: str | None) -> str:
-    ext = _extensao(path) or _extensao(nome_original)
-    return MEDIA_TYPE_NF.get(ext, "application/octet-stream")
 
 
 def _validar_fornecedor_id(db: Session, fornecedor_id: int | None, atual: ContaPagar | None = None):
@@ -361,8 +343,7 @@ def deletar_conta(
     db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
     if not db_conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
-    if db_conta.comprovante_path and os.path.exists(db_conta.comprovante_path):
-        os.remove(db_conta.comprovante_path)
+    anexo_nf.remover_arquivo(db_conta.comprovante_path)
     registrar_auditoria(db, current_user, "deletar", "ContaPagar", db_conta.id, f"{db_conta.descricao} — R$ {db_conta.valor:,.2f}")
     db.delete(db_conta)
     db.commit()
@@ -380,24 +361,8 @@ async def upload_comprovante(
     if not db_conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
 
-    ext = _extensao(arquivo.filename)
-    if ext not in EXTENSOES_NF:
-        raise HTTPException(
-            status_code=400,
-            detail="Formato não permitido. Envie PDF, JPEG ou PNG.",
-        )
-
     conteudo = await arquivo.read()
-    if len(conteudo) > settings.UPLOAD_MAX_MB * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"Arquivo excede {settings.UPLOAD_MAX_MB} MB")
-
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    if db_conta.comprovante_path and os.path.exists(db_conta.comprovante_path):
-        os.remove(db_conta.comprovante_path)
-    nome_arquivo = f"comprovante_{conta_id}_{uuid.uuid4().hex}{ext}"
-    caminho = os.path.join(settings.UPLOAD_DIR, nome_arquivo)
-    with open(caminho, "wb") as f:
-        f.write(conteudo)
+    caminho = anexo_nf.gravar("comprovante", conta_id, arquivo.filename, conteudo, db_conta.comprovante_path)
 
     db_conta.comprovante_path = caminho
     db_conta.comprovante_nome = arquivo.filename
@@ -420,7 +385,7 @@ def download_comprovante(
     return FileResponse(
         db_conta.comprovante_path,
         filename=db_conta.comprovante_nome or "comprovante",
-        media_type=_media_type_arquivo(db_conta.comprovante_path, db_conta.comprovante_nome),
+        media_type=anexo_nf.media_type(db_conta.comprovante_path, db_conta.comprovante_nome),
         content_disposition_type="inline",
     )
 
@@ -434,8 +399,7 @@ def remover_comprovante(
     db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
     if not db_conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
-    if db_conta.comprovante_path and os.path.exists(db_conta.comprovante_path):
-        os.remove(db_conta.comprovante_path)
+    anexo_nf.remover_arquivo(db_conta.comprovante_path)
     db_conta.comprovante_path = None
     db_conta.comprovante_nome = None
     db.commit()

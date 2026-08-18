@@ -176,6 +176,22 @@ export const nfsService = {
     a.remove();
     window.URL.revokeObjectURL(url);
   },
+
+  uploadAnexo: (nfId: number, arquivo: File) => {
+    const fd = new FormData();
+    fd.append('arquivo', arquivo);
+    return api.post(`/nfs/${nfId}/anexo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+
+  downloadAnexo: async (nfId: number) => {
+    const res = await api.get(`/nfs/${nfId}/anexo`, { responseType: 'blob' });
+    const type = (res.headers['content-type'] as string) || 'application/octet-stream';
+    const url = URL.createObjectURL(new Blob([res.data], { type }));
+    window.open(url, '_blank');
+  },
+
+  deleteAnexo: (nfId: number) =>
+    api.delete(`/nfs/${nfId}/anexo`),
 };
 
 // Contas

@@ -94,6 +94,8 @@ class NF(Base):
     arquivada = Column(Boolean, default=False, nullable=False, server_default='false')
     caixa = Column(String(64), nullable=True)  # codigo conta corrente | investimento | null
     origem = Column(String(20), nullable=False, default="maggo", server_default="maggo")  # manual | maggo
+    anexo_path = Column(Text, nullable=True)
+    anexo_nome = Column(String(255), nullable=True)
 
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

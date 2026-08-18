@@ -9,6 +9,7 @@ import ImportCSV from '../components/ImportCSV';
 import { hojeISO, compararVencimento, venceEmMenosDe7Dias } from '../utils/dataCivil';
 import { agruparPorMes, chaveMesInicialAberta, totalGrupo } from '../utils/contasPagarAgrupamento';
 import { caixaInicialForm, codigoPadrao, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
+import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
 
 const SENTINELA_NOVA = '__nova__';
@@ -51,18 +52,6 @@ function validarNomeCategoriaLocal(nomeBruto: string): string | null {
     }
   }
   return null;
-}
-
-const ACCEPT_NF = '.pdf,.jpg,.jpeg,.png';
-const EXT_NF_OK = ['.pdf', '.jpg', '.jpeg', '.png'];
-
-function extensaoArquivo(nome: string) {
-  const i = nome.lastIndexOf('.');
-  return i >= 0 ? nome.slice(i).toLowerCase() : '';
-}
-
-function arquivoNfValido(file: File) {
-  return EXT_NF_OK.includes(extensaoArquivo(file.name));
 }
 
 const FORM_INICIAL = {
@@ -295,7 +284,8 @@ export default function Contas() {
         dados.pago = !!form.data_pagamento;
         await contasService.atualizar(editando.id, dados);
         if (arquivoNf) {
-          if (arquivoNfValido(arquivoNf)) {
+          const motivo = motivoArquivoNf(arquivoNf);
+          if (!motivo) {
             try {
               await contasService.uploadComprovante(editando.id, arquivoNf);
             } catch (e: any) {
@@ -304,7 +294,7 @@ export default function Contas() {
               return;
             }
           } else {
-            toast.error('Use PDF, JPEG ou PNG. A conta foi salva sem alterar o arquivo.');
+            toast.error(`${motivo}. A conta foi salva sem alterar o arquivo.`);
           }
         }
         toast.success('Conta atualizada!');
@@ -312,7 +302,8 @@ export default function Contas() {
         const res = await contasService.criar(dados);
         const novaId = res.data?.id;
         if (arquivoNf && novaId) {
-          if (arquivoNfValido(arquivoNf)) {
+          const motivo = motivoArquivoNf(arquivoNf);
+          if (!motivo) {
             try {
               await contasService.uploadComprovante(novaId, arquivoNf);
             } catch (e: any) {
@@ -321,7 +312,7 @@ export default function Contas() {
               return;
             }
           } else {
-            toast.error('Use PDF, JPEG ou PNG. A conta foi salva sem arquivo.');
+            toast.error(`${motivo}. A conta foi salva sem arquivo.`);
           }
         }
         toast.success('Conta criada!');
@@ -404,8 +395,9 @@ export default function Contas() {
     const arquivo = e.target.files?.[0];
     e.target.value = '';
     if (!arquivo || !uploadingComprovante) return;
-    if (!arquivoNfValido(arquivo)) {
-      toast.error('Use PDF, JPEG ou PNG');
+    const motivo = motivoArquivoNf(arquivo);
+    if (motivo) {
+      toast.error(motivo);
       setUploadingComprovante(null);
       return;
     }
@@ -972,10 +964,13 @@ export default function Contas() {
                   onChange={(e) => {
                     const f = e.target.files?.[0] || null;
                     e.target.value = '';
-                    if (f && !arquivoNfValido(f)) {
-                      toast.error('Use PDF, JPEG ou PNG');
-                      setArquivoNf(null);
-                      return;
+                    if (f) {
+                      const motivo = motivoArquivoNf(f);
+                      if (motivo) {
+                        toast.error(motivo);
+                        setArquivoNf(null);
+                        return;
+                      }
                     }
                     setArquivoNf(f);
                   }}

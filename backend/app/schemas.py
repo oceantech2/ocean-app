@@ -188,6 +188,7 @@ class NFResponse(NFBase):
     arquivada: bool = False
     caixa: Optional[str] = None
     origem: Optional[str] = None  # manual | maggo
+    anexo_nome: Optional[str] = None
     criado_em: datetime
 
     class Config:
