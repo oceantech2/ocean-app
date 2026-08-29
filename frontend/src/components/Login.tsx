@@ -19,7 +19,13 @@ export default function Login() {
 
     try {
       const response = await authService.login(username, password, precisa2fa ? totpCode : undefined);
-      setAuth(response.usuario, response.access_token, response.papel, response.permissoes);
+      setAuth(
+        response.usuario,
+        response.access_token,
+        response.papel,
+        response.permissoes,
+        response.paginas_visibilidade ?? null,
+      );
       toast.success('Login realizado com sucesso!');
       navigate('/dashboard');
     } catch (error: any) {

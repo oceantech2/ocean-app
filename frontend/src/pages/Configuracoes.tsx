@@ -3,21 +3,10 @@ import { configuracoesService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
 import { UsuarioApp } from '../types';
 import { useAuthStore } from '../store';
+import { PAGINAS_PERMISSOES, PAGINAS_VISIBILIDADE_UI, paginaVisivelGlobal } from '../utils/paginasCatalogo';
 import toast from 'react-hot-toast';
 
-const MENUS = [
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'calendario', label: 'Calendário' },
-  { key: 'nfs', label: 'Contas a Receber' },
-  { key: 'contas', label: 'Contas a Pagar' },
-  { key: 'fluxo_caixa', label: 'Fluxo de Caixa' },
-  { key: 'impostos', label: 'Impostos' },
-  { key: 'retiradas', label: 'Retiradas (Sócios)' },
-  { key: 'bonus', label: 'Bônus' },
-  { key: 'dh', label: 'DH' },
-  { key: 'colaboradores', label: 'Colaboradores' },
-  { key: 'ferias', label: 'Férias' },
-];
+const MENUS = PAGINAS_PERMISSOES.map((p) => ({ key: p.key, label: p.label }));
 
 const PERMS_ADMIN = Object.fromEntries(MENUS.map((m) => [m.key, true]));
 const PERMS_DEFAULT = Object.fromEntries(MENUS.map((m) => [m.key, false]));
@@ -31,14 +20,20 @@ const FORM_INICIAL = { usuario: '', senha: '', papel: 'visualizador', permissoes
 
 export default function ConfiguracoesPage() {
   const papel = useAuthStore((s) => s.papel);
+  const paginasVisibilidadeStore = useAuthStore((s) => s.paginasVisibilidade);
+  const setPaginasVisibilidade = useAuthStore((s) => s.setPaginasVisibilidade);
   const [usuarios, setUsuarios] = useState<UsuarioApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalAberto, setModalAberto] = useState(false);
   const [editando, setEditando] = useState<UsuarioApp | null>(null);
   const [form, setForm] = useState({ ...FORM_INICIAL });
   const [salvando, setSalvando] = useState(false);
+  const [visibilidade, setVisibilidade] = useState<Record<string, boolean>>({});
+  const [carregandoVisibilidade, setCarregandoVisibilidade] = useState(true);
+  const [salvandoVisibilidade, setSalvandoVisibilidade] = useState(false);
 
   useEffect(() => { carregarUsuarios(); }, []);
+  useEffect(() => { carregarVisibilidade(); }, []);
 
   const carregarUsuarios = async () => {
     try {
@@ -47,6 +42,40 @@ export default function ConfiguracoesPage() {
       setUsuarios(res.data);
     } catch { toast.error('Erro ao carregar usuários'); }
     finally { setLoading(false); }
+  };
+
+  const carregarVisibilidade = async () => {
+    try {
+      setCarregandoVisibilidade(true);
+      if (paginasVisibilidadeStore) {
+        setVisibilidade({ ...paginasVisibilidadeStore });
+        return;
+      }
+      const res = await configuracoesService.obterPaginasVisibilidade();
+      setVisibilidade(res.data.paginas);
+      setPaginasVisibilidade(res.data.paginas);
+    } catch { toast.error('Erro ao carregar visibilidade de páginas'); }
+    finally { setCarregandoVisibilidade(false); }
+  };
+
+  const toggleVisibilidade = (key: string) => {
+    const pagina = PAGINAS_VISIBILIDADE_UI.find((p) => p.key === key);
+    if (!pagina?.ocultavel) return;
+    setVisibilidade((v) => ({ ...v, [key]: v[key] === false }));
+  };
+
+  const salvarVisibilidade = async () => {
+    try {
+      setSalvandoVisibilidade(true);
+      const res = await configuracoesService.atualizarPaginasVisibilidade(visibilidade);
+      setVisibilidade(res.data.paginas);
+      setPaginasVisibilidade(res.data.paginas);
+      toast.success('Visibilidade atualizada!');
+    } catch (e: unknown) {
+      toast.error(mensagemErro(e, 'Erro ao salvar visibilidade'));
+    } finally {
+      setSalvandoVisibilidade(false);
+    }
   };
 
   const abrirCriar = () => {
@@ -67,6 +96,7 @@ export default function ConfiguracoesPage() {
   };
 
   const togglePermissao = (key: string) => {
+    if (!paginaVisivelGlobal(paginasVisibilidadeStore, key)) return;
     setForm((f) => ({ ...f, permissoes: { ...f.permissoes, [key]: !f.permissoes[key] } }));
   };
 
@@ -77,7 +107,7 @@ export default function ConfiguracoesPage() {
       setSalvando(true);
       const permissoesJson = JSON.stringify(form.papel === 'admin' ? PERMS_ADMIN : form.permissoes);
       if (editando) {
-        const dados: any = { papel: form.papel, permissoes: permissoesJson };
+        const dados: { papel: string; permissoes: string; senha?: string } = { papel: form.papel, permissoes: permissoesJson };
         if (form.senha) dados.senha = form.senha;
         await configuracoesService.atualizar(editando.id, dados);
         toast.success('Usuário atualizado!');
@@ -87,7 +117,7 @@ export default function ConfiguracoesPage() {
       }
       setModalAberto(false);
       carregarUsuarios();
-    } catch (e: any) { toast.error(mensagemErro(e, 'Erro ao salvar')); }
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao salvar')); }
     finally { setSalvando(false); }
   };
 
@@ -106,7 +136,7 @@ export default function ConfiguracoesPage() {
       await configuracoesService.deletar(u.id);
       toast.success('Usuário removido');
       carregarUsuarios();
-    } catch (e: any) { toast.error(mensagemErro(e, 'Erro ao deletar')); }
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao deletar')); }
   };
 
   if (papel !== 'admin') {
@@ -130,6 +160,54 @@ export default function ConfiguracoesPage() {
         </button>
       </div>
 
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Visibilidade de páginas</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Controla quais páginas aparecem no menu de todos os usuários.</p>
+          </div>
+          <button
+            onClick={salvarVisibilidade}
+            disabled={salvandoVisibilidade || carregandoVisibilidade}
+            className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition shrink-0"
+          >
+            {salvandoVisibilidade ? 'Salvando...' : 'Salvar'}
+          </button>
+        </div>
+        {carregandoVisibilidade ? (
+          <div className="py-6 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
+        ) : (
+          <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+            {PAGINAS_VISIBILIDADE_UI.map((p, i) => {
+              const visivel = visibilidade[p.key] !== false;
+              const desabilitado = !p.ocultavel;
+              return (
+                <div
+                  key={p.key}
+                  className={`flex items-center justify-between px-4 py-2.5 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-700' : ''}`}
+                >
+                  <div>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{p.label}</span>
+                    {desabilitado && (
+                      <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">(sempre visível)</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={desabilitado}
+                    onClick={() => toggleVisibilidade(p.key)}
+                    className={`w-10 h-5 rounded-full transition-colors relative ${desabilitado ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${visivel ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                    title={desabilitado ? 'Sempre visível' : visivel ? 'Visível' : 'Oculta'}
+                  >
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${visivel ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
@@ -147,7 +225,9 @@ export default function ConfiguracoesPage() {
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {usuarios.map((u) => {
                 const perms = parsePerms(u.permissoes);
-                const menusAtivos = u.papel === 'admin' ? MENUS.map((m) => m.label) : MENUS.filter((m) => perms[m.key]).map((m) => m.label);
+                const menusAtivos = u.papel === 'admin'
+                  ? MENUS.map((m) => m.label)
+                  : MENUS.filter((m) => perms[m.key] && paginaVisivelGlobal(paginasVisibilidadeStore, m.key)).map((m) => m.label);
                 return (
                   <tr key={u.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${!u.ativo ? 'opacity-50' : ''}`}>
                     <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{u.usuario}</td>
@@ -191,7 +271,6 @@ export default function ConfiguracoesPage() {
         )}
       </div>
 
-      {/* Modal */}
       {modalAberto && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
@@ -219,17 +298,30 @@ export default function ConfiguracoesPage() {
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-2">Acesso aos menus</label>
                   <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
-                    {MENUS.map((m, i) => (
-                      <label key={m.key} className={`flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-700' : ''}`}>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">{m.label}</span>
+                    {MENUS.map((m, i) => {
+                      const ocultaGlobal = !paginaVisivelGlobal(paginasVisibilidadeStore, m.key);
+                      return (
                         <div
-                          onClick={() => togglePermissao(m.key)}
-                          className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer ${form.permissoes[m.key] ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                          key={m.key}
+                          className={`flex items-center justify-between px-4 py-2.5 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-700' : ''} ${ocultaGlobal ? 'opacity-60' : ''}`}
                         >
-                          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.permissoes[m.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                          <div>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">{m.label}</span>
+                            {ocultaGlobal && (
+                              <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">Oculta no sistema</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={ocultaGlobal}
+                            onClick={() => togglePermissao(m.key)}
+                            className={`w-10 h-5 rounded-full transition-colors relative ${ocultaGlobal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${form.permissoes[m.key] ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                          >
+                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.permissoes[m.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                          </button>
                         </div>
-                      </label>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

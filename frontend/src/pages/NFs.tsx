@@ -14,7 +14,7 @@ const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'O
 const OPCOES_PAGINA = [15, 25, 50, 100];
 
 function tipoLabel(tipo: string) {
-  if (tipo === 'parcelamento') return 'Parcelamento';
+  if (tipo === 'parcelamento') return 'Parcela';
   if (tipo === 'sucesso') return 'Sucesso';
   return 'Retainer';
 }
@@ -92,6 +92,16 @@ function IconExibir({ className = 'w-4 h-4' }: { className?: string }) {
   );
 }
 
+function IconExcluir({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+    </svg>
+  );
+}
+
 const BTN_ICON = 'inline-flex items-center justify-center w-7 h-7 rounded transition';
 
 const MSG_DATA_PAGAMENTO = 'Informe a data de pagamento para marcar como recebido.';
@@ -113,7 +123,7 @@ const INPUT_RO = INPUT + ' bg-gray-50 dark:bg-gray-900/40 text-gray-600 dark:tex
 const COLUNAS: { label: string; campo: string | null; className: string; width: string }[] = [
   { label: 'Projeto', campo: 'posicao', width: '8.5rem', className: 'sticky left-0 z-[2] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
   { label: 'Origem', campo: 'origem', width: '5.5rem', className: '' },
-  { label: 'Método de pagamento', campo: 'tipo', width: '6.5rem', className: '' },
+  { label: 'Tipo', campo: 'tipo', width: '6.5rem', className: '' },
   { label: 'Bruto', campo: 'valor_bruto', width: '6.5rem', className: '' },
   { label: 'Imposto', campo: 'valor_imposto', width: '5.5rem', className: '' },
   { label: 'Líquido', campo: 'valor_liquido', width: '6.5rem', className: '' },
@@ -125,10 +135,10 @@ const COLUNAS: { label: string; campo: string | null; className: string; width: 
   { label: 'Pagamento', campo: 'data_pagamento', width: '5.5rem', className: '' },
   { label: 'Conta corrente', campo: 'caixa', width: '7rem', className: '' },
   { label: 'Status', campo: 'status', width: '5.5rem', className: '' },
-  { label: 'Ações', campo: null, width: '6.5rem', className: 'sticky right-0 z-[2] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
+  { label: 'Ações', campo: null, width: '8rem', className: 'sticky right-0 z-[2] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
 ];
 
-const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1132px]';
+const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1156px]';
 
 export default function NFs() {
   const papel = useAuthStore((s) => s.papel);
@@ -477,6 +487,20 @@ export default function NFs() {
     } catch { toast.error(`Erro ao ${acao}`); }
   };
 
+  const excluirNF = async (nf: NF) => {
+    const rotulo = nf.numero || nf.razao_social || 'esta conta';
+    if (!window.confirm(`Excluir "${rotulo}"?`)) return;
+    try {
+      await nfsService.deletar(nf.id);
+      toast.success('Conta excluída');
+      carregarNFs();
+      triggerNotifRefresh();
+      triggerCalendarioRefresh();
+    } catch (e: unknown) {
+      toast.error(mensagemErro(e, 'Erro ao excluir'));
+    }
+  };
+
   const alternarOrdenacao = (campo: string) => {
     if (sortField === campo) { setSortDir((d) => d === 'asc' ? 'desc' : 'asc'); }
     else { setSortField(campo); setSortDir('asc'); }
@@ -493,7 +517,7 @@ export default function NFs() {
       Projeto: n.posicao || '',
       Empresa: n.razao_social,
       Origem: origemLabel(n.origem),
-      'Método de pagamento': tipoLabel(n.tipo),
+      Tipo: tipoLabel(n.tipo),
       Bruto: n.valor_bruto,
       Imposto: n.valor_imposto ?? '',
       Líquido: n.valor_liquido,
@@ -826,6 +850,15 @@ export default function NFs() {
                           >
                             {nf.arquivada ? <IconExibir /> : <IconArquivar />}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => excluirNF(nf)}
+                            className={`${BTN_ICON} text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40`}
+                            title="Excluir"
+                            aria-label="Excluir"
+                          >
+                            <IconExcluir />
+                          </button>
                         </div>
                       )}
                     </td>
@@ -844,7 +877,7 @@ export default function NFs() {
 
       {modalAberto && (editando || criando) && (() => {
         const isManual = criando || editando?.origem === 'manual';
-        const maggoEditavel = isManual;
+        const maggoEditavel = papel === 'admin';
         const oceanEditavel = true;
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
@@ -860,7 +893,7 @@ export default function NFs() {
               {!criando && (
                 <p className="text-xs text-gray-500 mt-1">
                   Origem: {origemLabel(editando?.origem)}
-                  {isManual ? ' — dados Maggo e Ocean editáveis' : ' — dados Maggo somente leitura; Ocean editável'}
+                  {isManual ? ' — dados Maggo e Ocean editáveis' : ' — dados Maggo e Ocean editáveis no Ocean'}
                 </p>
               )}
             </div>
@@ -878,7 +911,7 @@ export default function NFs() {
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Método de pagamento *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tipo *</label>
                 {maggoEditavel ? (
                   <select
                     className={INPUT}
@@ -887,7 +920,7 @@ export default function NFs() {
                   >
                     <option value="retainer">Retainer</option>
                     <option value="sucesso">Sucesso</option>
-                    <option value="parcelamento">Parcelamento</option>
+                    <option value="parcelamento">Parcela</option>
                   </select>
                 ) : (
                   <input className={INPUT_RO} value={tipoLabel(editando!.tipo)} readOnly disabled />

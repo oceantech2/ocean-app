@@ -32,7 +32,7 @@ SUB_BENEFICIOS = "beneficios"
 
 SUBCATEGORIAS_RH = {
     SUB_SALARIO: "Salário",
-    SUB_BONUS: "Bônus",
+    SUB_BONUS: "Comissões",
     SUB_COMISSAO: "Comissão",
     SUB_RETIRADA: "Retirada Sócios",
     SUB_BENEFICIOS: "Benefícios",
@@ -42,7 +42,7 @@ SUBCATEGORIAS_RH = {
 LABELS_LEGADO = {
     "administrativo": "Administrativo (legado)",
     "salario": "Salário (legado)",
-    "bonus": "Bônus (legado)",
+    "bonus": "Comissões (legado)",
     "retirada_lucro": "Retirada de Lucro (legado)",
     "impostos": "Impostos (legado)",
     "imposto": "Imposto (legado)",
@@ -168,7 +168,7 @@ def validar_classificacao(
     if cat == CATEGORIA_RH:
         if not sub or sub not in SUBCATEGORIAS_RH:
             raise ValueError(
-                "Recursos Humanos exige subcategoria: salário, bônus, comissão, retirada sócios ou benefícios"
+                "Recursos Humanos exige subcategoria: salário, comissões, comissão, retirada sócios ou benefícios"
             )
         return cat, sub
 

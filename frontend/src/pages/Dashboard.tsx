@@ -4,14 +4,22 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService } from '../services/api';
-import { codigoPadrao, movimentosSinalizadosDaConta, saldoVisivel, CODIGO_INVESTIMENTO } from '../utils/fluxoCaixaMovimentos';
+import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService, impostosService } from '../services/api';
+import { codigoPadrao, CODIGO_INVESTIMENTO } from '../utils/fluxoCaixaMovimentos';
+import {
+  filtrarCustoSemImpostos,
+  impostosDoRecorte,
+  lucroCard,
+  totaisDespesa,
+} from '../utils/dashboardDespesas';
+import { saldoCorrenteDashboard } from '../utils/dashboardSaldo';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import type { ContaCorrente, ContaPagar, NF } from '../types';
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
+const DRL_ANO_INICIO = 2024;
 const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ANOS = Array.from({ length: 2100 - 2024 + 1 }, (_, i) => 2024 + i);
 
@@ -159,7 +167,7 @@ const CENTRO_LABEL: Record<string, string> = {
   pendente: 'Pendente de reclassificação',
   // legado (compat)
   SALARIO: 'Salário', salario: 'Salário',
-  BONUS: 'Bônus', bonus: 'Bônus',
+  BONUS: 'Comissões', bonus: 'Comissões',
   IMPOSTOS: 'Impostos',
   ADMINISTRATIVO: 'Administrativo', administrativo: 'Administrativo',
   RETIRADA_LUCRO: 'Retirada de Lucro', retirada_lucro: 'Retirada de Lucro',
@@ -188,6 +196,36 @@ const FALLBACK_CORES = ['#6366F1', '#84CC16', '#F97316', '#06B6D4', '#A855F7'];
 const centroLabel = (v: string) => CENTRO_LABEL[v] ?? v;
 const centroCor = (v: string, i: number) =>
   CENTRO_COR[v.toLowerCase()] ?? FALLBACK_CORES[i % FALLBACK_CORES.length];
+
+type DrlPonto = {
+  mesLabel: string;
+  valor: number;
+  ano: number;
+  mes: number;
+};
+
+function buildSerieDrl(
+  porAno: Array<{ ano: number; dados: Array<{ mes: number; valor: number }> }>,
+): DrlPonto[] {
+  const pontos: DrlPonto[] = [];
+  for (const { ano: y, dados } of porAno) {
+    for (const d of dados) {
+      const mes = Number(d.mes);
+      const valor = Number(d.valor) || 0;
+      if (valor <= 0) continue;
+      if (y < DRL_ANO_INICIO) continue;
+      if (y > ANO_ATUAL) continue;
+      if (y === ANO_ATUAL && mes > MES_ATUAL) continue;
+      pontos.push({
+        mesLabel: `${MESES_NOME[mes - 1]}/${String(y).slice(-2)}`,
+        valor,
+        ano: y,
+        mes,
+      });
+    }
+  }
+  return pontos.sort((a, b) => (a.ano !== b.ano ? a.ano - b.ano : a.mes - b.mes));
+}
 
 type DrePonto = {
   mes: string;
@@ -359,10 +397,8 @@ export default function Dashboard() {
   const [ano, setAno] = useState(ANO_ATUAL);
   const [mes, setMes] = useState<number | null>(MES_ATUAL);
   const [loading, setLoading] = useState(true);
-  const [mostrarAnterior, setMostrarAnterior] = useState(true);
-  const [anoComparar, setAnoComparar] = useState(ANO_ATUAL - 1);
-  const [faturamento, setFaturamento] = useState<any[]>([]);
-  const [fechamentos, setFechamentos] = useState({ retainer: 0, sucesso: 0, parcelamento: 0, total: 0 });
+  const [realizadoAnual, setRealizadoAnual] = useState(0);
+  const [drlSerie, setDrlSerie] = useState<DrlPonto[]>([]);
   const [resumo, setResumo] = useState({
     faturamento_liquido_pago: 0,
     faturamento_bruto_pago: 0,
@@ -383,8 +419,19 @@ export default function Dashboard() {
 
   // Retirada de Lucro e Saldos
   const [, setTotalRetiradas] = useState(0);
-  const [saldoCorrente, setSaldoCorrente] = useState<number | null>(null);
+  const [saldosCorrentes, setSaldosCorrentes] = useState<Array<{ rotulo: string; saldo: number | null }>>([
+    { rotulo: 'Conta Corrente 1', saldo: null },
+    { rotulo: 'Conta Corrente 2', saldo: null },
+    { rotulo: 'Conta Corrente 3', saldo: null },
+  ]);
   const [saldoInvestimento, setSaldoInvestimento] = useState<any>(null);
+
+  // Impostos + Despesas + Lucro (cards)
+  const [impostosCard, setImpostosCard] = useState<{ valor: number; aliquota: number | null }>({
+    valor: 0,
+    aliquota: null,
+  });
+  const [despesasTotais, setDespesasTotais] = useState({ fixas: 0, variaveis: 0, pendentes: 0 });
 
   // DRE
   const [dre, setDre] = useState<DrePonto[]>([]);
@@ -398,7 +445,7 @@ export default function Dashboard() {
   const [dreTipPos, setDreTipPos] = useState({ x: 0, y: 0 });
   const cargaSeq = useRef(0);
 
-  // Custo por categoria (donuts mês / ano)
+  // Centro de Despesas (donuts mês / ano)
   const [custoMesFatias, setCustoMesFatias] = useState<CustoFatia[]>([]);
   const [custoMesTotal, setCustoMesTotal] = useState(0);
   const [custoMesErro, setCustoMesErro] = useState<string | null>(null);
@@ -408,7 +455,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     carregarDados();
-  }, [ano, mes, anoComparar]);
+  }, [ano, mes]);
 
   const alterarAno = (novoAno: number) => {
     const max = maxMesPermitido(novoAno);
@@ -458,10 +505,16 @@ export default function Dashboard() {
         ? metasService.progresso(mes, ano).catch(() => ({ data: null }))
         : Promise.resolve({ data: null });
 
-      const [faturRes, faturAntRes, fechRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes] = await Promise.all([
+      const anosDrl = Array.from(
+        { length: ANO_ATUAL - DRL_ANO_INICIO + 1 },
+        (_, i) => DRL_ANO_INICIO + i,
+      );
+      const drlPromises = anosDrl.map((y) =>
+        relatoriosService.faturamentoLiquidoMes(y).catch(() => ({ data: { dados: [] } })),
+      );
+
+      const [faturRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, impostosDeContasRes, ...drlRespostas] = await Promise.all([
         relatoriosService.faturamentoLiquidoMes(ano),
-        relatoriosService.faturamentoLiquidoMes(anoComparar),
-        relatoriosService.fechamentosPorTipo(ano),
         resumoPromise,
         metaMesPromise,
         metasService.progresso(0, ano).catch(() => ({ data: null })),
@@ -475,22 +528,30 @@ export default function Dashboard() {
         custoAnoPromise,
         contasCorrentesService.listar(true).catch(() => ({ data: [] })),
         nfsService.listar(0, 1000, undefined, undefined, 'paga', false).catch(() => ({ data: [] })),
-        contasService.listar(0, 1000, undefined, true).catch(() => ({ data: [] })),
+        contasService.listar(0, 1000).catch(() => ({ data: [] })),
         fluxoMovimentosService.listar().catch(() => ({ data: [] })),
+        impostosService.deContas(ano).catch(() => ({ data: [] })),
+        ...drlPromises,
       ]);
 
       if (idCarga !== cargaSeq.current) return;
 
-      const ant: Record<number, number> = {};
-      (faturAntRes.data.dados || []).forEach((d: any) => { ant[d.mes] = d.valor; });
-      setFaturamento(
-        (faturRes.data.dados || []).map((d: any) => ({
-          mes: MESES_NOME[d.mes - 1] || d.mes,
-          valor: d.valor,
-          valorAnterior: ant[d.mes] || 0,
-        }))
+      const limiteMesMeta = mes ?? (mesAteAnual ?? 12);
+      const dadosAnoMeta = faturRes.data?.dados || [];
+      setRealizadoAnual(
+        dadosAnoMeta
+          .filter((d: { mes: number }) => Number(d.mes) >= 1 && Number(d.mes) <= limiteMesMeta)
+          .reduce((s: number, d: { valor: number }) => s + (Number(d.valor) || 0), 0),
       );
-      setFechamentos(fechRes.data || {});
+
+      setDrlSerie(
+        buildSerieDrl(
+          drlRespostas.map((res, i) => ({
+            ano: anosDrl[i],
+            dados: res.data?.dados || [],
+          })),
+        ),
+      );
       setResumo(resumoRes.data || RESUMO_VAZIO);
       setMeta(temMes ? metaRes.data : null);
       setValorMeta(temMes && metaRes.data?.valor_meta ? String(metaRes.data.valor_meta) : '');
@@ -504,23 +565,45 @@ export default function Dashboard() {
       setTotalRetiradas(retiradas.reduce((s: number, c: any) => s + c.valor, 0));
 
       const saldosLista: any[] = saldosRes.data || [];
-      const limiteMes = mes ?? 12;
+      const limiteMes = mes ?? (mesAteAnual ?? 12);
       const saldosAteMes = saldosLista.filter((s) => s.ano === ano && s.mes <= limiteMes);
       const contasCc: ContaCorrente[] = contasCcRes.data || [];
       const nfsLista: NF[] = Array.isArray(nfsRes.data) ? nfsRes.data : [];
       const contasPagarLista: ContaPagar[] = Array.isArray(contasPagarRes.data) ? contasPagarRes.data : [];
+      const contasPagas = contasPagarLista.filter((c) => c.pago);
       const manuaisLista = manuaisRes.data || [];
       const padrao = codigoPadrao(contasCc);
-      const somaCorrente = contasCc.reduce((acc, cc) => (
-        acc + saldoVisivel(
+      const recorteSaldo = {
+        ano,
+        mes,
+        mesAte: mes == null ? (mesAteAnual ?? 12) : undefined,
+      };
+      const slotsCc: Array<{ rotulo: string; saldo: number | null }> = [1, 2, 3].map((n) => {
+        const cc = contasCc[n - 1];
+        if (!cc) return { rotulo: `Conta Corrente ${n}`, saldo: null };
+        const saldo = saldoCorrenteDashboard(
           cc.codigo,
           saldosAteMes,
-          movimentosSinalizadosDaConta(nfsLista, contasPagarLista, manuaisLista, cc.codigo, padrao),
-        )
-      ), 0);
+          nfsLista,
+          contasPagas,
+          manuaisLista,
+          padrao,
+          recorteSaldo,
+        );
+        const nome = (cc.nome || '').trim();
+        return { rotulo: nome || `Conta Corrente ${n}`, saldo };
+      });
+      setSaldosCorrentes(slotsCc);
       const investimento = [...saldosAteMes].filter((s) => s.conta === CODIGO_INVESTIMENTO).sort((a, b) => b.mes - a.mes)[0] || null;
-      setSaldoCorrente(contasCc.length ? somaCorrente : null);
       setSaldoInvestimento(investimento);
+
+      const mesAteDespesa = mes ?? (mesAteAnual ?? 12);
+      setDespesasTotais(totaisDespesa(contasPagarLista, { ano, mes, mesAte: mesAteDespesa }));
+
+      const itensImpostos = Array.isArray(impostosDeContasRes.data)
+        ? impostosDeContasRes.data
+        : (impostosDeContasRes.data?.dados || []);
+      setImpostosCard(impostosDoRecorte(itensImpostos, mes, ano, mesAteDespesa));
 
       const dreBruto: DrePonto[] = (dreRes.data?.dados || []).map((d: any) => {
         const receita_bruta = Number(d.receita_bruta) || 0;
@@ -545,7 +628,7 @@ export default function Dashboard() {
         setCustoMesFatias([]);
         setCustoMesTotal(0);
       } else {
-        const mapped = mapCustoResposta(custoMesRes.data);
+        const mapped = mapCustoResposta(filtrarCustoSemImpostos(custoMesRes.data));
         setCustoMesFatias(mapped.fatias);
         setCustoMesTotal(mapped.total);
       }
@@ -554,7 +637,7 @@ export default function Dashboard() {
         setCustoAnoFatias([]);
         setCustoAnoTotal(0);
       } else {
-        const mapped = mapCustoResposta(custoAnoRes.data);
+        const mapped = mapCustoResposta(filtrarCustoSemImpostos(custoAnoRes.data));
         setCustoAnoFatias(mapped.fatias);
         setCustoAnoTotal(mapped.total);
       }
@@ -592,15 +675,15 @@ export default function Dashboard() {
   const metaMensalValida = Boolean(mes !== null && meta?.tem_meta && meta.valor_meta > 0);
   const metaAnualValida = Boolean(metaAnual?.tem_meta && metaAnual.valor_meta > 0);
   const rotuloMetaMensal = mes === null
-    ? 'Meta de Faturamento'
-    : `Meta de Faturamento — ${MESES_NOME[mes - 1]}/${ano}`;
+    ? 'Meta de Receita Mensal'
+    : `Meta de Receita Mensal — ${MESES_NOME[mes - 1]}/${ano}`;
   const rotuloCustoMes = mes === null
-    ? 'Custo por categoria — mês'
-    : `Custo por categoria — ${MESES_NOME[mes - 1]}/${ano}`;
+    ? 'Despesas — mês'
+    : `Despesas — ${MESES_NOME[mes - 1]}/${ano}`;
   const rotuloCustoMesVazio = mes === null
     ? MSG_SELECIONE_MES
     : `Sem despesas por categoria para ${MESES_NOME[mes - 1]}/${ano}`;
-  const rotuloCustoAno = `Custo por categoria — ${ano}`;
+  const rotuloCustoAno = `Despesas — ${ano}`;
   const rotuloCustoAnoVazio = `Sem despesas por categoria para ${ano}`;
   const mesAteKpi = mesAteAno(ano);
   const rotuloRecorteKpi =
@@ -610,10 +693,25 @@ export default function Dashboard() {
         ? String(ano)
         : null;
 
+  const lucro = lucroCard(
+    resumo.faturamento_liquido_pago,
+    resumo.faturamento_bruto_pago,
+    despesasTotais.fixas,
+    despesasTotais.variaveis,
+  );
+  const fmtAliquota = (a: number | null) =>
+    a == null
+      ? '—'
+      : `${a.toLocaleString('pt-BR', { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`;
+  const fmtLucroPct = (p: number | null) =>
+    p == null
+      ? '—'
+      : `${p.toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 0 })}%`;
+
   const pct = metaMensalValida ? Math.min(meta.percentual, 100) : 0;
   const corBarra = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : 'bg-orange-500';
 
-  const totalAnualRealizado = faturamento.reduce((s, d) => s + (d.valor || 0), 0);
+  const totalAnualRealizado = realizadoAnual;
   const pctAnual = metaAnualValida
     ? Math.min((totalAnualRealizado / metaAnual.valor_meta) * 100, 100)
     : 0;
@@ -643,19 +741,6 @@ export default function Dashboard() {
           <span className="text-gray-500 dark:text-gray-400 text-sm">Visão geral do desempenho financeiro</span>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 cursor-pointer">
-            <input type="checkbox" checked={mostrarAnterior} onChange={(e) => setMostrarAnterior(e.target.checked)} className="rounded" />
-            Comparar
-          </label>
-          {mostrarAnterior && (
-            <select
-              value={anoComparar}
-              onChange={(e) => setAnoComparar(parseInt(e.target.value))}
-              className="border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
-            >
-              {ANOS.filter((a) => a !== ano).map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          )}
           <label className="text-sm text-gray-500 dark:text-gray-400">Mês:</label>
           <select
             value={mes ?? ''}
@@ -688,323 +773,318 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          {/* Metas — anual em largura total sem mês; lado a lado com mensal quando há mês */}
-          <div className={mes === null ? 'w-full' : 'grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch'}>
-            {/* Meta Anual */}
-            <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
-              {editandoMetaAnual ? (
-                <>
-                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
-                    Meta de Faturamento Anual — {ano}
-                  </p>
-                  <div className="flex items-end gap-3 flex-wrap">
-                    <div>
-                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Meta Anual (R$)</label>
-                      <input
-                        type="number"
-                        className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-40"
-                        value={valorMetaAnual}
-                        onChange={(e) => setValorMetaAnual(e.target.value)}
-                        placeholder="0,00"
-                      />
-                    </div>
-                    <button onClick={salvarMetaAnual} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Salvar</button>
-                    <button onClick={() => setEditandoMetaAnual(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm">Cancelar</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-start gap-2 pr-8 mb-4">
-                    <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                      Meta de Faturamento Anual — {ano}
-                    </span>
-                  </div>
-                  {papel === 'admin' && metaAnualValida && (
-                    <button
-                      type="button"
-                      onClick={() => setEditandoMetaAnual(true)}
-                      title="Editar meta"
-                      aria-label="Editar meta anual"
-                      className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-                    >
-                      <PencilIcon />
-                    </button>
-                  )}
-                  {metaAnualValida ? (
-                    <div className="mt-auto flex items-center gap-2">
-                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                        {fmt(totalAnualRealizado)}
-                      </span>
-                      <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
-                        <div
-                          className={`h-full ${corBarraAnual} transition-all flex items-center justify-end pr-2`}
-                          style={{ width: `${pctAnual}%` }}
-                        >
-                          {pctAnual >= 18 && (
-                            <span className="text-xs font-bold text-white">{pctAnualDisplay}%</span>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                        {fmt(metaAnual.valor_meta)}
-                      </span>
-                    </div>
-                  ) : papel === 'admin' ? (
-                    <button
-                      type="button"
-                      onClick={() => setEditandoMetaAnual(true)}
-                      className="mt-auto w-full py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-                    >
-                      Criar meta
-                    </button>
-                  ) : (
-                    <p className="mt-auto text-sm text-gray-400 dark:text-gray-500 text-center py-2">Sem meta cadastrada</p>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Meta de Faturamento (mês) — só com mês concreto */}
-            {mes !== null && (
-            <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
-              {editandoMeta ? (
-                <>
-                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
-                    {rotuloMetaMensal}
-                  </p>
-                  <div className="flex items-end gap-3 flex-wrap">
-                    <div>
-                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Meta (R$)</label>
-                      <input
-                        type="number"
-                        className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-40"
-                        value={valorMeta}
-                        onChange={(e) => setValorMeta(e.target.value)}
-                        placeholder="0,00"
-                      />
-                    </div>
-                    <button onClick={salvarMeta} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Salvar</button>
-                    <button onClick={() => setEditandoMeta(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm">Cancelar</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-start gap-2 pr-8 mb-4">
-                    <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
+          {/* Metas — Mensal antes de Anual; anual em largura total sem mês */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Metas</h2>
+            <div className={mes === null ? 'w-full' : 'grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch'}>
+              {/* Meta de Receita Mensal — só com mês concreto */}
+              {mes !== null && (
+              <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
+                {editandoMeta ? (
+                  <>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                       {rotuloMetaMensal}
-                    </span>
-                  </div>
-                  {papel === 'admin' && metaMensalValida && (
-                    <button
-                      type="button"
-                      onClick={() => setEditandoMeta(true)}
-                      title="Editar meta"
-                      aria-label="Editar meta do mês"
-                      className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-                    >
-                      <PencilIcon />
-                    </button>
-                  )}
-                  {metaMensalValida ? (
-                    <div className="mt-auto flex items-center gap-2">
-                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                        {fmt(meta?.realizado ?? 0)}
-                      </span>
-                      <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
-                        <div
-                          className={`h-full ${corBarra} transition-all flex items-center justify-end pr-2`}
-                          style={{ width: `${pct}%` }}
-                        >
-                          {pct >= 18 && (
-                            <span className="text-xs font-bold text-white">{meta.percentual}%</span>
-                          )}
-                        </div>
+                    </p>
+                    <div className="flex items-end gap-3 flex-wrap">
+                      <div>
+                        <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Meta (R$)</label>
+                        <input
+                          type="number"
+                          className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-40"
+                          value={valorMeta}
+                          onChange={(e) => setValorMeta(e.target.value)}
+                          placeholder="0,00"
+                        />
                       </div>
-                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                        {fmt(meta.valor_meta)}
+                      <button onClick={salvarMeta} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Salvar</button>
+                      <button onClick={() => setEditandoMeta(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm">Cancelar</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-start gap-2 pr-8 mb-4">
+                      <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
+                        {rotuloMetaMensal}
                       </span>
                     </div>
-                  ) : papel === 'admin' ? (
-                    <button
-                      type="button"
-                      onClick={() => setEditandoMeta(true)}
-                      className="mt-auto w-full py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-                    >
-                      Criar meta
-                    </button>
-                  ) : (
-                    <p className="mt-auto text-sm text-gray-400 dark:text-gray-500 text-center py-2">Sem meta cadastrada</p>
-                  )}
-                </>
-              )}
-            </div>
-            )}
-          </div>
-
-          {/* KPI Cards — ordem: Bruto / Líquido / NFs com pagamento pendente (R$) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Faturamento Bruto</h3>
-              <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
-                {fmt(resumo.faturamento_bruto_pago)}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Valor total</p>
-              {rotuloRecorteKpi && (
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-              )}
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Faturamento Líquido</h3>
-              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">
-                {fmt(resumo.faturamento_liquido_pago)}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
-              {rotuloRecorteKpi && (
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-              )}
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">NFs com pagamento pendente (R$)</h3>
-              <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
-                {fmt(resumo.faturamento_bruto_pendente ?? 0)}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                {resumo.quantidade_pendentes ?? 0} NFs pendentes
-              </p>
-              {rotuloRecorteKpi && (
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Saldos */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5">
-              <h3 className="text-blue-600 dark:text-blue-400 text-sm font-medium">Saldo Conta Corrente</h3>
-              <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-2">
-                {saldoCorrente != null ? fmt(saldoCorrente) : '—'}
-              </p>
-              <p className="text-xs text-blue-500 mt-1">
-                Consolidado das contas correntes ativas
-              </p>
-            </div>
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5">
-              <h3 className="text-green-600 dark:text-green-400 text-sm font-medium">Conta Investimento</h3>
-              <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-2">
-                {saldoInvestimento ? fmt(saldoInvestimento.saldo) : '—'}
-              </p>
-              <p className="text-xs text-green-500 mt-1">
-                {saldoInvestimento ? `${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][saldoInvestimento.mes - 1]}/${saldoInvestimento.ano}` : 'Sem registro'}
-              </p>
-            </div>
-          </div>
-
-          {/* DRE — abaixo dos saldos */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 overflow-x-auto">
-            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">DRE — {ano}</h2>
-            {dreErro ? (
-              <p className="text-sm text-red-600 dark:text-red-400 py-8 text-center">{dreErro}</p>
-            ) : !dreTemValores || dre.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                Sem dados de DRE para {ano}
-              </p>
-            ) : !algumaSerieDre ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                Nenhum aspecto selecionado — use a legenda para exibir séries
-              </p>
-            ) : (
-              <div
-                className="min-w-[320px]"
-                onMouseMove={(e) => {
-                  dreMousePos.current = { x: e.clientX, y: e.clientY };
-                  if (dreRaf.current) return;
-                  dreRaf.current = requestAnimationFrame(() => {
-                    dreRaf.current = 0;
-                    setDreTipPos(dreMousePos.current);
-                  });
-                }}
-              >
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={dre} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-                    <XAxis dataKey="mes" tick={{ fontSize: 11 }} interval={0} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      width={72}
-                      tickFormatter={(v) =>
-                        Number(v).toLocaleString('pt-BR', { notation: 'compact', maximumFractionDigits: 1 })
-                      }
-                    />
-                    <Tooltip
-                      cursor={{ fill: 'rgba(156, 163, 175, 0.12)' }}
-                      wrapperStyle={{ visibility: 'hidden', pointerEvents: 'none' }}
-                      content={<DreFloatingTooltip mousePos={dreTipPos} />}
-                    />
-                    <Legend
-                      onClick={(e: any) => {
-                        if (e?.dataKey) toggleSerieDre(String(e.dataKey));
-                      }}
-                      wrapperStyle={{ cursor: 'pointer' }}
-                    />
-                    <Bar
-                      dataKey="receita_bruta"
-                      name="Receita bruta"
-                      stackId="receita"
-                      fill="#3B82F6"
-                      hide={!mostrarReceita}
-                      isAnimationActive={false}
-                    />
-                    <Bar
-                      dataKey="despesa"
-                      name="Despesa"
-                      stackId="composicao"
-                      fill="#EF4444"
-                      hide={!mostrarDespesa}
-                      isAnimationActive={false}
-                    >
-                      <LabelList dataKey="despesa_pct" content={DrePctLabel} />
-                    </Bar>
-                    <Bar
-                      dataKey="impostos"
-                      name="Impostos"
-                      stackId="composicao"
-                      fill="#9CA3AF"
-                      hide={!mostrarImpostos}
-                      isAnimationActive={false}
-                    >
-                      <LabelList dataKey="impostos_pct" content={DrePctLabel} />
-                    </Bar>
-                    <Bar
-                      dataKey="lucro_empilhado"
-                      name="Lucro"
-                      stackId="composicao"
-                      fill="#22C55E"
-                      hide={!mostrarLucro}
-                      isAnimationActive={false}
-                    >
-                      <LabelList dataKey="lucro_pct" content={DrePctLabel} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                {dre.some((d) => d.lucro < 0) && mostrarLucro && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                    Meses com prejuízo: Lucro negativo aparece no tooltip (sem segmento empilhado).
-                  </p>
+                    {papel === 'admin' && metaMensalValida && (
+                      <button
+                        type="button"
+                        onClick={() => setEditandoMeta(true)}
+                        title="Editar meta"
+                        aria-label="Editar meta do mês"
+                        className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                      >
+                        <PencilIcon />
+                      </button>
+                    )}
+                    {metaMensalValida ? (
+                      <div className="mt-auto flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                          {fmt(meta?.realizado ?? 0)}
+                        </span>
+                        <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
+                          <div
+                            className={`h-full ${corBarra} transition-all flex items-center justify-end pr-2`}
+                            style={{ width: `${pct}%` }}
+                          >
+                            {pct >= 18 && (
+                              <span className="text-xs font-bold text-white">{meta.percentual}%</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                          {fmt(meta.valor_meta)}
+                        </span>
+                      </div>
+                    ) : papel === 'admin' ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditandoMeta(true)}
+                        className="mt-auto w-full py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+                      >
+                        Criar meta
+                      </button>
+                    ) : (
+                      <p className="mt-auto text-sm text-gray-400 dark:text-gray-500 text-center py-2">Sem meta cadastrada</p>
+                    )}
+                  </>
                 )}
               </div>
-            )}
+              )}
+
+              {/* Meta Anual */}
+              <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
+                {editandoMetaAnual ? (
+                  <>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
+                      Meta de Receita Anual — {ano}
+                    </p>
+                    <div className="flex items-end gap-3 flex-wrap">
+                      <div>
+                        <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Meta Anual (R$)</label>
+                        <input
+                          type="number"
+                          className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-40"
+                          value={valorMetaAnual}
+                          onChange={(e) => setValorMetaAnual(e.target.value)}
+                          placeholder="0,00"
+                        />
+                      </div>
+                      <button onClick={salvarMetaAnual} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Salvar</button>
+                      <button onClick={() => setEditandoMetaAnual(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm">Cancelar</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-start gap-2 pr-8 mb-4">
+                      <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
+                        Meta de Receita Anual — {ano}
+                      </span>
+                    </div>
+                    {papel === 'admin' && metaAnualValida && (
+                      <button
+                        type="button"
+                        onClick={() => setEditandoMetaAnual(true)}
+                        title="Editar meta"
+                        aria-label="Editar meta anual"
+                        className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                      >
+                        <PencilIcon />
+                      </button>
+                    )}
+                    {metaAnualValida ? (
+                      <div className="mt-auto flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                          {fmt(totalAnualRealizado)}
+                        </span>
+                        <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
+                          <div
+                            className={`h-full ${corBarraAnual} transition-all flex items-center justify-end pr-2`}
+                            style={{ width: `${pctAnual}%` }}
+                          >
+                            {pctAnual >= 18 && (
+                              <span className="text-xs font-bold text-white">{pctAnualDisplay}%</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                          {fmt(metaAnual.valor_meta)}
+                        </span>
+                      </div>
+                    ) : papel === 'admin' ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditandoMetaAnual(true)}
+                        className="mt-auto w-full py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+                      >
+                        Criar meta
+                      </button>
+                    ) : (
+                      <p className="mt-auto text-sm text-gray-400 dark:text-gray-500 text-center py-2">Sem meta cadastrada</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Receita */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Receita</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Receita Bruta</h3>
+                <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
+                  {fmt(resumo.faturamento_bruto_pago)}
+                </p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Valor total</p>
+                {rotuloRecorteKpi && (
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                )}
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Impostos</h3>
+                <p className="text-3xl font-bold text-gray-700 dark:text-gray-200 mt-2">
+                  {fmt(impostosCard.valor)}
+                </p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                  Alíquota: {fmtAliquota(impostosCard.aliquota)}
+                </p>
+                {rotuloRecorteKpi && (
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                )}
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Receita Líquida</h3>
+                <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">
+                  {fmt(resumo.faturamento_liquido_pago)}
+                </p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
+                {rotuloRecorteKpi && (
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                )}
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Receita Pendente</h3>
+                <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
+                  {fmt(resumo.faturamento_bruto_pendente ?? 0)}
+                </p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                  {resumo.quantidade_pendentes ?? 0} NFs pendentes
+                </p>
+                {rotuloRecorteKpi && (
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Despesa | Resultado */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+            <section className="space-y-3 lg:col-span-2">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Despesa</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                  <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Despesas Fixas</h3>
+                  <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-2">
+                    {fmt(despesasTotais.fixas)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Pagas no recorte</p>
+                  {rotuloRecorteKpi && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                  )}
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                  <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Despesas Variáveis</h3>
+                  <p className="text-2xl font-bold text-red-500 dark:text-red-300 mt-2">
+                    {fmt(despesasTotais.variaveis)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Pagas no recorte</p>
+                  {rotuloRecorteKpi && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                  )}
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                  <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Despesas Pendentes</h3>
+                  <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-2">
+                    {fmt(despesasTotais.pendentes)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Não pagas no recorte</p>
+                  {rotuloRecorteKpi && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                  )}
+                </div>
+              </div>
+            </section>
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Resultado</h2>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Lucro</h3>
+                <p className={`text-3xl font-bold mt-2 ${lucro.valor >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {fmt(lucro.valor)}
+                </p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                  {fmtLucroPct(lucro.pct)} sobre Receita Bruta
+                </p>
+                {rotuloRecorteKpi && (
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                )}
+              </div>
+            </section>
           </div>
 
-          {/* Custo por categoria — donut abaixo do DRE */}
-          {mes !== null ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <DonutCustoBloco
-                titulo={rotuloCustoMes}
-                vazio={rotuloCustoMesVazio}
-                erro={custoMesErro}
-                fatias={custoMesFatias}
-                total={custoMesTotal}
-              />
+          {/* Saldo */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Saldo</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {saldosCorrentes.map((slot, i) => (
+                <div
+                  key={`cc-${i}`}
+                  className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5"
+                >
+                  <h3 className="text-green-600 dark:text-green-400 text-sm font-medium">{slot.rotulo}</h3>
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-2">
+                    {slot.saldo != null ? fmt(slot.saldo) : '—'}
+                  </p>
+                  <p className="text-xs text-green-500 mt-1">
+                    {slot.saldo != null ? 'Saldo calculado' : 'Sem conta'}
+                  </p>
+                </div>
+              ))}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5">
+                <h3 className="text-blue-600 dark:text-blue-400 text-sm font-medium">Conta Investimento</h3>
+                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-2">
+                  {saldoInvestimento ? fmt(saldoInvestimento.saldo) : '—'}
+                </p>
+                <p className="text-xs text-blue-500 mt-1">
+                  {saldoInvestimento ? `${MESES_NOME[saldoInvestimento.mes - 1]}/${saldoInvestimento.ano}` : 'Sem registro'}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Centro de Despesa */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Centro de Despesa</h2>
+            {mes !== null ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <DonutCustoBloco
+                  titulo={rotuloCustoMes}
+                  vazio={rotuloCustoMesVazio}
+                  erro={custoMesErro}
+                  fatias={custoMesFatias}
+                  total={custoMesTotal}
+                />
+                <DonutCustoBloco
+                  titulo={rotuloCustoAno}
+                  vazio={rotuloCustoAnoVazio}
+                  erro={custoAnoErro}
+                  fatias={custoAnoFatias}
+                  total={custoAnoTotal}
+                />
+              </div>
+            ) : (
               <DonutCustoBloco
                 titulo={rotuloCustoAno}
                 vazio={rotuloCustoAnoVazio}
@@ -1012,61 +1092,129 @@ export default function Dashboard() {
                 fatias={custoAnoFatias}
                 total={custoAnoTotal}
               />
-            </div>
-          ) : (
-            <DonutCustoBloco
-              titulo={rotuloCustoAno}
-              vazio={rotuloCustoAnoVazio}
-              erro={custoAnoErro}
-              fatias={custoAnoFatias}
-              total={custoAnoTotal}
-            />
-          )}
+            )}
+          </section>
 
-          {/* Gráficos — linha e pizza lado a lado (layout original de Relatórios) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Faturamento Líquido por Mês</h2>
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={faturamento}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-                  <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value: any) => `R$ ${Number(value).toLocaleString('pt-BR')}`} />
-                  <Legend />
-                  {mostrarAnterior && (
-                    <Line type="monotone" dataKey="valorAnterior" stroke="#9CA3AF" strokeDasharray="5 5" dot={{ r: 2 }} name={`${anoComparar}`} />
+          {/* Demonstrativo de Resultado */}
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Demonstrativo de Resultado</h2>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 overflow-x-auto">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">DRE — {ano}</h3>
+              {dreErro ? (
+                <p className="text-sm text-red-600 dark:text-red-400 py-8 text-center">{dreErro}</p>
+              ) : !dreTemValores || dre.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+                  Sem dados de DRE para {ano}
+                </p>
+              ) : !algumaSerieDre ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+                  Nenhum aspecto selecionado — use a legenda para exibir séries
+                </p>
+              ) : (
+                <div
+                  className="min-w-[320px]"
+                  onMouseMove={(e) => {
+                    dreMousePos.current = { x: e.clientX, y: e.clientY };
+                    if (dreRaf.current) return;
+                    dreRaf.current = requestAnimationFrame(() => {
+                      dreRaf.current = 0;
+                      setDreTipPos(dreMousePos.current);
+                    });
+                  }}
+                >
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={dre} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11 }} interval={0} />
+                      <YAxis
+                        tick={{ fontSize: 11 }}
+                        width={72}
+                        tickFormatter={(v) =>
+                          Number(v).toLocaleString('pt-BR', { notation: 'compact', maximumFractionDigits: 1 })
+                        }
+                      />
+                      <Tooltip
+                        cursor={{ fill: 'rgba(156, 163, 175, 0.12)' }}
+                        wrapperStyle={{ visibility: 'hidden', pointerEvents: 'none' }}
+                        content={<DreFloatingTooltip mousePos={dreTipPos} />}
+                      />
+                      <Legend
+                        onClick={(e: any) => {
+                          if (e?.dataKey) toggleSerieDre(String(e.dataKey));
+                        }}
+                        wrapperStyle={{ cursor: 'pointer' }}
+                      />
+                      <Bar
+                        dataKey="receita_bruta"
+                        name="Receita bruta"
+                        stackId="receita"
+                        fill="#3B82F6"
+                        hide={!mostrarReceita}
+                        isAnimationActive={false}
+                      />
+                      <Bar
+                        dataKey="despesa"
+                        name="Despesa"
+                        stackId="composicao"
+                        fill="#EF4444"
+                        hide={!mostrarDespesa}
+                        isAnimationActive={false}
+                      >
+                        <LabelList dataKey="despesa_pct" content={DrePctLabel} />
+                      </Bar>
+                      <Bar
+                        dataKey="impostos"
+                        name="Impostos"
+                        stackId="composicao"
+                        fill="#9CA3AF"
+                        hide={!mostrarImpostos}
+                        isAnimationActive={false}
+                      >
+                        <LabelList dataKey="impostos_pct" content={DrePctLabel} />
+                      </Bar>
+                      <Bar
+                        dataKey="lucro_empilhado"
+                        name="Lucro"
+                        stackId="composicao"
+                        fill="#22C55E"
+                        hide={!mostrarLucro}
+                        isAnimationActive={false}
+                      >
+                        <LabelList dataKey="lucro_pct" content={DrePctLabel} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {dre.some((d) => d.lucro < 0) && mostrarLucro && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                      Meses com prejuízo: Lucro negativo aparece no tooltip (sem segmento empilhado).
+                    </p>
                   )}
-                  <Line type="monotone" dataKey="valor" stroke="#3B82F6" dot={{ r: 3 }} name={`${ano}`} />
-                </LineChart>
-              </ResponsiveContainer>
+                </div>
+              )}
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Fechamentos por Tipo</h2>
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'Retainer', value: fechamentos.retainer || 0 },
-                      { name: 'Sucesso', value: fechamentos.sucesso || 0 },
-                      { name: 'Parcelamento', value: fechamentos.parcelamento || 0 },
-                    ]}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={90}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                  >
-                    <Cell fill="#3B82F6" />
-                    <Cell fill="#10B981" />
-                    <Cell fill="#F59E0B" />
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+
+            <div className="w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 overflow-x-auto">
+              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">DRL</h3>
+              {drlSerie.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+                  Sem receita líquida registrada de {DRL_ANO_INICIO} até o momento
+                </p>
+              ) : (
+                <div className="min-w-[480px]">
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={drlSerie}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis dataKey="mesLabel" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip formatter={(value: number) => fmt(Number(value))} />
+                      <Legend />
+                      <Line type="monotone" dataKey="valor" stroke="#3B82F6" dot={{ r: 3 }} name="Receita Líquida" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
-          </div>
+          </section>
         </>
       )}
     </div>

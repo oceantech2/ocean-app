@@ -9,6 +9,7 @@ import pyotp
 from app.database import get_db
 from app.config import settings
 from app.models import UsuarioAuth, UsuarioApp
+from app.services.paginas_visibilidade import ler_paginas_visibilidade
 
 router = APIRouter()
 
@@ -133,6 +134,7 @@ async def login(
         "papel": papel,
         "twofa_ativo": bool(auth and auth.twofa_ativo),
         "permissoes": permissoes,
+        "paginas_visibilidade": ler_paginas_visibilidade(db),
     }
 
 
@@ -152,6 +154,7 @@ async def read_users_me(
         "papel": payload.get("papel", "visualizador"),
         "twofa_ativo": bool(auth and auth.twofa_ativo),
         "permissoes": permissoes,
+        "paginas_visibilidade": ler_paginas_visibilidade(db),
     }
 
 

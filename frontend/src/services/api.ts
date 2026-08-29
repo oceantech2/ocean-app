@@ -76,8 +76,16 @@ export const authService = {
 
 // Colaboradores
 export const colaboradoresService = {
-  listar: (skip = 0, limit = 100, ativo?: boolean, tipo?: 'colaborador' | 'fornecedor') =>
-    api.get('/colaboradores', { params: { skip, limit, ativo, tipo } }),
+  listar: (skip = 0, limit = 100, ativo?: boolean, opts?: { tipo?: 'colaborador' | 'fornecedor'; elegivel_equipe?: boolean }) =>
+    api.get('/colaboradores', {
+      params: {
+        skip,
+        limit,
+        ativo,
+        tipo: opts?.tipo,
+        elegivel_equipe: opts?.elegivel_equipe,
+      },
+    }),
 
   obter: (id: number) =>
     api.get(`/colaboradores/${id}`),
@@ -420,6 +428,9 @@ export const configuracoesService = {
   criar: (dados: any) => api.post('/configuracoes', dados),
   atualizar: (id: number, dados: any) => api.put(`/configuracoes/${id}`, dados),
   deletar: (id: number) => api.delete(`/configuracoes/${id}`),
+  obterPaginasVisibilidade: () => api.get<{ paginas: Record<string, boolean> }>('/configuracoes/paginas-visibilidade'),
+  atualizarPaginasVisibilidade: (paginas: Record<string, boolean>) =>
+    api.put<{ paginas: Record<string, boolean> }>('/configuracoes/paginas-visibilidade', { paginas }),
 };
 
 // Saldos (Fluxo de Caixa / Conta Investimento)

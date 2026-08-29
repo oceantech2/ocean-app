@@ -3,33 +3,19 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore, useUIStore, usePageFilters } from '../store';
 import { useNotificacoes } from '../hooks/useNotificacoes';
 import { getNavIcon, ChevronLeftIcon, ChevronRightIcon } from './navIcons';
+import { PAGINAS_MENU, paginaVisivelGlobal } from '../utils/paginasCatalogo';
 
 interface LayoutProps {
   children: ReactNode;
 }
 
-const MENU = [
-  { label: 'Dashboard', path: '/dashboard', desc: 'Visão geral financeira', permKey: 'dashboard' },
-  { label: 'Calendário', path: '/calendario', desc: 'Vencimentos de NFs e contas', permKey: 'calendario' },
-  { label: 'Contas a Receber', path: '/nfs', desc: 'Valores a receber (Maggo)', notifKey: 'nfsVencidas', permKey: 'nfs' },
-  { label: 'Contas a Pagar', path: '/contas', desc: 'Despesas por categorias', notifKey: 'contasAlertasTotal', permKey: 'contas' },
-  { label: 'Fluxo de Caixa', path: '/fluxo-caixa', desc: 'Contas correntes e investimento', permKey: 'fluxo_caixa' },
-  { label: 'Impostos', path: '/impostos', desc: 'Acompanhamento mensal de impostos', permKey: 'impostos' },
-  { label: 'Retiradas (Sócios)', path: '/retiradas', desc: 'Retiradas de lucro dos sócios', permKey: 'retiradas' },
-  { label: 'Bônus', path: '/bonus', desc: 'Bônus por colaborador', permKey: 'bonus' },
-  { label: 'DH', path: '/dh', desc: 'Documentos de Horas', permKey: 'dh' },
-  { label: 'Colaboradores', path: '/colaboradores', desc: 'Equipe e salários', permKey: 'colaboradores' },
-  { label: 'Férias', path: '/ferias', desc: 'Gestão de férias', notifKey: 'feriasAguardando', permKey: 'ferias' },
-  { label: 'Patrimônio', path: '/patrimonio', desc: 'Equipamentos por colaborador', permKey: 'patrimonio' },
-  { label: 'Auditoria', path: '/auditoria', desc: 'Histórico de alterações', adminOnly: true },
-  { label: 'Segurança', path: '/seguranca', desc: 'Autenticação em duas etapas', adminOnly: true },
-  { label: 'Configurações', path: '/configuracoes', desc: 'Usuários e permissões', adminOnly: true },
-];
+const MENU = PAGINAS_MENU;
 
 export default function Layout({ children }: LayoutProps) {
   const usuario = useAuthStore((s) => s.usuario);
   const papel = useAuthStore((s) => s.papel);
   const permissoes = useAuthStore((s) => s.permissoes);
+  const paginasVisibilidade = useAuthStore((s) => s.paginasVisibilidade);
   const logout = useAuthStore((s) => s.logout);
   const darkMode = useUIStore((s) => s.darkMode);
   const toggleDarkMode = useUIStore((s) => s.toggleDarkMode);
@@ -88,10 +74,10 @@ export default function Layout({ children }: LayoutProps) {
   })();
 
   const menuVisivel = MENU.filter((m) => {
-    if ((m as any).adminOnly) return papel === 'admin';
+    if (!paginaVisivelGlobal(paginasVisibilidade, m.key)) return false;
+    if (m.adminOnly) return papel === 'admin';
     if (papel === 'admin') return true;
-    const key = (m as any).permKey;
-    return key ? permsObj[key] === true : true;
+    return permsObj[m.key] === true;
   });
 
   const resultados = buscaTexto.trim()
@@ -111,14 +97,20 @@ export default function Layout({ children }: LayoutProps) {
     return (notif as any)[key] ?? 0;
   };
 
-  const alertas = [
-    { label: 'NFs vencidas', count: notif.nfsVencidas, ir: () => { setNfsFilters('', 0, 'vencida'); navigate('/nfs'); } },
-    { label: 'Contas a vencer em menos de 1 dia', count: notif.contasVenceHoje, ir: () => { setContasFilters('', 'false', '', 'hoje'); navigate('/contas'); } },
-    { label: 'Contas a vencer em menos de 7 dias', count: notif.contasVence7Dias, ir: () => { setContasFilters('', 'false', '', '7dias'); navigate('/contas'); } },
-    { label: 'Contas vencidas', count: notif.contasVencidas, ir: () => { setContasFilters('', 'false', '', 'vencida'); navigate('/contas'); } },
-    { label: 'Contas com nota fiscal pendente', count: notif.nfsSemNumero, ir: () => { setNfsSemNumero(true); navigate('/nfs'); } },
-    { label: 'Férias aguardando aprovação', count: notif.feriasAguardando, ir: () => navigate('/ferias') },
-  ].filter((a) => a.count > 0);
+  const alertasBrutos = [
+    { label: 'NFs vencidas', count: notif.nfsVencidas, permKey: 'nfs', ir: () => { setNfsFilters('', 0, 'vencida'); navigate('/nfs'); } },
+    { label: 'Contas a vencer em menos de 1 dia', count: notif.contasVenceHoje, permKey: 'contas', ir: () => { setContasFilters('', 'false', '', 'hoje'); navigate('/contas'); } },
+    { label: 'Contas a vencer em menos de 7 dias', count: notif.contasVence7Dias, permKey: 'contas', ir: () => { setContasFilters('', 'false', '', '7dias'); navigate('/contas'); } },
+    { label: 'Contas vencidas', count: notif.contasVencidas, permKey: 'contas', ir: () => { setContasFilters('', 'false', '', 'vencida'); navigate('/contas'); } },
+    { label: 'Contas com nota fiscal pendente', count: notif.nfsSemNumero, permKey: 'nfs', ir: () => { setNfsSemNumero(true); navigate('/nfs'); } },
+    { label: 'Férias aguardando aprovação', count: notif.feriasAguardando, permKey: 'ferias', ir: () => navigate('/ferias') },
+  ];
+
+  const alertas = alertasBrutos.filter(
+    (a) => a.count > 0 && paginaVisivelGlobal(paginasVisibilidade, a.permKey),
+  );
+
+  const totalAlertasVisiveis = alertas.reduce((s, a) => s + a.count, 0);
 
   const irParaAlerta = (ir: () => void) => { ir(); setAlertasAbertos(false); };
 
@@ -151,13 +143,13 @@ export default function Layout({ children }: LayoutProps) {
           <div className="flex items-center gap-3 shrink-0">
             {/* Notificações */}
             <div className="relative" ref={alertasRef}>
-              {notif.total > 0 ? (
+              {totalAlertasVisiveis > 0 ? (
                 <button
                   onClick={() => setAlertasAbertos((v) => !v)}
                   className="flex items-center gap-1 px-2 py-1 bg-red-50 dark:bg-red-900/30 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 transition"
                 >
                   <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                  <span className="text-xs font-medium text-red-600 dark:text-red-400">{notif.total} alertas</span>
+                  <span className="text-xs font-medium text-red-600 dark:text-red-400">{totalAlertasVisiveis} alertas</span>
                 </button>
               ) : null}
 

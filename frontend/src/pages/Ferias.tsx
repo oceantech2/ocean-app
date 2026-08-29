@@ -56,7 +56,7 @@ export default function FeriasPage() {
 
   const carregarColaboradores = async () => {
     try {
-      const res = await colaboradoresService.listar(0, 200, true);
+      const res = await colaboradoresService.listar(0, 200, true, { elegivel_equipe: true });
       setColaboradores(res.data);
     } catch {}
   };

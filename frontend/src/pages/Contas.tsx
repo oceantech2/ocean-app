@@ -17,7 +17,7 @@ const SENTINELA_NOVA = '__nova__';
 const LABELS_LEGADO: Record<string, string> = {
   administrativo: 'Administrativo (legado)',
   salario: 'Salário (legado)',
-  bonus: 'Bônus (legado)',
+  bonus: 'Comissões (legado)',
   retirada_lucro: 'Retirada de Lucro (legado)',
   impostos: 'Impostos',
   imposto: 'Imposto (legado)',
@@ -117,7 +117,7 @@ export default function Contas() {
   useEffect(() => { carregarContas(); }, [contasCategoria, contasSubcategoria, contasPago]);
   useEffect(() => { carregarCatalogo(); }, []);
   useEffect(() => {
-    colaboradoresService.listar(0, 500, true, 'fornecedor').then((r) => setFornecedores(r.data || [])).catch(() => {});
+    colaboradoresService.listar(0, 500, true).then((r) => setFornecedores(r.data || [])).catch(() => {});
   }, []);
   useEffect(() => {
     contasCorrentesService.listar(true).then((r) => setContasCorrentes(r.data || [])).catch(() => setContasCorrentes([]));

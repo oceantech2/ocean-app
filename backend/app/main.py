@@ -102,6 +102,42 @@ def _migrar():
                 "ON colaboradores (tipo, documento) WHERE ativo IS TRUE"
             ))
             conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS elegivel_equipe BOOLEAN NOT NULL DEFAULT false"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS tipo_fornecedor VARCHAR(10)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS pf_nome VARCHAR(255)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS pf_cpf VARCHAR(11)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS pf_endereco TEXT"
+            ))
+            conn.execute(text(
+                "ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS pf_data_nascimento DATE"
+            ))
+            conn.execute(text(
+                "UPDATE colaboradores SET elegivel_equipe = true WHERE tipo = 'colaborador'"
+            ))
+            conn.execute(text(
+                "UPDATE colaboradores SET tipo = 'fornecedor' WHERE tipo = 'colaborador'"
+            ))
+            conn.execute(text(
+                "UPDATE colaboradores SET tipo_fornecedor = 'fixo' WHERE tipo_fornecedor IS NULL"
+            ))
+            conn.execute(text("DROP INDEX IF EXISTS ux_colaboradores_tipo_documento_ativo"))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_colaboradores_documento_ativo "
+                "ON colaboradores (documento) WHERE ativo IS TRUE"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_colaboradores_pf_cpf_ativo "
+                "ON colaboradores (pf_cpf) WHERE ativo IS TRUE AND pf_cpf IS NOT NULL"
+            ))
+            conn.execute(text(
                 "ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS fornecedor_id INTEGER"
             ))
             conn.execute(text(
@@ -298,8 +334,29 @@ def _migrar():
                 """
             ))
             conn.execute(text("ALTER TABLE nfs ALTER COLUMN caixa TYPE VARCHAR(64)"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS excluida_em TIMESTAMP NULL"))
             conn.execute(text("ALTER TABLE fluxo_movimentos ALTER COLUMN conta TYPE VARCHAR(64)"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS caixa VARCHAR(64)"))
+            conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS configuracao_app (
+                    id SERIAL PRIMARY KEY,
+                    chave VARCHAR(64) UNIQUE NOT NULL,
+                    valor TEXT NOT NULL
+                )
+                """
+            ))
+            from app.services.paginas_visibilidade import seed_paginas_visibilidade_json
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO configuracao_app (chave, valor)
+                    VALUES ('paginas_visibilidade', :valor)
+                    ON CONFLICT (chave) DO NOTHING
+                    """
+                ),
+                {"valor": seed_paginas_visibilidade_json()},
+            )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -334,7 +391,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(colaboradores.router, prefix="/api/colaboradores", tags=["Colaboradores"])
 app.include_router(nfs.router, prefix="/api/nfs", tags=["NFs"])
 app.include_router(contas.router, prefix="/api/contas", tags=["Contas"])
-app.include_router(bonus.router, prefix="/api/bonus", tags=["Bônus"])
+app.include_router(bonus.router, prefix="/api/bonus", tags=["Comissões"])
 app.include_router(ferias.router, prefix="/api/ferias", tags=["Férias"])
 app.include_router(dh.router, prefix="/api/dh", tags=["DH"])
 app.include_router(relatorios.router, prefix="/api/relatorios", tags=["Relatórios"])

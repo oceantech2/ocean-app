@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, extract, func, cast, Date as SADate
 from sqlalchemy.exc import IntegrityError
 from typing import List, Set, Optional, Literal, Tuple
-from datetime import date
+from datetime import date, datetime
 import io
 import os
 from app.database import get_db
@@ -42,6 +42,8 @@ def _parse_tipo_maggo(tipo: str | None, tipo_ab: str | None) -> TipoFechamento |
 def _parse_tipo_create(tipo: str, tipo_ab: str | None = None) -> TipoFechamento:
     """Create/update manual: só valores oficiais (retainer | sucesso | parcelamento)."""
     t = (tipo or "").strip().lower()
+    if t == "parcela":
+        t = "parcelamento"
     mapping = {
         "retainer": TipoFechamento.RETAINER,
         "sucesso": TipoFechamento.SUCESSO,
@@ -80,6 +82,16 @@ def _filtrar_periodo(query, mes: int | None, ano: int | None):
     return query
 
 
+def _nfs_visiveis(query):
+    return query.filter(NF.excluida_em.is_(None))
+
+
+def _exigir_nf_visivel(db_nf: NF | None) -> NF:
+    if not db_nf or db_nf.excluida_em is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NF não encontrada")
+    return db_nf
+
+
 def _exigir_emissao_se_numero(numero, data_emissao) -> None:
     if numero and not data_emissao:
         raise HTTPException(
@@ -107,28 +119,26 @@ def _sync_maggo_stub(db: Session) -> Tuple[Set[str], List[str]]:
         if db_nf:
             if (db_nf.origem or "maggo") == "manual":
                 colisoes.append(maggo_id)
-                continue
-            # Não sobrescreve grupo Maggo em registro já existente — Ocean pode editar.
-        else:
-            db_nf = NF(
-                maggo_id=maggo_id,
-                numero=None,
-                razao_social=item["razao_social"],
-                posicao=item.get("posicao"),
-                candidato=item.get("candidato"),
-                valor_bruto=item["valor_bruto"],
-                valor_imposto=item.get("valor_imposto"),
-                valor_liquido=item["valor_liquido"],
-                data_ent_pgto=item.get("data_ent_pgto"),
-                data_emissao=None,
-                data_vencimento=None,
-                tipo=tipo_enum,
-                tipo_abertura_fechamento=None,
-                status=StatusNF.PENDENTE,
-                arquivada=False,
-                origem="maggo",
-            )
-            db.add(db_nf)
+            continue
+        db_nf = NF(
+            maggo_id=maggo_id,
+            numero=None,
+            razao_social=item["razao_social"],
+            posicao=item.get("posicao"),
+            candidato=item.get("candidato"),
+            valor_bruto=item["valor_bruto"],
+            valor_imposto=item.get("valor_imposto"),
+            valor_liquido=item["valor_liquido"],
+            data_ent_pgto=item.get("data_ent_pgto"),
+            data_emissao=None,
+            data_vencimento=None,
+            tipo=tipo_enum,
+            tipo_abertura_fechamento=None,
+            status=StatusNF.PENDENTE,
+            arquivada=False,
+            origem="maggo",
+        )
+        db.add(db_nf)
     db.commit()
     return ids, colisoes
 
@@ -175,7 +185,7 @@ def listar_nfs(
     if colisoes:
         response.headers["X-Ocean-Maggo-Ignorados"] = ",".join(colisoes)
 
-    query = db.query(NF)
+    query = _nfs_visiveis(db.query(NF))
 
     if not incluir_arquivadas:
         query = query.filter(NF.arquivada == False)
@@ -339,7 +349,7 @@ def exportar_nfs_xlsx(
     current_user: str = Depends(get_current_user),
 ):
     """Exporta as NFs do banco preenchendo o template oficial (aba 'Entradas')."""
-    query = db.query(NF)
+    query = _nfs_visiveis(db.query(NF))
     query = _filtrar_periodo(query, mes, ano)
 
     nfs = query.order_by(NF.data_emissao.nulls_last()).all()
@@ -397,7 +407,7 @@ def resumo_nfs(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Falha ao consultar fonte Maggo: {e}",
         ) from e
-    query = db.query(NF)
+    query = _nfs_visiveis(db.query(NF))
     query = _filtrar_periodo(query, mes, ano)
 
     nfs_pagas = query.filter(NF.status == StatusNF.PAGA).all()
@@ -423,14 +433,7 @@ def obter_nf(
     current_user: str = Depends(get_current_user)
 ):
     """Obter uma NF específica"""
-    nf = db.query(NF).filter(NF.id == nf_id).first()
-    
-    if not nf:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="NF não encontrada"
-        )
-    
+    nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
     return nf
 
 
@@ -447,9 +450,7 @@ async def upload_anexo_nf(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    db_nf = db.query(NF).filter(NF.id == nf_id).first()
-    if not db_nf:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NF não encontrada")
+    db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
     conteudo = await arquivo.read()
     caminho = anexo_nf.gravar("anexo_nf", nf_id, arquivo.filename, conteudo, db_nf.anexo_path)
     db_nf.anexo_path = caminho
@@ -465,8 +466,8 @@ def download_anexo_nf(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    db_nf = db.query(NF).filter(NF.id == nf_id).first()
-    if not db_nf or not db_nf.anexo_path:
+    db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
+    if not db_nf.anexo_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
     if not os.path.exists(db_nf.anexo_path):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado no servidor")
@@ -484,9 +485,7 @@ def remover_anexo_nf(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    db_nf = db.query(NF).filter(NF.id == nf_id).first()
-    if not db_nf:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NF não encontrada")
+    db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
     _limpar_anexo_disco(db_nf)
     db.commit()
     return None
@@ -552,13 +551,7 @@ def atualizar_nf(
     current_user: str = Depends(require_admin),
 ):
     """Atualizar conta a receber (grupos Maggo e Ocean)."""
-    db_nf = db.query(NF).filter(NF.id == nf_id).first()
-
-    if not db_nf:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="NF não encontrada"
-        )
+    db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
 
     pagamento_antes = db_nf.data_pagamento
     dados_atualizacao = nf_update.model_dump(exclude_unset=True)
@@ -607,7 +600,14 @@ def atualizar_nf(
 def deletar_nf(
     nf_id: int,
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(require_admin),
 ):
-    # Exclusão desabilitada (Maggo). Se for reativada, chamar _limpar_anexo_disco antes do delete.
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_MSG_EXCLUSAO_DESABILITADA)
+    """Exclusão operacional (soft delete). Maggo não recria o mesmo maggo_id."""
+    db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
+    db_nf.excluida_em = datetime.utcnow()
+    registrar_auditoria(
+        db, current_user, "deletar", "NF", db_nf.id,
+        f"NF {db_nf.numero or '(sem número)'} excluída",
+    )
+    db.commit()
+    return None

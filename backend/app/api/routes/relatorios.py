@@ -26,7 +26,8 @@ def faturamento_liquido_por_mes(
         nfs = db.query(NF).filter(
             extract("year", NF.data_emissao) == ano,
             extract("month", NF.data_emissao) == mes,
-            NF.status == StatusNF.PAGA
+            NF.status == StatusNF.PAGA,
+            NF.excluida_em.is_(None),
         ).all()
         
         total = sum(nf.valor_liquido for nf in nfs)
@@ -49,8 +50,8 @@ def fechamentos_por_tipo(
     Contagem de fechamentos por tipo: retainer, sucesso e parcelamento.
     Opcional: filtrar por ano/mês.
     """
-    query = db.query(NF)
-    
+    query = db.query(NF).filter(NF.excluida_em.is_(None))
+
     if ano and mes:
         query = query.filter(
             extract("year", NF.data_emissao) == ano,
@@ -83,7 +84,7 @@ def faturamento_por_cliente(
         func.sum(NF.valor_liquido).label("valor_liquido"),
         func.sum(NF.valor_bruto).label("valor_bruto"),
         func.count().label("quantidade"),
-    ).filter(NF.status == StatusNF.PAGA)
+    ).filter(NF.status == StatusNF.PAGA, NF.excluida_em.is_(None))
 
     if ano:
         query = query.filter(extract("year", NF.data_emissao) == ano)
@@ -138,7 +139,7 @@ def propostas_enviadas(
     dados = []
     
     for mes in range(1, 13):
-        query = db.query(NF)
+        query = db.query(NF).filter(NF.excluida_em.is_(None))
         if ano:
             query = query.filter(extract("year", NF.data_emissao) == ano)
         
@@ -163,6 +164,7 @@ def contratos_assinados(
         query = db.query(NF).filter(
             NF.status == StatusNF.PAGA,
             NF.data_pagamento.isnot(None),
+            NF.excluida_em.is_(None),
         )
         if ano:
             query = query.filter(extract("year", NF.data_pagamento) == ano)
@@ -188,7 +190,7 @@ def placement_por_consultor(
             func.count().label("qtd"),
             func.sum(NF.valor_liquido).label("valor_liquido"),
             func.sum(NF.valor_bruto).label("valor_bruto"),
-        ).filter(campo_id.isnot(None))
+        ).filter(campo_id.isnot(None), NF.excluida_em.is_(None))
         if ano:
             q = q.filter(extract("year", NF.data_emissao) == ano)
         return q.group_by(campo_id).all()
@@ -235,7 +237,7 @@ def resumo_financeiro(
 
     `mes` (exato) tem precedência. Sem `mes`, `mes_ate` restringe a janeiro–mes_ate.
     """
-    query = db.query(NF)
+    query = db.query(NF).filter(NF.excluida_em.is_(None))
     if ano:
         query = query.filter(extract("year", NF.data_emissao) == ano)
     if mes:
@@ -270,6 +272,7 @@ def dre_mensal(
     for mes in range(1, 13):
         receita_bruta = db.query(func.sum(NF.valor_bruto)).filter(
             NF.status == StatusNF.PAGA,
+            NF.excluida_em.is_(None),
             extract("year", NF.data_emissao) == ano,
             extract("month", NF.data_emissao) == mes,
         ).scalar() or 0.0

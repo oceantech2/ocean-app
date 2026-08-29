@@ -1,7 +1,9 @@
-// Colaborador
+// Colaborador / Fornecedor (cadastro unificado)
 export interface Colaborador {
   id: number;
   tipo?: 'colaborador' | 'fornecedor';
+  elegivel_equipe?: boolean;
+  tipo_fornecedor?: 'fixo' | 'spot';
   tipo_documento?: 'cpf' | 'cnpj';
   documento?: string;
   nome: string;
@@ -9,6 +11,10 @@ export interface Colaborador {
   razao_social?: string | null;
   telefone?: string | null;
   email?: string | null;
+  pf_nome?: string | null;
+  pf_cpf?: string | null;
+  pf_endereco?: string | null;
+  pf_data_nascimento?: string | null;
   cargo?: string | null;
   salario?: number | null;
   data_nascimento?: string | null;
@@ -183,6 +189,7 @@ export interface LoginResponse {
   usuario: string;
   papel?: string;
   permissoes?: string | null;
+  paginas_visibilidade?: Record<string, boolean>;
 }
 
 // API Response

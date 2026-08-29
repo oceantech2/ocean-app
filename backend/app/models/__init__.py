@@ -20,10 +20,16 @@ class Colaborador(Base):
     __tablename__ = "colaboradores"
     
     id = Column(Integer, primary_key=True, index=True)
-    tipo = Column(String(20), nullable=False, default="colaborador", index=True)
+    tipo = Column(String(20), nullable=False, default="fornecedor", index=True)
+    elegivel_equipe = Column(Boolean, nullable=False, default=False, index=True)
+    tipo_fornecedor = Column(String(10), nullable=False, default="fixo")
     tipo_documento = Column(String(4), nullable=False, default="cpf")
     documento = Column(String(14), nullable=False, index=True)
     nome = Column(String(255), nullable=False)
+    pf_nome = Column(String(255), nullable=True)
+    pf_cpf = Column(String(11), nullable=True, index=True)
+    pf_endereco = Column(Text, nullable=True)
+    pf_data_nascimento = Column(Date, nullable=True)
     cpf = Column(String(22), nullable=True, index=True)
     razao_social = Column(String(255), nullable=True)
     telefone = Column(String(20), nullable=True)
@@ -96,6 +102,7 @@ class NF(Base):
     origem = Column(String(20), nullable=False, default="maggo", server_default="maggo")  # manual | maggo
     anexo_path = Column(Text, nullable=True)
     anexo_nome = Column(String(255), nullable=True)
+    excluida_em = Column(DateTime, nullable=True, index=True)
 
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -321,3 +328,13 @@ class UsuarioApp(Base):
     ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== CONFIGURAÇÃO GLOBAL DO APP ====================
+class ConfiguracaoApp(Base):
+    """Configurações globais key-value (ex.: visibilidade de páginas)."""
+    __tablename__ = "configuracao_app"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chave = Column(String(64), unique=True, nullable=False, index=True)
+    valor = Column(Text, nullable=False)

@@ -6,8 +6,20 @@ import toast from 'react-hot-toast';
 
 const OPCOES_PAGINA = [15, 25, 50, 100];
 
-const ENTIDADES = ['NF', 'ContaPagar', 'Colaborador', 'Bonus', 'Ferias', 'MetaFinanceira', 'DocumentoColaborador'];
+const ENTIDADES: { valor: string; rotulo: string }[] = [
+  { valor: 'NF', rotulo: 'NF' },
+  { valor: 'ContaPagar', rotulo: 'ContaPagar' },
+  { valor: 'Colaborador', rotulo: 'Colaborador' },
+  { valor: 'Bonus', rotulo: 'Comissão' },
+  { valor: 'Ferias', rotulo: 'Ferias' },
+  { valor: 'MetaFinanceira', rotulo: 'MetaFinanceira' },
+  { valor: 'DocumentoColaborador', rotulo: 'DocumentoColaborador' },
+];
 const ACOES = ['criar', 'editar', 'deletar'];
+
+function rotuloEntidade(valor: string) {
+  return ENTIDADES.find((e) => e.valor === valor)?.rotulo ?? valor;
+}
 
 const acaoBadge = (acao: string) => {
   if (acao === 'criar') return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400';
@@ -86,7 +98,7 @@ export default function Auditoria() {
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Entidade</label>
           <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={filtroEntidade} onChange={(e) => { setFiltroEntidade(e.target.value); setPagina(0); }}>
             <option value="">Todas</option>
-            {ENTIDADES.map((e) => <option key={e} value={e}>{e}</option>)}
+            {ENTIDADES.map((e) => <option key={e.valor} value={e.valor}>{e.rotulo}</option>)}
           </select>
         </div>
         <div>
@@ -129,7 +141,7 @@ export default function Auditoria() {
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${acaoBadge(l.acao)}`}>{l.acao}</span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{l.entidade}{l.entidade_id ? ` #${l.entidade_id}` : ''}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{rotuloEntidade(l.entidade)}{l.entidade_id ? ` #${l.entidade_id}` : ''}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{l.descricao}</td>
                   </tr>
                 ))}

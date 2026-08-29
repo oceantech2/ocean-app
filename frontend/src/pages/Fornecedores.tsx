@@ -10,7 +10,10 @@ import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 
 const ITENS_POR_PAGINA = 15;
-type Visao = 'colaborador' | 'fornecedor';
+
+function labelTipo(tf?: string) {
+  return tf === 'spot' ? 'Spot' : 'Fixo';
+}
 
 function validarCPF(cpf: string): boolean {
   const c = cpf.replace(/\D/g, '');
@@ -71,15 +74,16 @@ function emailOk(v: string): boolean {
 
 const FORM_INICIAL = {
   nome: '', tipo_documento: 'cpf' as 'cpf' | 'cnpj', documento: '', razao_social: '',
-  telefone: '', email: '', cargo: '', salario: '', data_nascimento: '',
+  tipo_fornecedor: 'fixo' as 'fixo' | 'spot',
+  telefone: '', email: '',
+  pf_nome: '', pf_cpf: '', pf_endereco: '', pf_data_nascimento: '',
+  cargo: '', salario: '', data_nascimento: '',
   endereco_completo: '', cep: '', data_admissao: '', data_desligamento: '', observacao: '', beneficio: '',
 };
 
-export default function Colaboradores() {
+export default function Fornecedores() {
   const papel = useAuthStore((s) => s.papel);
-  const [visao, setVisao] = useState<Visao>('colaborador');
-  const ehFornecedor = visao === 'fornecedor';
-  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
   const [loading, setLoading] = useState(true);
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [filtroCargo, setFiltroCargo] = useState('');
@@ -100,19 +104,19 @@ export default function Colaboradores() {
   const [importandoXlsx, setImportandoXlsx] = useState(false);
   const xlsxInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { carregarColaboradores(); }, [mostrarInativos, visao]);
+  useEffect(() => { carregarFornecedores(); }, [mostrarInativos]);
 
-  const carregarColaboradores = async () => {
+  const carregarFornecedores = async () => {
     try {
       setLoading(true);
-      const res = await colaboradoresService.listar(0, 200, mostrarInativos ? undefined : true, visao);
-      setColaboradores(res.data);
-    } catch { toast.error(ehFornecedor ? 'Erro ao carregar fornecedores' : 'Erro ao carregar colaboradores'); }
+      const res = await colaboradoresService.listar(0, 200, mostrarInativos ? undefined : true);
+      setFornecedores(res.data);
+    } catch { toast.error('Erro ao carregar fornecedores'); }
     finally { setLoading(false); }
   };
 
-  const cargos = [...new Set(colaboradores.map((c) => c.cargo).filter(Boolean) as string[])].sort();
-  const filtrados = colaboradores.filter((c) => {
+  const cargos = [...new Set(fornecedores.map((c) => c.cargo).filter(Boolean) as string[])].sort();
+  const filtrados = fornecedores.filter((c) => {
     if (filtroCargo && c.cargo !== filtroCargo) return false;
     const doc = (c.cpf || c.documento || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
     const buscaDoc = busca.toUpperCase().replace(/[^0-9A-Z]/g, '');
@@ -130,8 +134,13 @@ export default function Colaboradores() {
       tipo_documento: tipoDoc,
       documento: formatarDoc(tipoDoc, col.documento || col.cpf || ''),
       razao_social: col.razao_social || '',
+      tipo_fornecedor: col.tipo_fornecedor === 'spot' ? 'spot' : 'fixo',
       telefone: col.telefone || '',
       email: col.email || '',
+      pf_nome: col.pf_nome || '',
+      pf_cpf: col.pf_cpf ? formatarCPF(col.pf_cpf) : '',
+      pf_endereco: col.pf_endereco || '',
+      pf_data_nascimento: col.pf_data_nascimento || '',
       cargo: col.cargo || '', salario: col.salario != null ? String(col.salario) : '',
       data_nascimento: col.data_nascimento || '',
       endereco_completo: col.endereco_completo || '', cep: col.cep || '',
@@ -144,38 +153,53 @@ export default function Colaboradores() {
   };
 
   const salvar = async () => {
-    if (!form.nome || !form.documento) { toast.error('Preencha os campos obrigatórios'); return; }
-    if (!ehFornecedor && (!form.cargo || !form.salario || !form.data_nascimento)) { toast.error('Preencha os campos obrigatórios'); return; }
+    if (!form.nome || !form.documento || !form.tipo_fornecedor) { toast.error('Preencha os campos obrigatórios'); return; }
+    const ehLegado = !!editando?.elegivel_equipe;
+    if (ehLegado && form.tipo_documento === 'cpf' && (!form.cargo || !form.salario || !form.data_nascimento)) {
+      toast.error('Preencha os campos obrigatórios de equipe'); return;
+    }
     const chave = form.tipo_documento === 'cnpj' ? normalizarCNPJ(form.documento) : form.documento.replace(/\D/g, '');
     if (form.tipo_documento === 'cpf' && !validarCPF(chave)) { toast.error('CPF inválido'); return; }
     if (form.tipo_documento === 'cnpj' && !validarCNPJ(chave)) { toast.error('CNPJ inválido'); return; }
     if (form.tipo_documento === 'cnpj' && !form.razao_social.trim()) { toast.error('Razão Social é obrigatória para CNPJ'); return; }
+    if (form.tipo_documento === 'cnpj') {
+      if (!form.pf_nome.trim() || !form.pf_cpf.trim() || !form.pf_endereco.trim() || !form.pf_data_nascimento) {
+        toast.error('Preencha os dados da pessoa física do CNPJ'); return;
+      }
+      if (!validarCPF(form.pf_cpf.replace(/\D/g, ''))) { toast.error('CPF da pessoa física inválido'); return; }
+    }
     if (!emailOk(form.email)) { toast.error('E-mail inválido'); return; }
     try {
       setSalvando(true);
       const dados: Record<string, unknown> = {
-        tipo: visao,
         tipo_documento: form.tipo_documento,
         documento: chave,
         nome: form.nome,
+        tipo_fornecedor: form.tipo_fornecedor,
         razao_social: form.tipo_documento === 'cnpj' ? form.razao_social.trim() : null,
         telefone: form.telefone.trim() || null,
         email: form.email.trim() || null,
         observacao: form.observacao || null,
       };
-      if (!ehFornecedor) {
+      if (form.tipo_documento === 'cnpj') {
+        dados.pf_nome = form.pf_nome.trim();
+        dados.pf_cpf = form.pf_cpf.replace(/\D/g, '');
+        dados.pf_endereco = form.pf_endereco.trim();
+        dados.pf_data_nascimento = form.pf_data_nascimento;
+      }
+      if (ehLegado) {
         dados.cargo = form.cargo;
         dados.salario = parseFloat(form.salario);
-        dados.data_nascimento = form.data_nascimento;
+        if (form.tipo_documento === 'cpf') dados.data_nascimento = form.data_nascimento;
         dados.endereco_completo = form.endereco_completo || null;
         dados.cep = form.cep || null;
         dados.beneficio = form.beneficio || null;
         if (form.data_admissao) dados.data_admissao = form.data_admissao;
         if (form.data_desligamento) dados.data_desligamento = form.data_desligamento;
       }
-      if (editando) { await colaboradoresService.atualizar(editando.id, dados); toast.success(ehFornecedor ? 'Fornecedor atualizado!' : 'Colaborador atualizado!'); }
-      else { await colaboradoresService.criar(dados); toast.success(ehFornecedor ? 'Fornecedor criado!' : 'Colaborador criado!'); }
-      setModalAberto(false); carregarColaboradores();
+      if (editando) { await colaboradoresService.atualizar(editando.id, dados); toast.success('Fornecedor atualizado!'); }
+      else { await colaboradoresService.criar(dados); toast.success('Fornecedor criado!'); }
+      setModalAberto(false); carregarFornecedores();
     } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao salvar')); }
     finally { setSalvando(false); }
   };
@@ -220,17 +244,16 @@ export default function Colaboradores() {
   };
 
   const desligar = async (col: Colaborador) => {
-    const msg = ehFornecedor ? `Desativar ${col.nome}?` : `Desligar ${col.nome}?`;
-    if (!confirm(msg)) return;
+    if (!confirm(`Desativar ${col.nome}?`)) return;
     try {
       await colaboradoresService.deletar(col.id);
-      toast.success(ehFornecedor ? 'Fornecedor desativado' : 'Colaborador desligado');
-      carregarColaboradores();
-    } catch { toast.error(ehFornecedor ? 'Erro ao desativar' : 'Erro ao desligar'); }
+      toast.success('Fornecedor desativado');
+      carregarFornecedores();
+    } catch { toast.error('Erro ao desativar'); }
   };
 
   const reativar = async (col: Colaborador) => {
-    try { await colaboradoresService.atualizar(col.id, { ativo: true, data_desligamento: null }); toast.success('Reativado!'); carregarColaboradores(); }
+    try { await colaboradoresService.atualizar(col.id, { ativo: true, data_desligamento: null }); toast.success('Reativado!'); carregarFornecedores(); }
     catch { toast.error('Erro ao reativar'); }
   };
 
@@ -240,19 +263,20 @@ export default function Colaboradores() {
     try {
       await colaboradoresService.excluirPermanente(col.id);
       toast.success(`${col.nome} removido permanentemente`);
-      carregarColaboradores();
+      carregarFornecedores();
     } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao excluir')); }
   };
 
   const exportar = () => exportarCSV(filtrados.map((c) => ({
     Nome: c.nome,
+    Tipo: labelTipo(c.tipo_fornecedor),
     Documento: c.cpf || c.documento,
     Telefone: c.telefone || '',
     Email: c.email || '',
     Cargo: c.cargo || '',
     Salário: c.salario ?? '',
-    Status: c.ativo ? 'Ativo' : (ehFornecedor ? 'Inativo' : 'Desligado'),
-  })), ehFornecedor ? 'fornecedores' : 'colaboradores');
+    Status: c.ativo ? 'Ativo' : 'Inativo',
+  })), 'fornecedores');
 
   const importarXlsx = async (arquivo: File) => {
     try {
@@ -262,7 +286,7 @@ export default function Colaboradores() {
       if (ok > 0) toast.success(`${ok} colaborador(es) importado(s) do Excel`);
       if (erros?.length > 0) toast.error(`${erros.length} aviso(s)/erro(s) na importação — veja o console`);
       if (erros?.length > 0) console.warn('Avisos/erros na importação de colaboradores:', erros);
-      carregarColaboradores();
+      carregarFornecedores();
     } catch (e: unknown) {
       toast.error(mensagemErro(e, 'Erro ao importar arquivo Excel'));
     } finally {
@@ -272,16 +296,8 @@ export default function Colaboradores() {
 
   const exportarXlsx = () => { colaboradoresService.exportarXlsx(); };
 
-  const fmt = (v: number) => v?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) ?? '-';
   const INPUT = 'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm';
-  const totalFolha = colaboradores.filter((c) => c.ativo).reduce((s, c) => s + (c.salario || 0), 0);
-
-  const mudarVisao = (v: Visao) => {
-    setVisao(v);
-    setPagina(0);
-    setFiltroCargo('');
-    setBusca('');
-  };
+  const ehLegadoForm = !!editando?.elegivel_equipe;
 
   return (
     <div className="space-y-6">
@@ -289,17 +305,12 @@ export default function Colaboradores() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-4 flex-wrap">
-              <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Colaboradores</h1>
-              {!ehFornecedor && (
-                <span className="text-base font-semibold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-1 rounded-lg">
-                  Total folha — {totalFolha.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </span>
-              )}
+              <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Fornecedores</h1>
             </div>
             <p className="text-gray-500 dark:text-gray-400 mt-1">{filtrados.length} encontrado(s)</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {papel === 'admin' && !ehFornecedor && (
+            {papel === 'admin' && (
               <button onClick={() => setImportAberto(true)} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
                 ↑ Importar CSV
               </button>
@@ -309,7 +320,7 @@ export default function Colaboradores() {
                 ↓ Exportar CSV
               </button>
             )}
-            {papel === 'admin' && !ehFornecedor && (
+            {papel === 'admin' && (
               <>
                 <input
                   ref={xlsxInputRef}
@@ -327,42 +338,24 @@ export default function Colaboradores() {
                 </button>
               </>
             )}
-            {!ehFornecedor && (
-              <button onClick={exportarXlsx} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-                ↓ Exportar Excel (.xlsx)
-              </button>
-            )}
+            <button onClick={exportarXlsx} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
+              ↓ Exportar Excel (.xlsx)
+            </button>
             <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
               Exportar PDF
             </button>
             {papel === 'admin' && (
               <button onClick={abrirCriar} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-                {ehFornecedor ? '+ Novo Fornecedor' : '+ Novo Colaborador'}
+                + Novo Fornecedor
               </button>
             )}
           </div>
-        </div>
-        <div className="flex gap-1 mt-4 border-b border-gray-200 dark:border-gray-700">
-          <button
-            type="button"
-            onClick={() => mudarVisao('colaborador')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${!ehFornecedor ? 'border-blue-600 text-blue-700 dark:text-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
-          >
-            Colaboradores
-          </button>
-          <button
-            type="button"
-            onClick={() => mudarVisao('fornecedor')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${ehFornecedor ? 'border-blue-600 text-blue-700 dark:text-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
-          >
-            Fornecedores
-          </button>
         </div>
       </div>
 
       {importAberto && (
         <ImportCSV
-          titulo="Colaboradores"
+          titulo="Fornecedores"
           colunas={['nome', 'cpf', 'cargo', 'salario', 'data_nascimento']}
           exemplo={{ nome: 'João Silva', cpf: '123.456.789-09', cargo: 'Consultor', salario: '5000', data_nascimento: '1990-05-20' }}
           mapear={(l) => {
@@ -370,7 +363,7 @@ export default function Colaboradores() {
             const cpfLimpo = (l.cpf || '').replace(/\D/g, '');
             if (!validarCPF(cpfLimpo)) throw new Error('CPF inválido');
             return {
-              tipo: 'colaborador',
+              tipo_fornecedor: 'fixo',
               tipo_documento: 'cpf',
               documento: cpfLimpo,
               nome: l.nome,
@@ -381,7 +374,7 @@ export default function Colaboradores() {
             };
           }}
           criar={(payload) => colaboradoresService.criar(payload)}
-          onConcluido={carregarColaboradores}
+          onConcluido={carregarFornecedores}
           onFechar={() => setImportAberto(false)}
         />
       )}
@@ -391,7 +384,7 @@ export default function Colaboradores() {
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Buscar</label>
           <input className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-48" placeholder="Nome ou documento..." value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(0); }} />
         </div>
-        {!ehFornecedor && (
+        {cargos.length > 0 && (
           <div>
             <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cargo</label>
             <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={filtroCargo} onChange={(e) => { setFiltroCargo(e.target.value); setPagina(0); }}>
@@ -410,17 +403,14 @@ export default function Colaboradores() {
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
         ) : filtrados.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 dark:text-gray-500">{ehFornecedor ? 'Nenhum fornecedor encontrado' : 'Nenhum colaborador encontrado'}</div>
+          <div className="p-8 text-center text-gray-400 dark:text-gray-500">Nenhum fornecedor encontrado</div>
         ) : (
           <>
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                 <tr>
-                  {(ehFornecedor
-                    ? ['Nome', 'Documento', 'Telefone', 'Email', 'Status', '', '']
-                    : ['Nome', 'Documento', 'Telefone', 'Email', 'Cargo', 'Salário', 'Admissão', 'Status', '', '']
-                  ).map((h, i) => (
-                    <th key={i} className={`px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Salário' ? 'text-right' : 'text-left'}`}>{h}</th>
+                  {['Nome', 'Tipo', 'Documento', 'Telefone', 'Email', 'Status', '', ''].map((h, i) => (
+                    <th key={i} className="px-4 py-3 text-gray-600 dark:text-gray-300 font-medium text-left">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -428,19 +418,13 @@ export default function Colaboradores() {
                 {paginados.map((col) => (
                   <tr key={col.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${!col.ativo ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{col.nome}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{labelTipo(col.tipo_fornecedor)}</td>
                     <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-400">{col.cpf || col.documento}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{col.telefone || '—'}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{col.email || '—'}</td>
-                    {!ehFornecedor && (
-                      <>
-                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{col.cargo}</td>
-                        <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{col.salario != null ? fmt(col.salario) : '—'}</td>
-                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{col.data_admissao?.split('T')[0]}</td>
-                      </>
-                    )}
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${col.ativo ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>
-                        {col.ativo ? 'Ativo' : (ehFornecedor ? 'Inativo' : 'Desligado')}
+                        {col.ativo ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
                     <td className="px-4 py-3 w-8">
@@ -455,7 +439,7 @@ export default function Colaboradores() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 justify-end">
-                        {!ehFornecedor && (
+                        {col.elegivel_equipe && (
                           <>
                             <button onClick={() => setDocsColaborador(col)} className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200">Docs</button>
                             <button onClick={() => abrirHistorico(col)} className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400 rounded hover:bg-purple-200">Histórico</button>
@@ -465,7 +449,7 @@ export default function Colaboradores() {
                           <>
                             <button onClick={() => abrirEditar(col)} className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded hover:bg-blue-200">Editar</button>
                             {col.ativo ? (
-                              <button onClick={() => desligar(col)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200">{ehFornecedor ? 'Desativar' : 'Desligar'}</button>
+                              <button onClick={() => desligar(col)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200">Desativar</button>
                             ) : (
                               <button onClick={() => reativar(col)} className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 rounded hover:bg-green-200">Reativar</button>
                             )}
@@ -488,7 +472,7 @@ export default function Colaboradores() {
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b dark:border-gray-700">
               <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">
-                {editando ? (ehFornecedor ? 'Editar Fornecedor' : 'Editar Colaborador') : (ehFornecedor ? 'Novo Fornecedor' : 'Novo Colaborador')}
+                {editando ? 'Editar Fornecedor' : 'Novo Fornecedor'}
               </h2>
             </div>
             <div className="p-6 grid grid-cols-2 gap-4">
@@ -524,6 +508,13 @@ export default function Colaboradores() {
                 </div>
               )}
               <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tipo *</label>
+                <select className={INPUT} value={form.tipo_fornecedor} onChange={(e) => setForm({ ...form, tipo_fornecedor: e.target.value as 'fixo' | 'spot' })}>
+                  <option value="fixo">Fixo</option>
+                  <option value="spot">Spot</option>
+                </select>
+              </div>
+              <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Telefone</label>
                 <input className={INPUT} value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
               </div>
@@ -531,12 +522,37 @@ export default function Colaboradores() {
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Email</label>
                 <input className={INPUT} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </div>
-              {!ehFornecedor && (
+              {form.tipo_documento === 'cnpj' && (
                 <>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Nascimento *</label>
-                    <input type="date" className={INPUT} value={form.data_nascimento} onChange={(e) => setForm({ ...form, data_nascimento: e.target.value })} />
+                  <div className="col-span-2 border-t dark:border-gray-700 pt-4 mt-2">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pessoa física do CNPJ</p>
                   </div>
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nome *</label>
+                    <input className={INPUT} value={form.pf_nome} onChange={(e) => setForm({ ...form, pf_nome: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CPF *</label>
+                    <input className={INPUT} value={form.pf_cpf} onChange={(e) => setForm({ ...form, pf_cpf: formatarCPF(e.target.value) })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Nascimento *</label>
+                    <input type="date" className={INPUT} value={form.pf_data_nascimento} onChange={(e) => setForm({ ...form, pf_data_nascimento: e.target.value })} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Endereço *</label>
+                    <input className={INPUT} value={form.pf_endereco} onChange={(e) => setForm({ ...form, pf_endereco: e.target.value })} />
+                  </div>
+                </>
+              )}
+              {ehLegadoForm && form.tipo_documento === 'cpf' && (
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Nascimento *</label>
+                  <input type="date" className={INPUT} value={form.data_nascimento} onChange={(e) => setForm({ ...form, data_nascimento: e.target.value })} />
+                </div>
+              )}
+              {ehLegadoForm && (
+                <>
                   <div>
                     <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cargo *</label>
                     <input className={INPUT} value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} />

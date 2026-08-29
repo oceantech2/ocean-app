@@ -48,7 +48,7 @@ export default function Patrimonio() {
 
   useEffect(() => {
     carregarDados();
-    colaboradoresService.listar(0, 500, true).then((r) => setColaboradores(r.data || []));
+    colaboradoresService.listar(0, 500, true, { elegivel_equipe: true }).then((r) => setColaboradores(r.data || []));
   }, []);
 
   const carregarDados = async () => {

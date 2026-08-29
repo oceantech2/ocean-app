@@ -5,13 +5,19 @@ from datetime import datetime, date
 # ==================== COLABORADORES ====================
 class ColaboradorBase(BaseModel):
     nome: str
-    tipo: str = "colaborador"
+    tipo: str = "fornecedor"
+    elegivel_equipe: bool = False
+    tipo_fornecedor: str = "fixo"
     tipo_documento: str = "cpf"
     documento: Optional[str] = None
     cpf: Optional[str] = None
     razao_social: Optional[str] = None
     telefone: Optional[str] = None
     email: Optional[str] = None
+    pf_nome: Optional[str] = None
+    pf_cpf: Optional[str] = None
+    pf_endereco: Optional[str] = None
+    pf_data_nascimento: Optional[date] = None
     cargo: Optional[str] = None
     salario: Optional[float] = None
     data_nascimento: Optional[date] = None
@@ -26,12 +32,18 @@ class ColaboradorCreate(ColaboradorBase):
 class ColaboradorUpdate(BaseModel):
     nome: Optional[str] = None
     tipo: Optional[str] = None
+    elegivel_equipe: Optional[bool] = None
+    tipo_fornecedor: Optional[str] = None
     tipo_documento: Optional[str] = None
     documento: Optional[str] = None
     cpf: Optional[str] = None
     razao_social: Optional[str] = None
     telefone: Optional[str] = None
     email: Optional[str] = None
+    pf_nome: Optional[str] = None
+    pf_cpf: Optional[str] = None
+    pf_endereco: Optional[str] = None
+    pf_data_nascimento: Optional[date] = None
     cargo: Optional[str] = None
     salario: Optional[float] = None
     data_nascimento: Optional[date] = None
@@ -68,6 +80,8 @@ def _tipo_oficial(v):
     if v is None:
         return None
     t = str(v).strip().lower()
+    if t == "parcela":
+        t = "parcelamento"
     if t not in _TIPOS_OFICIAIS:
         raise ValueError("tipo deve ser retainer, sucesso ou parcelamento")
     return t
@@ -402,6 +416,12 @@ class UsuarioAppResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class PaginasVisibilidadeResponse(BaseModel):
+    paginas: dict[str, bool]
+
+class PaginasVisibilidadeUpdate(BaseModel):
+    paginas: dict[str, bool]
 
 # ==================== CONTAS CORRENTES ====================
 class ContaCorrenteCreate(BaseModel):

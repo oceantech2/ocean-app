@@ -58,7 +58,7 @@ def coletar_alertas(db: Session) -> dict:
     # NFs a vencer (pendentes com vencimento entre hoje e o limite) + já vencidas
     nfs = (
         db.query(NF)
-        .filter(NF.status != StatusNF.PAGA, NF.data_vencimento <= limite)
+        .filter(NF.status != StatusNF.PAGA, NF.data_vencimento <= limite, NF.excluida_em.is_(None))
         .order_by(NF.data_vencimento)
         .all()
     )

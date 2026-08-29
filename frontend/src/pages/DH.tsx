@@ -22,11 +22,11 @@ function trimestreBg(mes: number) {
 const TIPOS_DH = [
   { value: 'retainer', label: 'Retainer' },
   { value: 'sucesso', label: 'Sucesso' },
-  { value: 'parcelamento', label: 'Parcelamento' },
+  { value: 'parcelamento', label: 'Parcela' },
 ] as const;
 
 function tipoLabel(tipo_fechamento: string): string {
-  if (tipo_fechamento === 'parcelamento') return 'Parcelamento';
+  if (tipo_fechamento === 'parcelamento') return 'Parcela';
   if (tipo_fechamento === 'sucesso') return 'Sucesso';
   return 'Retainer';
 }
@@ -43,7 +43,7 @@ function gerarAssunto(tipo: string, empresa: string, posicao: string): string {
 
 function mapTipoImport(raw: string): 'retainer' | 'sucesso' | 'parcelamento' {
   const t = (raw || '').trim().toLowerCase();
-  if (t === 'parcelamento' || t.includes('parcelamento')) return 'parcelamento';
+  if (t === 'parcela' || t === 'parcelamento' || t.includes('parcelamento') || t.includes('parcela')) return 'parcelamento';
   if (t.includes('fechamento')) return 'sucesso';
   if (t === 'retainer' || t.includes('abertura')) return 'retainer';
   if (t === 'sucesso') return 'sucesso';
@@ -187,7 +187,7 @@ export default function DHPage() {
           <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300 mt-1">{totalSucesso}</p>
         </div>
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Parcelamento</p>
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Parcela</p>
           <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{totalParcelamento}</p>
         </div>
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">

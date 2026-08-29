@@ -179,7 +179,7 @@ const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   '/fluxo-caixa': FluxoCaixaIcon,
   '/impostos': ImpostosIcon,
   '/retiradas': RetiradasIcon,
-  '/bonus': BonusIcon,
+  '/comissoes': BonusIcon,
   '/dh': DhIcon,
   '/colaboradores': ColaboradoresIcon,
   '/ferias': FeriasIcon,

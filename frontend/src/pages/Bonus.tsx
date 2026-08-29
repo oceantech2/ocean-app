@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { bonusService, colaboradoresService, nfsService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
+import { comissaoNoRecorte } from '../utils/comissoesPeriodo';
 import { Bonus, Colaborador } from '../types';
 import { usePageFilters, useAuthStore } from '../store';
 import Pagination from '../components/Pagination';
@@ -11,6 +12,7 @@ import toast from 'react-hot-toast';
 
 const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ITENS_POR_PAGINA = 20;
+const SELECT = 'border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm';
 
 const FORM_INICIAL = {
   colaborador_id: '', mes: String(new Date().getMonth() + 1),
@@ -20,7 +22,9 @@ const FORM_INICIAL = {
 
 export default function BonusPage() {
   const papel = useAuthStore((s) => s.papel);
-  const { bonusColaboradorId, bonusAno, setBonusFilters } = usePageFilters();
+  const {
+    bonusColaboradorId, bonusAno, bonusRecorte, bonusMes, bonusTrimestre, setBonusFilters,
+  } = usePageFilters();
 
   const [bonus, setBonus] = useState<Bonus[]>([]);
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
@@ -36,9 +40,10 @@ export default function BonusPage() {
 
   useEffect(() => { carregarColaboradores(); }, []);
   useEffect(() => { carregarBonus(); setPagina(0); }, [bonusColaboradorId, bonusAno]);
+  useEffect(() => { setPagina(0); }, [bonusRecorte, bonusMes, bonusTrimestre]);
 
   const carregarColaboradores = async () => {
-    try { const res = await colaboradoresService.listar(0, 200, true); setColaboradores(res.data); } catch {}
+    try { const res = await colaboradoresService.listar(0, 200, true, { elegivel_equipe: true }); setColaboradores(res.data); } catch {}
   };
 
   const carregarBonus = async () => {
@@ -46,12 +51,17 @@ export default function BonusPage() {
       setLoading(true);
       const res = await bonusService.listar(0, 500, bonusColaboradorId ? Number(bonusColaboradorId) : undefined, undefined, bonusAno || undefined);
       setBonus(res.data);
-    } catch { toast.error('Erro ao carregar bônus'); }
+    } catch { toast.error('Erro ao carregar comissões'); }
     finally { setLoading(false); }
   };
 
+  const bonusFiltrado = useMemo(
+    () => bonus.filter((b) => comissaoNoRecorte(b.mes, bonusRecorte, bonusMes, bonusTrimestre)),
+    [bonus, bonusRecorte, bonusMes, bonusTrimestre],
+  );
+
   const porColaborador = colaboradores.reduce((acc, col) => {
-    const bonusCol = bonus.filter((b) => b.colaborador_id === col.id);
+    const bonusCol = bonusFiltrado.filter((b) => b.colaborador_id === col.id);
     if (bonusCol.length > 0) acc[col.id] = { colaborador: col, bonus: bonusCol };
     return acc;
   }, {} as Record<number, { colaborador: Colaborador; bonus: Bonus[] }>);
@@ -61,7 +71,7 @@ export default function BonusPage() {
     total: bonus.filter((b) => b.mes === i + 1 && b.ano === bonusAno).reduce((s, b) => s + b.valor_bonus, 0),
   }));
 
-  const totalBonus = bonus.reduce((s, b) => s + b.valor_bonus, 0);
+  const totalComissoes = bonusFiltrado.reduce((s, b) => s + b.valor_bonus, 0);
   const colsList = Object.values(porColaborador);
   const colsPaginados = colsList.slice(pagina * ITENS_POR_PAGINA, (pagina + 1) * ITENS_POR_PAGINA);
 
@@ -80,7 +90,6 @@ export default function BonusPage() {
     return novoForm;
   };
 
-  const abrirCriar = () => { setEditando(null); setForm({ ...FORM_INICIAL, ano: String(bonusAno) }); carregarNfs(); setModalAberto(true); };
   const abrirEditar = (b: Bonus) => {
     setEditando(b);
     setForm({ colaborador_id: String(b.colaborador_id), mes: String(b.mes), ano: String(b.ano), etapa: b.etapa, percentual: String(b.percentual), valor_bonus: String(b.valor_bonus), cliente: b.cliente || '', posicao: b.posicao || '', numero_nf: b.numero_nf || '' });
@@ -89,29 +98,37 @@ export default function BonusPage() {
   };
 
   const salvar = async () => {
-    if (!form.colaborador_id || !form.percentual || !form.valor_bonus) { toast.error('Preencha os campos obrigatórios'); return; }
+    if (!editando) return;
+    if (!form.percentual || !form.valor_bonus) { toast.error('Preencha os campos obrigatórios'); return; }
     try {
       setSalvando(true);
-      const dados = { colaborador_id: parseInt(form.colaborador_id), mes: parseInt(form.mes), ano: parseInt(form.ano), etapa: form.etapa, percentual: parseFloat(form.percentual), valor_bonus: parseFloat(form.valor_bonus), cliente: form.cliente || null, posicao: form.posicao || null, numero_nf: form.numero_nf || null };
-      if (editando) { await bonusService.atualizar(editando.id, { percentual: dados.percentual, valor_bonus: dados.valor_bonus, cliente: dados.cliente, posicao: dados.posicao, numero_nf: dados.numero_nf }); toast.success('Bônus atualizado!'); }
-      else { await bonusService.criar(dados); toast.success('Bônus criado!'); }
-      setModalAberto(false); carregarBonus();
+      await bonusService.atualizar(editando.id, {
+        percentual: parseFloat(form.percentual),
+        valor_bonus: parseFloat(form.valor_bonus),
+        cliente: form.cliente || null,
+        posicao: form.posicao || null,
+        numero_nf: form.numero_nf || null,
+      });
+      toast.success('Comissão atualizada!');
+      setModalAberto(false);
+      setEditando(null);
+      carregarBonus();
     } catch (e: any) { toast.error(mensagemErro(e, 'Erro ao salvar')); }
     finally { setSalvando(false); }
   };
 
   const deletar = async (b: Bonus) => {
-    if (!confirm('Deletar este bônus?')) return;
-    try { await bonusService.deletar(b.id); toast.success('Bônus deletado'); carregarBonus(); }
+    if (!confirm('Deletar esta comissão?')) return;
+    try { await bonusService.deletar(b.id); toast.success('Comissão deletada'); carregarBonus(); }
     catch { toast.error('Erro ao deletar'); }
   };
 
-  const exportar = () => exportarCSV(bonus.map((b) => ({
+  const exportar = () => exportarCSV(bonusFiltrado.map((b) => ({
     Colaborador: colaboradores.find((c) => c.id === b.colaborador_id)?.nome || String(b.colaborador_id),
     Mês: MESES_NOME[b.mes - 1], Ano: b.ano, Etapa: b.etapa,
     'Nº NF': b.numero_nf || '', Cliente: b.cliente || '', Posição: b.posicao || '',
-    'Percentual (%)': b.percentual, 'Valor Bônus': b.valor_bonus,
-  })), `bonus_${bonusAno}`);
+    'Percentual (%)': b.percentual, 'Valor Comissão': b.valor_bonus,
+  })), `comissoes_${bonusAno}`);
 
   const fmt = (v: number) => v?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) ?? '-';
   const INPUT = 'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm';
@@ -119,14 +136,14 @@ export default function BonusPage() {
   return (
     <div className="space-y-6">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">Bônus - <span className="text-lg font-normal text-gray-500 dark:text-gray-400">Total: <strong className="text-green-700 dark:text-green-400">{fmt(totalBonus)}</strong></span></h1>
+        <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">Comissões - <span className="text-lg font-normal text-gray-500 dark:text-gray-400">Total: <strong className="text-green-700 dark:text-green-400">{fmt(totalComissoes)}</strong></span></h1>
         <div className="flex gap-2">
           {papel === 'admin' && (
             <button onClick={() => setImportAberto(true)} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
               ↑ Importar CSV
             </button>
           )}
-          {bonus.length > 0 && (
+          {bonusFiltrado.length > 0 && (
             <button onClick={exportar} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
               ↓ Exportar CSV
             </button>
@@ -134,32 +151,56 @@ export default function BonusPage() {
           <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
             Exportar PDF
           </button>
-          {papel === 'admin' && (
-            <button onClick={abrirCriar} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-              + Novo Bônus
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Filtros */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
         <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Colaborador</label>
-          <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={bonusColaboradorId} onChange={(e) => setBonusFilters(e.target.value === '' ? '' : parseInt(e.target.value), bonusAno)}>
+          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Pessoa da equipe</label>
+          <select className={SELECT} value={bonusColaboradorId} onChange={(e) => setBonusFilters(e.target.value === '' ? '' : parseInt(e.target.value), bonusAno)}>
             <option value="">Todos</option>
             {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select>
         </div>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Ano</label>
-          <input type="number" className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-24" value={bonusAno} onChange={(e) => setBonusFilters(bonusColaboradorId, parseInt(e.target.value))} />
+          <input type="number" className={`${SELECT} w-24`} value={bonusAno} onChange={(e) => setBonusFilters(bonusColaboradorId, parseInt(e.target.value))} />
         </div>
+        <div>
+          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Recorte</label>
+          <select
+            className={SELECT}
+            value={bonusRecorte}
+            onChange={(e) => setBonusFilters(bonusColaboradorId, bonusAno, e.target.value as 'ano' | 'mes' | 'trimestre')}
+          >
+            <option value="ano">Ano inteiro</option>
+            <option value="mes">Mês</option>
+            <option value="trimestre">Trimestre</option>
+          </select>
+        </div>
+        {bonusRecorte === 'mes' && (
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Mês</label>
+            <select className={SELECT} value={bonusMes} onChange={(e) => setBonusFilters(bonusColaboradorId, bonusAno, 'mes', parseInt(e.target.value))}>
+              {MESES_NOME.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+            </select>
+          </div>
+        )}
+        {bonusRecorte === 'trimestre' && (
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Trimestre</label>
+            <select className={SELECT} value={bonusTrimestre} onChange={(e) => setBonusFilters(bonusColaboradorId, bonusAno, 'trimestre', undefined, parseInt(e.target.value))}>
+              <option value={1}>1º (jan–mar)</option>
+              <option value={2}>2º (abr–jun)</option>
+              <option value={3}>3º (jul–set)</option>
+              <option value={4}>4º (out–dez)</option>
+            </select>
+          </div>
+        )}
       </div>
 
-      {/* Gráfico */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Evolução de Bônus por Mês — {bonusAno}</h2>
+        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Evolução de Comissões por Mês — {bonusAno}</h2>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={graficoDados}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -167,12 +208,11 @@ export default function BonusPage() {
             <YAxis tick={{ fontSize: 11 }} />
             <Tooltip formatter={(v: any) => fmt(v)} />
             <Legend />
-            <Bar dataKey="total" name="Total Bônus" fill="#10B981" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="total" name="Total Comissões" fill="#10B981" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Por Colaborador */}
       {loading ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
       ) : (
@@ -223,7 +263,7 @@ export default function BonusPage() {
                 </div>
               );
             })}
-            {colsList.length === 0 && <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">Nenhum bônus encontrado</div>}
+            {colsList.length === 0 && <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">Nenhuma comissão encontrada</div>}
           </div>
           {colsList.length > ITENS_POR_PAGINA && (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
@@ -233,45 +273,25 @@ export default function BonusPage() {
         </>
       )}
 
-      {/* Modal */}
-      {modalAberto && (
+      {modalAberto && editando && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
             <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{editando ? 'Editar Bônus' : 'Novo Bônus'}</h2>
+              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Editar comissão</h2>
             </div>
             <div className="p-6 space-y-4">
-              {!editando && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Colaborador *</label>
-                  <select className={INPUT} value={form.colaborador_id} onChange={(e) => setForm({ ...form, colaborador_id: e.target.value })}>
-                    <option value="">Selecione...</option>
-                    {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                  </select>
-                </div>
-              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Mês *</label>
-                  <select className={INPUT} value={form.mes} onChange={(e) => setForm({ ...form, mes: e.target.value })} disabled={!!editando}>
+                  <select className={INPUT} value={form.mes} disabled>
                     {MESES_NOME.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Ano *</label>
-                  <input type="number" className={INPUT} value={form.ano} onChange={(e) => setForm({ ...form, ano: e.target.value })} disabled={!!editando} />
+                  <input type="number" className={INPUT} value={form.ano} disabled />
                 </div>
               </div>
-              {!editando && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Etapa *</label>
-                  <select className={INPUT} value={form.etapa} onChange={(e) => setForm({ ...form, etapa: e.target.value })}>
-                    <option value="lead">Lead</option>
-                    <option value="conducao">Condução</option>
-                    <option value="placement">Placement</option>
-                  </select>
-                </div>
-              )}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor Líquido NF</label>
                 <input
@@ -292,7 +312,7 @@ export default function BonusPage() {
                 }} />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor Bônus (R$) *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor da comissão (R$) *</label>
                 <input type="number" step="0.01" className={INPUT} value={form.valor_bonus} onChange={(e) => setForm({ ...form, valor_bonus: e.target.value })} />
               </div>
               <div className="border-t dark:border-gray-700 pt-3 col-span-1">
@@ -324,7 +344,7 @@ export default function BonusPage() {
               </div>
             </div>
             <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
-              <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={() => { setModalAberto(false); setEditando(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>
@@ -335,24 +355,26 @@ export default function BonusPage() {
 
       {importAberto && (
         <ImportCSV
-          titulo="Importar Bônus via CSV"
+          titulo="comissões"
           colunas={['colaborador_id', 'mes', 'ano', 'etapa', 'percentual', 'valor_bonus', 'cliente', 'posicao', 'numero_nf']}
-          onImportar={async (linhas) => {
-            for (const l of linhas) {
-              await bonusService.criar({
-                colaborador_id: parseInt(l.colaborador_id),
-                mes: parseInt(l.mes),
-                ano: parseInt(l.ano),
-                etapa: l.etapa || 'lead',
-                percentual: parseFloat(l.percentual),
-                valor_bonus: parseFloat(l.valor_bonus),
-                cliente: l.cliente || null,
-                posicao: l.posicao || null,
-                numero_nf: l.numero_nf || null,
-              });
+          mapear={(l) => {
+            if (!l.colaborador_id || !l.mes || !l.ano || !l.percentual || !l.valor_bonus) {
+              throw new Error('colaborador_id, mes, ano, percentual e valor_bonus são obrigatórios');
             }
-            carregarBonus();
+            return {
+              colaborador_id: parseInt(l.colaborador_id),
+              mes: parseInt(l.mes),
+              ano: parseInt(l.ano),
+              etapa: l.etapa || 'lead',
+              percentual: parseFloat(l.percentual),
+              valor_bonus: parseFloat(l.valor_bonus),
+              cliente: l.cliente || null,
+              posicao: l.posicao || null,
+              numero_nf: l.numero_nf || null,
+            };
           }}
+          criar={(dados) => bonusService.criar(dados)}
+          onConcluido={carregarBonus}
           onFechar={() => setImportAberto(false)}
         />
       )}

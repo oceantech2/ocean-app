@@ -54,6 +54,7 @@ def progresso_meta(
             db.query(NF)
             .filter(
                 NF.status == StatusNF.PAGA,
+                NF.excluida_em.is_(None),
                 extract("year", NF.data_emissao) == ano,
             )
             .all()
@@ -63,6 +64,7 @@ def progresso_meta(
             db.query(NF)
             .filter(
                 NF.status == StatusNF.PAGA,
+                NF.excluida_em.is_(None),
                 extract("month", NF.data_emissao) == mes,
                 extract("year", NF.data_emissao) == ano,
             )

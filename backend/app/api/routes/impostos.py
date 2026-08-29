@@ -40,6 +40,7 @@ def impostos_de_contas(
         # Faturamento líquido das NFs pagas no mês
         faturamento = db.query(func.sum(NF.valor_liquido)).filter(
             NF.status == StatusNF.PAGA,
+            NF.excluida_em.is_(None),
             extract("year", NF.data_emissao) == ano,
             extract("month", NF.data_emissao) == mes,
         ).scalar() or 0.0
@@ -67,6 +68,7 @@ def faturamento_nfs_mes(
     para pré-preencher o campo 'faturamento' na tela de Impostos."""
     nfs = db.query(NF).filter(
         NF.status == StatusNF.PAGA,
+        NF.excluida_em.is_(None),
         extract("year", NF.data_emissao) == ano,
         extract("month", NF.data_emissao) == mes,
     ).all()

@@ -4,10 +4,12 @@ import { Toaster } from 'react-hot-toast';
 import { useAuthStore, useUIStore } from './store';
 import Login from './components/Login';
 import Layout from './components/Layout';
+import PaginaVisivelGuard from './components/PaginaVisivelGuard';
+import { PAGINAS_CATALOGO } from './utils/paginasCatalogo';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const NFs = lazy(() => import('./pages/NFs'));
-const Colaboradores = lazy(() => import('./pages/Colaboradores'));
+const Colaboradores = lazy(() => import('./pages/Fornecedores'));
 const Contas = lazy(() => import('./pages/Contas'));
 const BonusPage = lazy(() => import('./pages/Bonus'));
 const FeriasPage = lazy(() => import('./pages/Ferias'));
@@ -20,6 +22,23 @@ const FluxoCaixa = lazy(() => import('./pages/FluxoCaixa'));
 const Impostos = lazy(() => import('./pages/Impostos'));
 const Retiradas = lazy(() => import('./pages/Retiradas'));
 const Patrimonio = lazy(() => import('./pages/Patrimonio'));
+
+const PAGE_COMPONENTS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
+  dashboard: Dashboard,
+  nfs: NFs,
+  colaboradores: Colaboradores,
+  contas: Contas,
+  bonus: BonusPage,
+  ferias: FeriasPage,
+  dh: DHPage,
+  calendario: Calendario,
+  auditoria: Auditoria,
+  seguranca: Seguranca,
+  fluxo_caixa: FluxoCaixa,
+  impostos: Impostos,
+  retiradas: Retiradas,
+  patrimonio: Patrimonio,
+};
 
 function DarkModeSync() {
   const darkMode = useUIStore((s) => s.darkMode);
@@ -46,6 +65,16 @@ function Protected({ children }: { children: React.ReactNode }) {
   );
 }
 
+function RotaPagina({ permKey }: { permKey: string }) {
+  const Page = PAGE_COMPONENTS[permKey];
+  if (!Page) return <Navigate to="/dashboard" replace />;
+  return (
+    <PaginaVisivelGuard permKey={permKey}>
+      <Page />
+    </PaginaVisivelGuard>
+  );
+}
+
 export default function App() {
   return (
     <>
@@ -55,22 +84,17 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
-          <Route path="/nfs" element={<Protected><NFs /></Protected>} />
+          {PAGINAS_CATALOGO.filter((p) => p.key !== 'dashboard').map((p) => (
+            <Route
+              key={p.path}
+              path={p.path}
+              element={<Protected><RotaPagina permKey={p.key} /></Protected>}
+            />
+          ))}
+          <Route path="/colaboradores" element={<Navigate to="/fornecedores" replace />} />
           <Route path="/contas-receber" element={<Navigate to="/nfs" replace />} />
-          <Route path="/colaboradores" element={<Protected><Colaboradores /></Protected>} />
-          <Route path="/contas" element={<Protected><Contas /></Protected>} />
-          <Route path="/bonus" element={<Protected><BonusPage /></Protected>} />
-          <Route path="/ferias" element={<Protected><FeriasPage /></Protected>} />
-          <Route path="/dh" element={<Protected><DHPage /></Protected>} />
           <Route path="/relatorios" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/calendario" element={<Protected><Calendario /></Protected>} />
-          <Route path="/auditoria" element={<Protected><Auditoria /></Protected>} />
-          <Route path="/seguranca" element={<Protected><Seguranca /></Protected>} />
           <Route path="/configuracoes" element={<Protected><Configuracoes /></Protected>} />
-          <Route path="/fluxo-caixa" element={<Protected><FluxoCaixa /></Protected>} />
-          <Route path="/impostos" element={<Protected><Impostos /></Protected>} />
-          <Route path="/retiradas" element={<Protected><Retiradas /></Protected>} />
-          <Route path="/patrimonio" element={<Protected><Patrimonio /></Protected>} />
           <Route path="/" element={<Navigate to="/dashboard" />} />
         </Routes>
       </Router>

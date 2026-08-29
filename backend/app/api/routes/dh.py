@@ -56,13 +56,13 @@ def criar_dh(
 ):
     """Criar um novo DH"""
     # Gerar assunto automaticamente
-    # Formato: DH :: nome da empresa :: posição :: Retainer | Sucesso | Parcelamento
+    # Formato: DH :: nome da empresa :: posição :: Retainer | Sucesso | Parcela
     
     assunto = f"DH :: {dh.empresa} :: {dh.posicao} :: "
     nomes = {
         "retainer": "Retainer",
         "sucesso": "Sucesso",
-        "parcelamento": "Parcelamento",
+        "parcelamento": "Parcela",
     }
     tf = (dh.tipo_fechamento or "").strip().lower()
     assunto += nomes.get(tf, tf or "Retainer")
