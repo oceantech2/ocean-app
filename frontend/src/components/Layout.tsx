@@ -20,7 +20,6 @@ export default function Layout({ children }: LayoutProps) {
   const darkMode = useUIStore((s) => s.darkMode);
   const toggleDarkMode = useUIStore((s) => s.toggleDarkMode);
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
-  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
   const toggleSidebarCollapsed = useUIStore((s) => s.toggleSidebarCollapsed);
   const hydrateSidebarCollapsed = useUIStore((s) => s.hydrateSidebarCollapsed);
   const navigate = useNavigate();
@@ -113,10 +112,6 @@ export default function Layout({ children }: LayoutProps) {
   const totalAlertasVisiveis = alertas.reduce((s, a) => s + a.count, 0);
 
   const irParaAlerta = (ir: () => void) => { ir(); setAlertasAbertos(false); };
-
-  const handleMainClick = () => {
-    if (!sidebarCollapsed) setSidebarCollapsed(true, usuario);
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
@@ -303,7 +298,7 @@ export default function Layout({ children }: LayoutProps) {
                   </span>
                   {!sidebarCollapsed && (
                     <>
-                      <span className="flex-1 truncate text-left">{item.label}</span>
+                      <span className="flex-1 truncate text-left text-sm">{item.label}</span>
                       {count > 0 && (
                         <span className="ml-1 min-w-[18px] h-[18px] flex items-center justify-center text-xs font-bold bg-red-500 text-white rounded-full px-1 shrink-0">
                           {count}
@@ -340,7 +335,7 @@ export default function Layout({ children }: LayoutProps) {
         </aside>
 
         {/* Conteúdo */}
-        <main className="flex-1 p-6 min-w-0" onClick={handleMainClick}>
+        <main className="flex-1 p-6 min-w-0">
           {children}
         </main>
       </div>

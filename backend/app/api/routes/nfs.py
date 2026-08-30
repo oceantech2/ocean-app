@@ -15,8 +15,10 @@ from app.services.audit import registrar_auditoria
 from app.services import excel_io
 from app.services.maggo_stub import listar_contas_receber, MaggoStubError
 from app.services import nf_duplicidade as dup
-from app.services.caixas import codigo_padrao, exigir_conta_corrente, mapa_rotulos
+from app.services.caixas import codigo_padrao, codigo_slot1, exigir_conta_corrente, mapa_rotulos
+from app.services.nf_valores import calcular_imposto_liquido
 from app.services import anexo_nf
+from app.services.comissoes_sync import sincronizar
 
 router = APIRouter()
 
@@ -98,6 +100,25 @@ def _exigir_emissao_se_numero(numero, data_emissao) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=_MSG_NF_EXIGE_EMISSAO,
         )
+
+
+def _resolver_caixa(db: Session, caixa_pedido: str | None) -> str:
+    if caixa_pedido:
+        return exigir_conta_corrente(db, caixa_pedido)
+    return codigo_slot1(db)
+
+
+def _valores_fiscais_create(nf: NFCreate) -> tuple[float, float, float | None]:
+    return calcular_imposto_liquido(nf.valor_bruto, nf.aliquota_imposto)
+
+
+def _aplicar_recalculo_fiscal(db_nf: NF, aliquota: float | None | object = ...) -> None:
+    """Recalcula imposto/líquido a partir de bruto e alíquota do registro."""
+    aliq = db_nf.aliquota_imposto if aliquota is ... else aliquota
+    imposto, liquido, aliq_gravada = calcular_imposto_liquido(db_nf.valor_bruto, aliq)
+    db_nf.valor_imposto = imposto
+    db_nf.valor_liquido = liquido
+    db_nf.aliquota_imposto = aliq_gravada
 
 
 def _sync_maggo_stub(db: Session) -> Tuple[Set[str], List[str]]:
@@ -503,10 +524,9 @@ def criar_nf(
     tipo_enum = _parse_tipo_create(nf.tipo)
 
     data_pag = nf.data_pagamento
-    if data_pag is not None:
-        caixa = exigir_conta_corrente(db, nf.caixa) if nf.caixa else codigo_padrao(db)
-    else:
-        caixa = None
+    caixa = _resolver_caixa(db, nf.caixa)
+
+    valor_imposto, valor_liquido, aliquota_gravada = _valores_fiscais_create(nf)
 
     status_nf = _calcular_status_nf(nf.data_vencimento, data_pag)
 
@@ -517,8 +537,9 @@ def criar_nf(
         posicao=nf.posicao,
         candidato=nf.candidato,
         valor_bruto=nf.valor_bruto,
-        valor_imposto=nf.valor_imposto,
-        valor_liquido=nf.valor_liquido,
+        valor_imposto=valor_imposto,
+        aliquota_imposto=aliquota_gravada,
+        valor_liquido=valor_liquido,
         data_ent_pgto=nf.data_ent_pgto,
         data_emissao=nf.data_emissao,
         data_vencimento=nf.data_vencimento,
@@ -536,6 +557,7 @@ def criar_nf(
     try:
         db.add(db_nf)
         db.flush()
+        sincronizar(db, db_nf, nf.comissoes, current_user)
         registrar_auditoria(db, current_user, "criar", "NF", db_nf.id, f"NF {numero or '(sem número)'} criada (manual)")
         db.commit()
         db.refresh(db_nf)
@@ -555,6 +577,7 @@ def atualizar_nf(
 
     pagamento_antes = db_nf.data_pagamento
     dados_atualizacao = nf_update.model_dump(exclude_unset=True)
+    comissoes_payload = dados_atualizacao.pop("comissoes", None)
     caixa_pedido = dados_atualizacao.pop("caixa", None)
 
     if "numero" in dados_atualizacao:
@@ -566,10 +589,15 @@ def atualizar_nf(
         dados_atualizacao["tipo"] = _parse_tipo_create(dados_atualizacao["tipo"])
         dados_atualizacao["tipo_abertura_fechamento"] = None
 
+    recalcular_fiscal = "valor_bruto" in dados_atualizacao or "aliquota_imposto" in dados_atualizacao
+
     for campo, valor in dados_atualizacao.items():
         if campo in ("origem", "maggo_id"):
             continue
         setattr(db_nf, campo, valor)
+
+    if recalcular_fiscal:
+        _aplicar_recalculo_fiscal(db_nf)
 
     try:
         _exigir_emissao_se_numero(db_nf.numero, db_nf.data_emissao)
@@ -581,13 +609,19 @@ def atualizar_nf(
         db_nf.status = _calcular_status_nf(db_nf.data_vencimento, db_nf.data_pagamento)
 
     if pagamento_antes is None and db_nf.data_pagamento is not None:
-        db_nf.caixa = exigir_conta_corrente(db, caixa_pedido) if caixa_pedido else codigo_padrao(db)
+        db_nf.caixa = (
+            exigir_conta_corrente(db, caixa_pedido)
+            if caixa_pedido
+            else (db_nf.caixa or codigo_padrao(db))
+        )
     elif db_nf.data_pagamento is None:
-        db_nf.caixa = None
+        if caixa_pedido is not None:
+            db_nf.caixa = exigir_conta_corrente(db, caixa_pedido)
     elif caixa_pedido is not None:
         db_nf.caixa = exigir_conta_corrente(db, caixa_pedido)
 
     try:
+        sincronizar(db, db_nf, comissoes_payload, current_user)
         registrar_auditoria(db, current_user, "editar", "NF", db_nf.id, f"NF {db_nf.numero or '(sem número)'} — campos: {', '.join(dados_atualizacao.keys())}")
         db.commit()
         db.refresh(db_nf)

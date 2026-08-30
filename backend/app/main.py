@@ -335,8 +335,34 @@ def _migrar():
             ))
             conn.execute(text("ALTER TABLE nfs ALTER COLUMN caixa TYPE VARCHAR(64)"))
             conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS excluida_em TIMESTAMP NULL"))
+            conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS aliquota_imposto FLOAT NULL"))
+            conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS nf_id INTEGER REFERENCES nfs(id)"))
+            conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS atividades TEXT"))
+            conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS liberado BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS pago BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS data_liberacao DATE"))
+            conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS data_pagamento DATE"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bonus_nf_id ON bonus (nf_id)"))
+            conn.execute(text(
+                """
+                UPDATE bonus SET atividades = to_json(ARRAY[etapa])::text
+                WHERE atividades IS NULL AND etapa IS NOT NULL AND etapa <> ''
+                """
+            ))
             conn.execute(text("ALTER TABLE fluxo_movimentos ALTER COLUMN conta TYPE VARCHAR(64)"))
             conn.execute(text("ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS caixa VARCHAR(64)"))
+            conn.execute(text(
+                "ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS tipo_despesa VARCHAR(10) NOT NULL DEFAULT 'variavel'"
+            ))
+            conn.execute(text(
+                """
+                UPDATE contas_pagar SET caixa = COALESCE(
+                    (SELECT codigo FROM contas_correntes WHERE padrao IS TRUE AND ativo IS TRUE LIMIT 1),
+                    'corrente'
+                )
+                WHERE caixa IS NULL
+                """
+            ))
             conn.execute(text(
                 """
                 CREATE TABLE IF NOT EXISTS configuracao_app (

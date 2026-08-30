@@ -13,6 +13,7 @@ import {
 } from '../utils/fluxoCaixaMovimentos';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 import type { ContaCorrente, ContaPagar, FluxoConta, NF } from '../types';
 
 const LIMITE_PAGINA = 1000;
@@ -380,7 +381,10 @@ export default function FluxoCaixa() {
             className={SELECT}>
             {ANOS.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
-          <button
+          <ActionButton
+            variant="exportar-csv"
+            context="header"
+            label="Exportar CSV"
             onClick={() => exportarCSV(todosMovimentos.map((m) => ({
               Data: m.data,
               Tipo: m.tipo === 'entrada' ? 'Entrada' : 'Saída',
@@ -389,24 +393,17 @@ export default function FluxoCaixa() {
               Valor: m.valor,
             })).sort((a, b) => a.Data.localeCompare(b.Data)), `fluxo_caixa_${fluxoAtivo}_${ano}`)}
             disabled={todosMovimentos.length === 0}
-            className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            ↓ Exportar CSV
-          </button>
-          <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm">
-            Exportar PDF
-          </button>
+          />
+          <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
           {papel === 'admin' && (
-            <button onClick={abrirTransferencia} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-              Transferência
-            </button>
+            <ActionButton variant="criar" context="header" label="Transferência" onClick={abrirTransferencia} />
           )}
-          <button
+          <ActionButton
+            variant="auxiliar"
+            context="header"
+            label="Gerenciar contas"
             onClick={() => { setContaEditando(null); setContaForm({ ...FORM_CONTA_VAZIO }); setGerenciarAberto(true); }}
-            className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-          >
-            Gerenciar contas
-          </button>
+          />
         </div>
       </div>
 
@@ -540,20 +537,20 @@ export default function FluxoCaixa() {
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     {papel === 'admin' && mov.origem === 'transferencia' && mov.parId && (
-                      <button
+                      <ActionButton
+                        variant="excluir"
+                        context="row"
+                        label="Desfazer"
                         onClick={() => desfazerTransferencia(mov.parId as string, mov.desc)}
-                        className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200"
-                      >
-                        Desfazer
-                      </button>
+                      />
                     )}
                     {papel === 'admin' && mov.manual && mov.movId && (
-                      <button
+                      <ActionButton
+                        variant="excluir"
+                        context="row"
+                        label="Remover"
                         onClick={() => deletarMovimento({ id: mov.movId as number, descricao: mov.desc })}
-                        className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200"
-                      >
-                        Remover
-                      </button>
+                      />
                     )}
                   </td>
                 </tr>
@@ -670,11 +667,11 @@ export default function FluxoCaixa() {
                   </div>
                   {papel === 'admin' && (
                     <div className="flex gap-2 flex-wrap">
-                      <button onClick={() => abrirEditarConta(c)} className="text-xs px-2 py-1 border rounded-lg">Editar</button>
+                      <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditarConta(c)} />
                       {!c.padrao && (
-                        <button onClick={() => tornarPadrao(c)} className="text-xs px-2 py-1 border rounded-lg">Tornar padrão</button>
+                        <ActionButton variant="auxiliar" context="row" label="Tornar padrão" onClick={() => tornarPadrao(c)} />
                       )}
-                      <button onClick={() => desativarConta(c)} className="text-xs px-2 py-1 border border-red-200 text-red-700 rounded-lg">Desativar</button>
+                      <ActionButton variant="desativar" context="row" label="Desativar" onClick={() => desativarConta(c)} />
                     </div>
                   )}
                 </div>

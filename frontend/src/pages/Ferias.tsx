@@ -15,6 +15,7 @@ import Pagination from '../components/Pagination';
 import ImportCSV from '../components/ImportCSV';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 
 const ITENS_POR_PAGINA = 15;
 const FORM_INICIAL = {
@@ -195,9 +196,9 @@ export default function FeriasPage() {
   };
 
   const deletar = async (f: Ferias) => {
-    if (!confirm('Deletar este registro?')) return;
-    try { await feriasService.deletar(f.id); toast.success('Deletado'); carregarFerias(); triggerNotifRefresh(); }
-    catch { toast.error('Erro ao deletar'); }
+    if (!confirm('Excluir este registro?')) return;
+    try { await feriasService.deletar(f.id); toast.success('Excluído'); carregarFerias(); triggerNotifRefresh(); }
+    catch { toast.error('Erro ao excluir'); }
   };
 
   const exportar = () => exportarCSV(
@@ -236,36 +237,16 @@ export default function FeriasPage() {
             CLT: 30 dias por período aquisitivo (12 meses). Pode fracionar em até 3 partes — mín. 5 dias por parcela; uma deve ter ≥ 14 dias.
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap justify-end">
           {papel === 'admin' && (
-            <button
-              onClick={() => setImportAberto(true)}
-              className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-            >
-              ↑ Importar CSV
-            </button>
+            <ActionButton variant="importar" context="header" label="Importar CSV" onClick={() => setImportAberto(true)} />
           )}
           {ferias.length > 0 && (
-            <button
-              onClick={exportar}
-              className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-            >
-              ↓ Exportar CSV
-            </button>
+            <ActionButton variant="exportar-csv" context="header" label="Exportar CSV" onClick={exportar} />
           )}
-          <button
-            onClick={() => window.print()}
-            className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-          >
-            Exportar PDF
-          </button>
+          <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
           {papel === 'admin' && (
-            <button
-              onClick={abrirCriar}
-              className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition"
-            >
-              + Novo Período
-            </button>
+            <ActionButton variant="criar" context="header" label="Novo Período" onClick={abrirCriar} />
           )}
         </div>
       </div>
@@ -359,23 +340,15 @@ export default function FeriasPage() {
                     </td>
                     <td className="px-4 py-3">
                       {papel === 'admin' && (
-                        <div className="flex gap-1 justify-end">
+                        <div className="flex gap-1 justify-end flex-wrap">
                           {!f.aprovado && (
-                            <button onClick={() => aprovar(f)} className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 rounded hover:bg-green-200">
-                              Aprovar
-                            </button>
+                            <ActionButton variant="fluxo" context="row" label="Aprovar" onClick={() => aprovar(f)} />
                           )}
                           {f.aprovado && (
-                            <button onClick={() => rejeitar(f)} className="text-xs px-2 py-1 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400 rounded hover:bg-yellow-200">
-                              Rejeitar
-                            </button>
+                            <ActionButton variant="rejeitar" context="row" label="Rejeitar" onClick={() => rejeitar(f)} />
                           )}
-                          <button onClick={() => abrirEditar(f)} className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded hover:bg-blue-200">
-                            Editar
-                          </button>
-                          <button onClick={() => deletar(f)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200">
-                            Deletar
-                          </button>
+                          <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditar(f)} />
+                          <ActionButton variant="excluir" context="row" label="Excluir" onClick={() => deletar(f)} />
                         </div>
                       )}
                     </td>
@@ -520,7 +493,7 @@ export default function FeriasPage() {
               )}
             </div>
 
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
               <button
                 onClick={() => setModalAberto(false)}
                 className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"

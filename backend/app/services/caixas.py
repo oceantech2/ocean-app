@@ -14,6 +14,19 @@ def codigo_padrao(db: Session) -> str:
     return seed.codigo if seed else "corrente"
 
 
+def codigo_slot1(db: Session) -> str:
+    """Primeira conta corrente ativa (slot 1 — mesma ordem da API/Dashboard)."""
+    row = (
+        db.query(ContaCorrente)
+        .filter(ContaCorrente.ativo.is_(True))
+        .order_by(ContaCorrente.padrao.desc(), ContaCorrente.nome.asc())
+        .first()
+    )
+    if row:
+        return row.codigo
+    return codigo_padrao(db)
+
+
 def contas_ativas(db: Session) -> list[ContaCorrente]:
     return (
         db.query(ContaCorrente)

@@ -100,6 +100,7 @@ class NFBase(BaseModel):
     candidato: Optional[str] = None
     valor_bruto: float
     valor_imposto: Optional[float] = None
+    aliquota_imposto: Optional[float] = None
     valor_liquido: float
     data_ent_pgto: Optional[date] = None
     data_emissao: Optional[date] = None
@@ -122,6 +123,25 @@ class NFBase(BaseModel):
     def validar_tipo_base(cls, v):
         return _tipo_oficial(v)
 
+class ComissaoLinhaInput(BaseModel):
+    id: Optional[int] = None
+    colaborador_id: int
+    mes: int = Field(..., ge=1, le=12)
+    ano: int
+    atividades: List[str]
+    percentual: float = Field(..., gt=0)
+
+    @field_validator("atividades")
+    @classmethod
+    def validar_atividades(cls, v):
+        validas = {"lead", "venda", "conducao", "placement"}
+        if not v:
+            raise ValueError("Informe ao menos uma atividade")
+        for a in v:
+            if a not in validas:
+                raise ValueError(f"Atividade inválida: {a}")
+        return list(dict.fromkeys(v))
+
 class NFCreate(NFBase):
     status: Optional[str] = None
     data_pagamento: Optional[date] = None
@@ -129,6 +149,7 @@ class NFCreate(NFBase):
     colaborador_lead_id: Optional[int] = None
     colaborador_conducao_id: Optional[int] = None
     colaborador_placement_id: Optional[int] = None
+    comissoes: Optional[List[ComissaoLinhaInput]] = None
 
     @field_validator("data_pagamento", mode="before")
     @classmethod
@@ -156,6 +177,7 @@ class NFUpdate(BaseModel):
     candidato: Optional[str] = None
     valor_bruto: Optional[float] = None
     valor_imposto: Optional[float] = None
+    aliquota_imposto: Optional[float] = None
     valor_liquido: Optional[float] = None
     data_ent_pgto: Optional[date] = None
     data_emissao: Optional[date] = None
@@ -168,6 +190,7 @@ class NFUpdate(BaseModel):
     colaborador_placement_id: Optional[int] = None
     arquivada: Optional[bool] = None
     caixa: Optional[str] = None
+    comissoes: Optional[List[ComissaoLinhaInput]] = None
 
     @field_validator("numero", mode="before")
     @classmethod
@@ -232,10 +255,23 @@ class BonusUpdate(BaseModel):
 
 class BonusResponse(BonusBase):
     id: int
+    nf_id: Optional[int] = None
+    atividades: List[str] = []
+    liberado: bool = False
+    pago: bool = False
+    data_liberacao: Optional[date] = None
+    data_pagamento: Optional[date] = None
     criado_em: datetime
 
     class Config:
         from_attributes = True
+
+class BonusAcaoLoteRequest(BaseModel):
+    ids: List[int]
+
+class BonusAcaoLoteResponse(BaseModel):
+    processados: int
+    ignorados: int
 
 # ==================== FÉRIAS ====================
 class FeriasBase(BaseModel):
@@ -328,6 +364,14 @@ class ContaPagarCreate(ContaPagarBase):
     data_pagamento: Optional[date] = None
     fornecedor_id: Optional[int] = None
     caixa: Optional[str] = None
+    tipo_despesa: Literal["fixo", "variavel"] = "variavel"
+
+    @field_validator("tipo_despesa")
+    @classmethod
+    def validar_tipo_despesa_create(cls, v: str) -> str:
+        if v not in ("fixo", "variavel"):
+            raise ValueError("Tipo deve ser Fixo ou Variável")
+        return v
 
 class ContaPagarUpdate(BaseModel):
     descricao: Optional[str] = None
@@ -339,6 +383,14 @@ class ContaPagarUpdate(BaseModel):
     pago: Optional[bool] = None
     fornecedor_id: Optional[int] = None
     caixa: Optional[str] = None
+    tipo_despesa: Optional[Literal["fixo", "variavel"]] = None
+
+    @field_validator("tipo_despesa")
+    @classmethod
+    def validar_tipo_despesa_update(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("fixo", "variavel"):
+            raise ValueError("Tipo deve ser Fixo ou Variável")
+        return v
 
 class ContaPagarResponse(ContaPagarBase):
     id: int
@@ -346,6 +398,7 @@ class ContaPagarResponse(ContaPagarBase):
     pago: bool
     data_pagamento: Optional[date]
     caixa: Optional[str] = None
+    tipo_despesa: Literal["fixo", "variavel"] = "variavel"
     comprovante_nome: Optional[str] = None
     fornecedor_id: Optional[int] = None
     fornecedor_nome: Optional[str] = None

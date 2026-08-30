@@ -499,7 +499,13 @@ def preencher_template_contas(contas: list[dict], mes: int | None = None, ano: i
         mes_str = MESES_NOME.get(mes, str(mes))
         ws.cell(row=1, column=1, value=f"Fluxo de Caixa - Ocean - Conta de movimentação - {mes_str} {ano}")
 
-    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=6, value="Conta corrente")
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=2, value="Descrição")
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=8, value="Categoria")
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=9, value="Mês/Ano")
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=10, value="Fornecedor")
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=6, value="Conta")
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=7, value="Tipo")
+    ws.cell(row=CONTAS_DATA_START_ROW - 1, column=11, value="Status")
     row = CONTAS_DATA_START_ROW
     for conta in contas:
         data = conta.get("data_pagamento") or conta.get("data_vencimento")
@@ -508,6 +514,11 @@ def preencher_template_contas(contas: list[dict], mes: int | None = None, ano: i
         ws.cell(row=row, column=CONTAS_COLS["forma_pgto"], value="Pix" if conta.get("pago") else "")
         ws.cell(row=row, column=CONTAS_COLS["debito"],     value=conta.get("valor"))
         ws.cell(row=row, column=6, value=conta.get("caixa_rotulo") or "")
+        ws.cell(row=row, column=7, value=conta.get("tipo_rotulo") or "")
+        ws.cell(row=row, column=8, value=conta.get("categoria_rotulo") or "")
+        ws.cell(row=row, column=9, value=conta.get("mes_ano_rotulo") or "")
+        ws.cell(row=row, column=10, value=conta.get("fornecedor_nome") or "")
+        ws.cell(row=row, column=11, value=conta.get("status_rotulo") or "")
         row += 1
 
     buf = io.BytesIO()

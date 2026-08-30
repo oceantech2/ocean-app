@@ -1,14 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { nfsService, contasCorrentesService, impostosService } from '../services/api';
+import { useSearchParams } from 'react-router-dom';
+import { nfsService, contasCorrentesService, impostosService, bonusService, colaboradoresService } from '../services/api';
 import { mensagemErro, detalheObjeto } from '../utils/erros';
-import { ContaCorrente, NF } from '../types';
-import { caixaInicialForm, codigoPadrao, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
+import { ContaCorrente, NF, Bonus, ComissaoLinhaForm, Colaborador } from '../types';
+import { caixaInicialForm, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
+import { aplicarCalculoFiscal, calcularImpostoLiquido, codigoSlot1, validarAliquota } from '../utils/nfValores';
 import { anosCompetencia, mapaAliquotas, textoTooltipAliquota } from '../utils/aliquotaMes';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import Pagination from '../components/Pagination';
+import ComissoesLinhasForm from '../components/ComissoesLinhasForm';
 import { exportarCSV } from '../utils/export';
 import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const OPCOES_PAGINA = [15, 25, 50, 100];
@@ -56,60 +60,51 @@ function origemLabel(origem?: string | null) {
   return origem === 'manual' ? 'Manual' : 'Maggo';
 }
 
-function IconPagar({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function IconEditar({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
-}
-
-function IconArquivar({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
-      <path d="M10 12h4" />
-    </svg>
-  );
-}
-
-function IconExibir({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M3 12s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function IconExcluir({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M19 6l-1 14H6L5 6" />
-    </svg>
-  );
-}
-
-const BTN_ICON = 'inline-flex items-center justify-center w-7 h-7 rounded transition';
-
 const MSG_DATA_PAGAMENTO = 'Informe a data de pagamento para marcar como recebido.';
 const MSG_NF_EXIGE_EMISSAO = 'Informe a data de emissão junto com o número da NF.';
 
+function bonusToLinha(b: Bonus): ComissaoLinhaForm {
+  return {
+    id: b.id,
+    colaborador_id: b.colaborador_id,
+    mes: b.mes,
+    ano: b.ano,
+    atividades: b.atividades?.length ? b.atividades : (b.etapa ? [b.etapa] : []),
+    percentual: b.percentual,
+    liberado: b.liberado,
+    pago: b.pago,
+  };
+}
+
+function validarComissoes(linhas: ComissaoLinhaForm[]): string | null {
+  for (let i = 0; i < linhas.length; i++) {
+    const l = linhas[i];
+    const vazio = !l.colaborador_id && !l.atividades.length && !l.percentual;
+    if (vazio) continue;
+    if (!l.colaborador_id || !l.atividades.length || !l.percentual) {
+      return `Comissão linha ${i + 1}: preencha fornecedor, atividade e percentual`;
+    }
+    if (l.percentual <= 0) return `Comissão linha ${i + 1}: percentual deve ser maior que zero`;
+  }
+  return null;
+}
+
+function comissoesPayload(linhas: ComissaoLinhaForm[]) {
+  return linhas
+    .filter((l) => l.colaborador_id && l.atividades.length && l.percentual > 0)
+    .map((l) => ({
+      id: l.id,
+      colaborador_id: l.colaborador_id,
+      mes: l.mes,
+      ano: l.ano,
+      atividades: l.atividades,
+      percentual: l.percentual,
+    }));
+}
+
 const FORM_INICIAL = {
   numero: '', razao_social: '', posicao: '', candidato: '',
-  valor_bruto: '', valor_imposto: '', valor_liquido: '',
+  valor_bruto: '', aliquota_imposto: '', valor_imposto: '', valor_liquido: '',
   data_ent_pgto: '', data_emissao: '', data_vencimento: '',
   data_pagamento: '',
   pagamento_estado: 'pendente' as 'pendente' | 'recebido',
@@ -142,6 +137,8 @@ const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1156px]
 
 export default function NFs() {
   const papel = useAuthStore((s) => s.papel);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkHandled = useRef(false);
   const { nfsMes, nfsAno, nfsStatus, nfsSemNumero, setNfsFilters } = usePageFilters();
   const triggerNotifRefresh = useNotifStore((s) => s.triggerNotifRefresh);
   const triggerCalendarioRefresh = useNotifStore((s) => s.triggerCalendarioRefresh);
@@ -168,6 +165,8 @@ export default function NFs() {
   const anexoInputRef = useRef<HTMLInputElement>(null);
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
+  const [comissoesLinhas, setComissoesLinhas] = useState<ComissaoLinhaForm[]>([]);
+  const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
   const [dataPagamentoForm, setDataPagamentoForm] = useState('');
   const [caixaReceberForm, setCaixaReceberForm] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
@@ -177,7 +176,18 @@ export default function NFs() {
 
   useEffect(() => {
     contasCorrentesService.listar(true).then((res) => setContasCorrentes(res.data || [])).catch(() => setContasCorrentes([]));
+    colaboradoresService.listar(0, 500, true).then((res) => setFornecedores(res.data || [])).catch(() => setFornecedores([]));
   }, []);
+
+  useEffect(() => {
+    if (deepLinkHandled.current || papel !== 'admin') return;
+    const editId = searchParams.get('edit');
+    if (!editId) return;
+    deepLinkHandled.current = true;
+    const id = parseInt(editId, 10);
+    if (isNaN(id)) return;
+    nfsService.obter(id).then((res) => abrirEditar(res.data)).catch(() => toast.error('Conta a receber não encontrada'));
+  }, [papel, searchParams]);
 
   useEffect(() => { carregarNFs(); setPagina(0); }, [nfsMes, nfsAno, nfsStatus, nfsSemNumero, mostrarArquivadas]);
 
@@ -274,24 +284,52 @@ export default function NFs() {
     }
   };
 
+  const fecharModal = () => {
+    setModalAberto(false);
+    setCriando(false);
+    setConflitoNfId(null);
+    setArquivoNfForm(null);
+    setComissoesLinhas([]);
+    if (searchParams.has('edit')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('edit');
+      setSearchParams(next, { replace: true });
+    }
+  };
+
+  const carregarComissoesNf = async (nfId: number) => {
+    try {
+      const res = await bonusService.listar(0, 100, undefined, undefined, undefined, nfId);
+      setComissoesLinhas((res.data as Bonus[]).map(bonusToLinha));
+    } catch {
+      setComissoesLinhas([]);
+    }
+  };
+
   const abrirEditar = (nf: NF) => {
     setCriando(false);
     setConflitoNfId(null);
     setEditando(nf);
+    setComissoesLinhas([]);
+    const caixaForm = nf.caixa && nf.caixa !== 'investimento' && contasCorrentes.some((c) => c.ativo && c.codigo === nf.caixa)
+      ? nf.caixa
+      : codigoSlot1(contasCorrentes);
     setForm({
       numero: nf.numero || '', razao_social: nf.razao_social, posicao: nf.posicao || '',
       candidato: nf.candidato || '', valor_bruto: String(nf.valor_bruto),
+      aliquota_imposto: nf.aliquota_imposto == null ? '' : String(nf.aliquota_imposto),
       valor_imposto: nf.valor_imposto == null ? '' : String(nf.valor_imposto),
       valor_liquido: String(nf.valor_liquido),
       data_ent_pgto: nf.data_ent_pgto || '',
       data_emissao: nf.data_emissao || '',
       data_vencimento: nf.data_vencimento || '', data_pagamento: nf.data_pagamento || '',
       pagamento_estado: nf.data_pagamento ? 'recebido' : 'pendente',
-      caixa: caixaInicialForm(nf.caixa, contasCorrentes),
+      caixa: caixaForm,
       tipo: (nf.tipo === 'sucesso' || nf.tipo === 'parcelamento' ? nf.tipo : 'retainer'),
     });
     setModalAberto(true);
     setArquivoNfForm(null);
+    carregarComissoesNf(nf.id);
   };
 
   const abrirCriar = () => {
@@ -299,7 +337,8 @@ export default function NFs() {
     setEditando(null);
     setConflitoNfId(null);
     setArquivoNfForm(null);
-    setForm({ ...FORM_INICIAL, caixa: codigoPadrao(contasCorrentes) });
+    setComissoesLinhas([]);
+    setForm({ ...FORM_INICIAL, caixa: codigoSlot1(contasCorrentes) });
     setModalAberto(true);
   };
 
@@ -330,9 +369,20 @@ export default function NFs() {
       toast.error(MSG_NF_EXIGE_EMISSAO);
       return;
     }
+    const erroComissao = validarComissoes(comissoesLinhas);
+    if (erroComissao) {
+      toast.error(erroComissao);
+      return;
+    }
+    const erroAliquota = validarAliquota(form.aliquota_imposto);
+    if (erroAliquota) {
+      toast.error(erroAliquota);
+      return;
+    }
+    const comissoes = comissoesPayload(comissoesLinhas);
     if (criando) {
-      if (!form.razao_social.trim() || !form.valor_bruto || !form.valor_liquido) {
-        toast.error('Preencha empresa, método de pagamento, valor bruto e valor líquido');
+      if (!form.razao_social.trim() || !form.valor_bruto) {
+        toast.error('Preencha empresa, método de pagamento e valor bruto');
         return;
       }
       const recebido = form.pagamento_estado === 'recebido';
@@ -340,6 +390,9 @@ export default function NFs() {
         toast.error(MSG_DATA_PAGAMENTO);
         return;
       }
+      const aliquotaPayload = form.aliquota_imposto.trim() === '' ? null : parseFloat(form.aliquota_imposto);
+      const brutoNum = parseFloat(form.valor_bruto);
+      const { imposto, liquido } = calcularImpostoLiquido(brutoNum, aliquotaPayload);
       try {
         setSalvando(true);
         setConflitoNfId(null);
@@ -347,15 +400,17 @@ export default function NFs() {
           numero: numeroTrim || null,
           razao_social: form.razao_social.trim(),
           posicao: form.posicao.trim() || null,
-          valor_bruto: parseFloat(form.valor_bruto),
-          valor_imposto: form.valor_imposto === '' ? null : parseFloat(form.valor_imposto),
-          valor_liquido: parseFloat(form.valor_liquido),
+          valor_bruto: brutoNum,
+          valor_imposto: imposto,
+          valor_liquido: liquido,
+          aliquota_imposto: aliquotaPayload,
           data_ent_pgto: form.data_ent_pgto || null,
           data_emissao: form.data_emissao || null,
           data_vencimento: form.data_vencimento || null,
           tipo: form.tipo,
           data_pagamento: recebido ? form.data_pagamento : null,
-          caixa: recebido ? (form.caixa || codigoPadrao(contasCorrentes)) : null,
+          caixa: form.caixa || codigoSlot1(contasCorrentes),
+          comissoes,
         });
         const novaId = res.data?.id;
         if (arquivoNfForm && novaId) {
@@ -370,15 +425,14 @@ export default function NFs() {
               setModalAberto(false);
               setCriando(false);
               setArquivoNfForm(null);
+              setComissoesLinhas([]);
               carregarNFs();
               return;
             }
           }
         }
         toast.success('Conta a receber criada!');
-        setModalAberto(false);
-        setCriando(false);
-        setArquivoNfForm(null);
+        fecharModal();
         carregarNFs();
         triggerNotifRefresh();
         triggerCalendarioRefresh();
@@ -392,6 +446,7 @@ export default function NFs() {
     const isManual = editando.origem === 'manual';
     const recebido = form.pagamento_estado === 'recebido';
     const dataPagamento = recebido ? (form.data_pagamento || null) : null;
+    const aliquotaPayload = form.aliquota_imposto.trim() === '' ? null : parseFloat(form.aliquota_imposto);
     try {
       setSalvando(true);
       setConflitoNfId(null);
@@ -400,13 +455,12 @@ export default function NFs() {
         data_emissao: form.data_emissao || null,
         data_vencimento: form.data_vencimento || null,
         data_pagamento: dataPagamento,
+        caixa: form.caixa || codigoSlot1(contasCorrentes),
+        aliquota_imposto: aliquotaPayload,
       };
-      if (recebido && form.caixa) {
-        dados.caixa = form.caixa;
-      }
       if (isManual) {
-        if (!form.razao_social.trim() || !form.valor_bruto || !form.valor_liquido) {
-          toast.error('Preencha empresa, método de pagamento, valor bruto e valor líquido');
+        if (!form.razao_social.trim() || !form.valor_bruto) {
+          toast.error('Preencha empresa, método de pagamento e valor bruto');
           setSalvando(false);
           return;
         }
@@ -415,12 +469,11 @@ export default function NFs() {
           posicao: form.posicao || null,
           candidato: form.candidato || null,
           valor_bruto: parseFloat(form.valor_bruto),
-          valor_imposto: form.valor_imposto === '' ? null : parseFloat(form.valor_imposto),
-          valor_liquido: parseFloat(form.valor_liquido),
           data_ent_pgto: form.data_ent_pgto || null,
           tipo: form.tipo,
         });
       }
+      dados.comissoes = comissoes;
       await nfsService.atualizar(editando.id, dados);
       if (arquivoNfForm) {
         const motivo = motivoArquivoNf(arquivoNfForm);
@@ -433,14 +486,14 @@ export default function NFs() {
             toast.error(mensagemErro(err, 'Conta atualizada, mas a nota fiscal não foi anexada'));
             setModalAberto(false);
             setArquivoNfForm(null);
+            setComissoesLinhas([]);
             carregarNFs();
             return;
           }
         }
       }
       toast.success('Conta a receber atualizada!');
-      setModalAberto(false);
-      setArquivoNfForm(null);
+      fecharModal();
       carregarNFs();
       triggerNotifRefresh();
       triggerCalendarioRefresh();
@@ -586,23 +639,15 @@ export default function NFs() {
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">
           Contas a Receber — <span className="text-lg font-normal text-gray-500 dark:text-gray-400">{nfs.length} registro(s)</span>
         </h1>
-        <div className="flex gap-2 flex-wrap">
-          {papel === 'admin' && (
-            <button onClick={abrirCriar} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm transition">
-              + Nova conta a receber
-            </button>
-          )}
+        <div className="flex gap-2 flex-wrap justify-end">
           {nfs.length > 0 && (
-            <button onClick={exportar} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-              ↓ Exportar CSV
-            </button>
+            <ActionButton variant="exportar-csv" context="header" label="Exportar CSV" onClick={exportar} />
           )}
-          <button onClick={exportarXlsx} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-            ↓ Exportar Excel (.xlsx)
-          </button>
-          <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-            Exportar PDF
-          </button>
+          <ActionButton variant="exportar-xlsx" context="header" label="Exportar Excel (.xlsx)" onClick={exportarXlsx} />
+          <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
+          {papel === 'admin' && (
+            <ActionButton variant="criar" context="header" label="Nova conta a receber" onClick={abrirCriar} />
+          )}
         </div>
       </div>
 
@@ -674,13 +719,13 @@ export default function NFs() {
             <p className="text-xl font-bold text-blue-700 dark:text-blue-300 mt-1">{fmt(resumo.total_liquido_pago)}</p>
           </div>
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-            <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">Pendente</p>
-            <p className="text-xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{fmt(resumo.total_bruto_pendente)}</p>
+            <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">Líquido Pendente</p>
+            <p className="text-xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{fmt(resumo.total_liquido_pendente)}</p>
             <p className="text-xs text-yellow-500">{resumo.qtd_pendentes} registro(s)</p>
           </div>
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <p className="text-xs text-red-600 dark:text-red-400 font-medium">Vencido</p>
-            <p className="text-xl font-bold text-red-700 dark:text-red-300 mt-1">{fmt(resumo.total_bruto_vencido)}</p>
+            <p className="text-xs text-red-600 dark:text-red-400 font-medium">Líquido Vencido</p>
+            <p className="text-xl font-bold text-red-700 dark:text-red-300 mt-1">{fmt(resumo.total_liquido_vencido)}</p>
             <p className="text-xs text-red-500">{resumo.qtd_vencidas} registro(s)</p>
           </div>
         </div>
@@ -812,53 +857,33 @@ export default function NFs() {
                     </td>
                     <td className={`px-2 py-2.5 sticky right-0 z-[1] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)] ${stickyBg(nf.status)}`}>
                       {papel === 'admin' && (
-                        <div className="flex gap-0.5 justify-end">
-                          <button
-                            type="button"
+                        <div className="flex gap-1 justify-end flex-wrap">
+                          <ActionButton
+                            variant="fluxo"
+                            context="row"
+                            label="Recebido"
                             onClick={() => abrirPagar(nf)}
                             disabled={nf.status === 'paga' || nf.status === 'cancelada' || !!nf.arquivada}
-                            className={`${BTN_ICON} ${
-                              nf.status === 'paga' || nf.status === 'cancelada' || nf.arquivada
-                                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                                : 'text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40'
-                            }`}
-                            title="Recebido"
-                            aria-label="Recebido"
-                          >
-                            <IconPagar />
-                          </button>
-                          <button
-                            type="button"
+                          />
+                          <ActionButton
+                            variant="editar"
+                            context="row"
+                            label="Editar"
                             onClick={() => abrirEditar(nf)}
                             disabled={!!nf.arquivada}
-                            className={`${BTN_ICON} ${
-                              nf.arquivada
-                                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                                : 'text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40'
-                            }`}
-                            title="Editar"
-                            aria-label="Editar"
-                          >
-                            <IconEditar />
-                          </button>
-                          <button
-                            type="button"
+                          />
+                          <ActionButton
+                            variant={nf.arquivada ? 'exibir' : 'arquivar'}
+                            context="row"
+                            label={nf.arquivada ? 'Exibir' : 'Arquivar'}
                             onClick={() => arquivarNF(nf)}
-                            className={`${BTN_ICON} text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600`}
-                            title={nf.arquivada ? 'Desarquivar / Exibir' : 'Arquivar'}
-                            aria-label={nf.arquivada ? 'Exibir' : 'Arquivar'}
-                          >
-                            {nf.arquivada ? <IconExibir /> : <IconArquivar />}
-                          </button>
-                          <button
-                            type="button"
+                          />
+                          <ActionButton
+                            variant="excluir"
+                            context="row"
+                            label="Excluir"
                             onClick={() => excluirNF(nf)}
-                            className={`${BTN_ICON} text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40`}
-                            title="Excluir"
-                            aria-label="Excluir"
-                          >
-                            <IconExcluir />
-                          </button>
+                          />
                         </div>
                       )}
                     </td>
@@ -957,7 +982,29 @@ export default function NFs() {
                   value={form.valor_bruto}
                   readOnly={!maggoEditavel}
                   disabled={!maggoEditavel}
-                  onChange={(e) => setForm({ ...form, valor_bruto: e.target.value })}
+                  onChange={(e) => {
+                    const valor_bruto = e.target.value;
+                    const calc = aplicarCalculoFiscal(valor_bruto, form.aliquota_imposto);
+                    setForm({ ...form, valor_bruto, ...calc });
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Alíquota (imposto) %</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  value={form.aliquota_imposto}
+                  readOnly={!maggoEditavel}
+                  disabled={!maggoEditavel}
+                  onChange={(e) => {
+                    const aliquota_imposto = e.target.value;
+                    const calc = aplicarCalculoFiscal(form.valor_bruto, aliquota_imposto);
+                    setForm({ ...form, aliquota_imposto, ...calc });
+                  }}
                 />
               </div>
               <div>
@@ -965,23 +1012,21 @@ export default function NFs() {
                 <input
                   type="number"
                   step="0.01"
-                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  className={INPUT_RO}
                   value={form.valor_imposto}
-                  readOnly={!maggoEditavel}
-                  disabled={!maggoEditavel}
-                  onChange={(e) => setForm({ ...form, valor_imposto: e.target.value })}
+                  readOnly
+                  disabled
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor líquido *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor líquido</label>
                 <input
                   type="number"
                   step="0.01"
-                  className={maggoEditavel ? INPUT : INPUT_RO}
+                  className={INPUT_RO}
                   value={form.valor_liquido}
-                  readOnly={!maggoEditavel}
-                  disabled={!maggoEditavel}
-                  onChange={(e) => setForm({ ...form, valor_liquido: e.target.value })}
+                  readOnly
+                  disabled
                 />
               </div>
               <div>
@@ -1080,7 +1125,7 @@ export default function NFs() {
                       ...form,
                     pagamento_estado: v,
                     data_pagamento: v === 'pendente' ? '' : (form.data_pagamento || new Date().toISOString().split('T')[0]),
-                    caixa: v === 'recebido' ? (form.caixa || codigoPadrao(contasCorrentes)) : form.caixa,
+                    caixa: form.caixa || codigoSlot1(contasCorrentes),
                     });
                   }}
                 >
@@ -1100,22 +1145,27 @@ export default function NFs() {
                   <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
                 </div>
               )}
-              {form.pagamento_estado === 'recebido' && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
-                  <select
-                    className={INPUT}
-                    value={form.caixa || codigoPadrao(contasCorrentes)}
-                    onChange={(e) => setForm({ ...form, caixa: e.target.value })}
-                    disabled={papel !== 'admin'}
-                  >
-                    {contasCorrentes.filter((c) => c.ativo).map((c) => (
-                      <option key={c.codigo} value={c.codigo}>{c.nome}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
+                <select
+                  className={INPUT}
+                  value={form.caixa || codigoSlot1(contasCorrentes)}
+                  onChange={(e) => setForm({ ...form, caixa: e.target.value })}
+                  disabled={papel !== 'admin'}
+                >
+                  {contasCorrentes.filter((c) => c.ativo).map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
+                </select>
               </div>
+              </div>
+              <ComissoesLinhasForm
+                valorLiquido={parseFloat(form.valor_liquido) || 0}
+                linhas={comissoesLinhas}
+                onChange={setComissoesLinhas}
+                fornecedores={fornecedores}
+                readOnly={papel !== 'admin'}
+              />
               {conflitoNfId && (
                 <div className="mt-4">
                   <button
@@ -1128,8 +1178,8 @@ export default function NFs() {
                 </div>
               )}
             </div>
-            <div className="shrink-0 px-6 py-4 border-t dark:border-gray-700 flex justify-end gap-3 bg-white dark:bg-gray-800">
-              <button onClick={() => { setModalAberto(false); setCriando(false); setConflitoNfId(null); setArquivoNfForm(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+            <div className="shrink-0 px-6 py-4 border-t dark:border-gray-700 flex justify-end gap-3 bg-white dark:bg-gray-800 text-sm">
+              <button onClick={fecharModal} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>
@@ -1169,7 +1219,7 @@ export default function NFs() {
                 </select>
               </div>
             </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
               <button onClick={() => setPagarModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={confirmarPagamento} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
                 Confirmar recebimento

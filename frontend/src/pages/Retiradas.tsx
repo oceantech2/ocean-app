@@ -5,6 +5,7 @@ import { exportarCSV } from '../utils/export';
 import ImportCSV from '../components/ImportCSV';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 
 const ANO_ATUAL = new Date().getFullYear();
 const ANOS = Array.from({ length: 27 }, (_, i) => ANO_ATUAL - 2 + i);
@@ -67,18 +68,12 @@ export default function Retiradas() {
             {ANOS.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
           {papel === 'admin' && (
-            <button onClick={() => setImportAberto(true)} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm">
-              ↑ Importar CSV
-            </button>
+            <ActionButton variant="importar" context="header" label="Importar CSV" onClick={() => setImportAberto(true)} />
           )}
           {retiradas.length > 0 && (
-            <button onClick={exportar} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm">
-              ↓ Exportar CSV
-            </button>
+            <ActionButton variant="exportar-csv" context="header" label="Exportar CSV" onClick={exportar} />
           )}
-          <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm">
-            Exportar PDF
-          </button>
+          <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
         </div>
       </div>
 

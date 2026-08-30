@@ -85,6 +85,7 @@ class NF(Base):
     candidato = Column(String(255))
     valor_bruto = Column(Float, nullable=False)
     valor_imposto = Column(Float, nullable=True)
+    aliquota_imposto = Column(Float, nullable=True)
     valor_liquido = Column(Float, nullable=False)
     data_ent_pgto = Column(Date, nullable=True)
     data_emissao = Column(Date, nullable=True, index=True)
@@ -111,6 +112,7 @@ class NF(Base):
     colaborador_lead = relationship("Colaborador", foreign_keys=[colaborador_lead_id], back_populates="nfs_como_lead")
     colaborador_conducao = relationship("Colaborador", foreign_keys=[colaborador_conducao_id], back_populates="nfs_como_conducao")
     colaborador_placement = relationship("Colaborador", foreign_keys=[colaborador_placement_id], back_populates="nfs_como_placement")
+    comissoes = relationship("Bonus", back_populates="nf")
 
 # ==================== BÔNUS ====================
 class Bonus(Base):
@@ -118,17 +120,24 @@ class Bonus(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     colaborador_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=False)
+    nf_id = Column(Integer, ForeignKey("nfs.id"), nullable=True, index=True)
     mes = Column(Integer, nullable=False)  # 1-12
     ano = Column(Integer, nullable=False)
-    etapa = Column(String(50), nullable=False)  # "lead", "conducao", "placement"
+    etapa = Column(String(50), nullable=False)  # legado; espelha 1ª atividade
+    atividades = Column(Text, nullable=True)  # JSON array: lead, venda, conducao, placement
     percentual = Column(Float, nullable=False)
     valor_bonus = Column(Float, nullable=False)
+    liberado = Column(Boolean, default=False, nullable=False)
+    pago = Column(Boolean, default=False, nullable=False)
+    data_liberacao = Column(Date, nullable=True)
+    data_pagamento = Column(Date, nullable=True)
     cliente = Column(String(255), nullable=True)
     posicao = Column(String(100), nullable=True)
     numero_nf = Column(String(50), nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
 
     colaborador = relationship("Colaborador", back_populates="bonus")
+    nf = relationship("NF", back_populates="comissoes")
 
 # ==================== FÉRIAS ====================
 class Ferias(Base):
@@ -160,6 +169,7 @@ class ContaPagar(Base):
     data_pagamento = Column(Date, nullable=True)
     pago = Column(Boolean, default=False, index=True)
     caixa = Column(String(64), nullable=True)  # codigo conta corrente | null
+    tipo_despesa = Column(String(10), nullable=False, default="variavel")
     comprovante_path = Column(Text, nullable=True)
     comprovante_nome = Column(String(255), nullable=True)
     fornecedor_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=True, index=True)

@@ -8,6 +8,7 @@ import ImportCSV from '../components/ImportCSV';
 import DocumentosModal from '../components/DocumentosModal';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 
 const ITENS_POR_PAGINA = 15;
 
@@ -309,16 +310,12 @@ export default function Fornecedores() {
             </div>
             <p className="text-gray-500 dark:text-gray-400 mt-1">{filtrados.length} encontrado(s)</p>
           </div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap justify-end">
             {papel === 'admin' && (
-              <button onClick={() => setImportAberto(true)} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-                ↑ Importar CSV
-              </button>
+              <ActionButton variant="importar" context="header" label="Importar CSV" onClick={() => setImportAberto(true)} />
             )}
             {filtrados.length > 0 && (
-              <button onClick={exportar} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-                ↓ Exportar CSV
-              </button>
+              <ActionButton variant="exportar-csv" context="header" label="Exportar CSV" onClick={exportar} />
             )}
             {papel === 'admin' && (
               <>
@@ -329,25 +326,19 @@ export default function Fornecedores() {
                   className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) importarXlsx(f); e.target.value = ''; }}
                 />
-                <button
+                <ActionButton
+                  variant="importar"
+                  context="header"
+                  label={importandoXlsx ? 'Importando...' : 'Importar Excel (.xlsx)'}
                   onClick={() => xlsxInputRef.current?.click()}
                   disabled={importandoXlsx}
-                  className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition disabled:opacity-50"
-                >
-                  {importandoXlsx ? 'Importando...' : '↑ Importar Excel (.xlsx)'}
-                </button>
+                />
               </>
             )}
-            <button onClick={exportarXlsx} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-              ↓ Exportar Excel (.xlsx)
-            </button>
-            <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-              Exportar PDF
-            </button>
+            <ActionButton variant="exportar-xlsx" context="header" label="Exportar Excel (.xlsx)" onClick={exportarXlsx} />
+            <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
             {papel === 'admin' && (
-              <button onClick={abrirCriar} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-                + Novo Fornecedor
-              </button>
+              <ActionButton variant="criar" context="header" label="Novo Fornecedor" onClick={abrirCriar} />
             )}
           </div>
         </div>
@@ -438,22 +429,28 @@ export default function Fornecedores() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-1 justify-end">
+                      <div className="flex gap-1 justify-end flex-wrap">
                         {col.elegivel_equipe && (
                           <>
-                            <button onClick={() => setDocsColaborador(col)} className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200">Docs</button>
-                            <button onClick={() => abrirHistorico(col)} className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400 rounded hover:bg-purple-200">Histórico</button>
+                            <ActionButton variant="docs" context="row" label="Docs" onClick={() => setDocsColaborador(col)} />
+                            <ActionButton variant="historico" context="row" label="Histórico" onClick={() => abrirHistorico(col)} />
                           </>
                         )}
                         {papel === 'admin' && (
                           <>
-                            <button onClick={() => abrirEditar(col)} className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded hover:bg-blue-200">Editar</button>
+                            <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditar(col)} />
                             {col.ativo ? (
-                              <button onClick={() => desligar(col)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200">Desativar</button>
+                              <ActionButton variant="desativar" context="row" label="Desativar" onClick={() => desligar(col)} />
                             ) : (
-                              <button onClick={() => reativar(col)} className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 rounded hover:bg-green-200">Reativar</button>
+                              <ActionButton variant="reativar" context="row" label="Reativar" onClick={() => reativar(col)} />
                             )}
-                            <button onClick={() => excluirPermanente(col)} className="text-xs px-2 py-1 bg-red-700 text-white rounded hover:bg-red-800" title="Excluir permanentemente do banco de dados">Excluir</button>
+                            <ActionButton
+                              variant="excluir"
+                              context="row"
+                              label="Excluir"
+                              onClick={() => excluirPermanente(col)}
+                              title="Excluir permanentemente do banco de dados"
+                            />
                           </>
                         )}
                       </div>
@@ -588,7 +585,7 @@ export default function Fornecedores() {
                 <textarea rows={3} className={INPUT + ' resize-none'} value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} placeholder="Anotações internas..." />
               </div>
             </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
               <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}

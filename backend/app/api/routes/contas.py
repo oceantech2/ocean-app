@@ -20,10 +20,31 @@ from app.api.routes.auth import get_current_user, require_admin
 from app.services.audit import registrar_auditoria
 from app.services import excel_io
 from app.services import categorias_contas as cat_svc
-from app.services.caixas import exigir_conta_corrente, mapa_rotulos
+from app.services.caixas import exigir_conta_corrente, mapa_rotulos, codigo_padrao
 from app.services import anexo_nf
 
 router = APIRouter()
+
+TIPOS_DESPESA = frozenset({"fixo", "variavel"})
+
+
+def _rotulo_tipo_despesa(tipo: str | None) -> str:
+    return "Fixo" if tipo == "fixo" else "Variável"
+
+
+def _validar_tipo_despesa(tipo: str | None) -> str:
+    t = (tipo or "variavel").strip().lower()
+    if t not in TIPOS_DESPESA:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tipo deve ser Fixo ou Variável",
+        )
+    return t
+
+
+def _resolver_caixa_conta(db: Session, caixa_in: str | None) -> str:
+    codigo = caixa_in or codigo_padrao(db)
+    return exigir_conta_corrente(db, codigo)
 
 
 def _validar_fornecedor_id(db: Session, fornecedor_id: int | None, atual: ContaPagar | None = None):
@@ -70,6 +91,7 @@ def importar_contas_xlsx(
             cat, sub = cat_svc.validar_classificacao(
                 resolvida, r.get("subcategoria"), db=db
             )
+            padrao = codigo_padrao(db)
             nova = ContaPagar(
                 descricao=r["descricao"],
                 categoria=cat,
@@ -79,6 +101,8 @@ def importar_contas_xlsx(
                 data_vencimento=r["data_vencimento"],
                 data_pagamento=r.get("data_pagamento"),
                 pago=r.get("pago", False),
+                caixa=exigir_conta_corrente(db, padrao),
+                tipo_despesa="variavel",
             )
             db.add(nova)
             db.flush()
@@ -135,15 +159,58 @@ def criar_categoria_cadastrada(
         )
 
 
+def _rotulo_mes_ano_coluna(data_vencimento) -> str:
+    if not data_vencimento:
+        return "—"
+    meses = (
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+    )
+    try:
+        return f"{meses[data_vencimento.month - 1]}/{data_vencimento.year}"
+    except (AttributeError, IndexError):
+        return "—"
+
+
+def _rotulo_status_conta(conta: ContaPagar) -> str:
+    if conta.pago:
+        return "Pago"
+    if conta.data_vencimento and not conta.pago:
+        from datetime import date
+        hoje = date.today()
+        if conta.data_vencimento < hoje:
+            return "Vencida"
+    return "Pendente"
+
+
 @router.get("/exportar-xlsx")
 def exportar_contas_xlsx(
     mes: int = Query(None, ge=1, le=12),
     ano: int = Query(None),
+    categoria: Optional[str] = Query(None),
+    subcategoria: Optional[str] = Query(None),
+    pago: bool = Query(None),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
     """Exporta Contas a Pagar no formato do modelo xlsx."""
-    query = db.query(ContaPagar).order_by(ContaPagar.data_vencimento)
+    query = db.query(ContaPagar).options(joinedload(ContaPagar.fornecedor)).order_by(ContaPagar.data_vencimento)
+
+    if categoria:
+        cat = cat_svc.normalizar_codigo(categoria)
+        query = query.filter(
+            ContaPagar.categoria == cat,
+            ContaPagar.categoria_pendente == False,  # noqa: E712
+        )
+        if subcategoria:
+            if cat != cat_svc.CATEGORIA_RH:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="subcategoria só se aplica a Recursos Humanos",
+                )
+            query = query.filter(ContaPagar.subcategoria == cat_svc.normalizar_codigo(subcategoria))
+    if pago is not None:
+        query = query.filter(ContaPagar.pago == pago)
     if mes and ano:
         query = query.filter(
             extract("month", ContaPagar.data_vencimento) == mes,
@@ -157,11 +224,21 @@ def exportar_contas_xlsx(
     dados = [
         {
             "descricao": c.descricao,
+            "categoria_rotulo": cat_svc.label_categoria(
+                c.categoria,
+                pendente=c.categoria_pendente,
+                subcategoria=c.subcategoria,
+                db=db,
+            ),
+            "mes_ano_rotulo": _rotulo_mes_ano_coluna(c.data_vencimento),
+            "fornecedor_nome": c.fornecedor.nome if c.fornecedor else "",
             "valor": c.valor,
             "pago": c.pago,
             "data_vencimento": c.data_vencimento,
             "data_pagamento": c.data_pagamento,
             "caixa_rotulo": rotulos.get(c.caixa) if c.caixa else "",
+            "tipo_rotulo": _rotulo_tipo_despesa(getattr(c, "tipo_despesa", None)),
+            "status_rotulo": _rotulo_status_conta(c),
         }
         for c in contas
     ]
@@ -242,15 +319,15 @@ def criar_conta(
     dados["categoria"] = cat
     dados["subcategoria"] = sub
     dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"))
+    dados["tipo_despesa"] = _validar_tipo_despesa(dados.get("tipo_despesa"))
     caixa_in = dados.pop("caixa", None)
+    dados["caixa"] = _resolver_caixa_conta(db, caixa_in)
     data_pag = dados.get("data_pagamento")
     if data_pag:
         dados["pago"] = True
-        dados["caixa"] = exigir_conta_corrente(db, caixa_in)
     else:
         dados["data_pagamento"] = None
         dados["pago"] = False
-        dados["caixa"] = None
     nova_conta = ContaPagar(**dados, categoria_pendente=False)
     db.add(nova_conta)
     db.flush()
@@ -302,6 +379,9 @@ def atualizar_conta(
         dados["categoria"] = cat
         dados["subcategoria"] = sub
 
+    if "tipo_despesa" in dados:
+        dados["tipo_despesa"] = _validar_tipo_despesa(dados.get("tipo_despesa"))
+
     for campo, valor in dados.items():
         setattr(db_conta, campo, valor)
 
@@ -318,11 +398,12 @@ def atualizar_conta(
         elif not dados["pago"]:
             db_conta.data_pagamento = None
 
-    if not db_conta.pago:
-        db_conta.caixa = None
-    elif caixa_informado:
-        db_conta.caixa = exigir_conta_corrente(db, caixa_pedido)
+    if caixa_informado:
+        db_conta.caixa = _resolver_caixa_conta(db, caixa_pedido)
     elif not db_conta.caixa:
+        db_conta.caixa = _resolver_caixa_conta(db, None)
+
+    if db_conta.pago and not db_conta.caixa:
         raise HTTPException(status_code=400, detail="caixa inválido")
 
     acao_desc = "marcou como paga" if dados.get("pago") else f"campos: {', '.join(dados.keys())}"

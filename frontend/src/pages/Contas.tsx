@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { contasService, colaboradoresService, contasCorrentesService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
 import { ContaPagar, Colaborador, CatalogoCategoriasContas, ContaCorrente } from '../types';
@@ -7,12 +7,24 @@ import { exportarCSV } from '../utils/export';
 import { formatarMoedaInput, isValorMoedaValido, numberParaMoedaInput, parseMoedaInput } from '../utils/moeda';
 import ImportCSV from '../components/ImportCSV';
 import { hojeISO, compararVencimento, venceEmMenosDe7Dias } from '../utils/dataCivil';
-import { agruparPorMes, chaveMesInicialAberta, totalGrupo } from '../utils/contasPagarAgrupamento';
+import { CHAVE_SEM_VENCIMENTO, chaveMesVencimento, rotuloMesAnoColuna } from '../utils/contasPagarAgrupamento';
+import { anosPermitidosContasPagar, mesesDisponiveis, passaFiltroMesAno } from '../utils/contasPagarFiltroMes';
 import { caixaInicialForm, codigoPadrao, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
 import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 
 const SENTINELA_NOVA = '__nova__';
+
+const MESES_NOME_LONGO = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
+function mesAnoCorrentes() {
+  const agora = new Date();
+  return { mes: agora.getMonth() + 1, ano: agora.getFullYear() };
+}
 
 const LABELS_LEGADO: Record<string, string> = {
   administrativo: 'Administrativo (legado)',
@@ -63,7 +75,12 @@ const FORM_INICIAL = {
   data_pagamento: '',
   fornecedor_id: '',
   caixa: '',
+  tipo_despesa: 'variavel' as 'fixo' | 'variavel',
 };
+
+function labelTipoDespesa(tipo?: string | null) {
+  return tipo === 'fixo' ? 'Fixo' : 'Variável';
+}
 
 export default function Contas() {
   const papel = useAuthStore((s) => s.papel);
@@ -97,8 +114,10 @@ export default function Contas() {
   const [novaAberto, setNovaAberto] = useState(false);
   const [novaNome, setNovaNome] = useState('');
   const [salvandoCategoria, setSalvandoCategoria] = useState(false);
-  const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set());
-  const resetColapsoMesRef = useRef(true);
+  const [contasMesTodos, setContasMesTodos] = useState(false);
+  const [contasMes, setContasMes] = useState(() => mesAnoCorrentes().mes);
+  const [contasAno, setContasAno] = useState(() => mesAnoCorrentes().ano);
+  const alertaAnteriorRef = useRef(contasAlertaVencimento);
 
   const carregarCatalogo = async () => {
     try {
@@ -117,7 +136,7 @@ export default function Contas() {
   useEffect(() => { carregarContas(); }, [contasCategoria, contasSubcategoria, contasPago]);
   useEffect(() => { carregarCatalogo(); }, []);
   useEffect(() => {
-    colaboradoresService.listar(0, 500, true).then((r) => setFornecedores(r.data || [])).catch(() => {});
+    colaboradoresService.listar(0, 500, true, { tipo: 'fornecedor' }).then((r) => setFornecedores(r.data || [])).catch(() => {});
   }, []);
   useEffect(() => {
     contasCorrentesService.listar(true).then((r) => setContasCorrentes(r.data || [])).catch(() => setContasCorrentes([]));
@@ -154,42 +173,101 @@ export default function Contas() {
     if (contasAlertaVencimento === '7dias') {
       return !c.pago && venceEmMenosDe7Dias(c.data_vencimento, hojeISO());
     }
+    if (!passaFiltroMesAno(c, contasMes, contasAno, contasMesTodos)) return false;
     return true;
   });
+
+  useEffect(() => {
+    const alertaAtivo = contasAlertaVencimento === 'hoje'
+      || contasAlertaVencimento === '7dias'
+      || contasAlertaVencimento === 'vencida';
+    if (alertaAtivo) {
+      setContasMesTodos(true);
+    } else if (
+      alertaAnteriorRef.current === 'hoje'
+      || alertaAnteriorRef.current === '7dias'
+      || alertaAnteriorRef.current === 'vencida'
+    ) {
+      const { mes, ano } = mesAnoCorrentes();
+      setContasMesTodos(false);
+      setContasMes(mes);
+      setContasAno(ano);
+    }
+    alertaAnteriorRef.current = contasAlertaVencimento;
+  }, [contasAlertaVencimento]);
+
+  useEffect(() => {
+    setSortField('data_vencimento');
+    setSortDir('asc');
+  }, [
+    contasMesTodos, contasMes, contasAno,
+    contasCategoria, contasSubcategoria, contasPago, contasAlertaVencimento,
+    buscaDescricao, dataInicio, dataFim,
+  ]);
 
   const alternarOrdenacao = (campo: string) => {
     if (sortField === campo) { setSortDir((d) => d === 'asc' ? 'desc' : 'asc'); }
     else { setSortField(campo); setSortDir('asc'); }
   };
 
-  const statusRank = (c: ContaPagar) => c.pago ? 2 : isVencida(c) ? 0 : 1;
+  const statusRank = (c: ContaPagar) => (c.pago ? 2 : isVencida(c) ? 0 : 1);
+
+  const valorOrdenacao = (c: ContaPagar, campo: string): string | number => {
+    if (campo === 'status') return statusRank(c);
+    if (campo === 'categoria') return categoriaLabel(c);
+    if (campo === 'mes_ano') return chaveMesVencimento(c.data_vencimento);
+    if (campo === 'caixa') return rotuloContaOrigem(c.caixa, contasCorrentes);
+    if (campo === 'tipo_despesa') return c.tipo_despesa === 'fixo' ? 0 : 1;
+    const raw = (c as unknown as Record<string, string | number | null | undefined>)[campo];
+    return raw ?? '';
+  };
 
   const ordenar = (items: ContaPagar[]) => [...items].sort((a, b) => {
     const mult = sortDir === 'asc' ? 1 : -1;
-    const va = sortField === 'status' ? statusRank(a) : (a as any)[sortField] ?? '';
-    const vb = sortField === 'status' ? statusRank(b) : (b as any)[sortField] ?? '';
+    if (sortField === 'data_vencimento' || sortField === 'mes_ano') {
+      const ka = chaveMesVencimento(a.data_vencimento);
+      const kb = chaveMesVencimento(b.data_vencimento);
+      const semA = ka === CHAVE_SEM_VENCIMENTO;
+      const semB = kb === CHAVE_SEM_VENCIMENTO;
+      if (semA && semB) return 0;
+      if (semA) return 1;
+      if (semB) return -1;
+      if (sortField === 'mes_ano') {
+        const cmp = ka.localeCompare(kb);
+        if (cmp !== 0) return mult * cmp;
+      }
+      const da = a.data_vencimento || '';
+      const db = b.data_vencimento || '';
+      return mult * da.localeCompare(db);
+    }
+    const va = valorOrdenacao(a, sortField);
+    const vb = valorOrdenacao(b, sortField);
     if (typeof va === 'number' && typeof vb === 'number') return mult * (va - vb);
-    return mult * String(va).localeCompare(String(vb));
+    return mult * String(va).localeCompare(String(vb), 'pt-BR');
   });
 
   const SortIcon = ({ campo }: { campo: string }) => (
     <span className="ml-1 text-xs opacity-50">{sortField === campo ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
   );
 
-  const grupoKey = (c: ContaPagar) =>
-    c.categoria_pendente
-      ? `pendente:${c.categoria}`
-      : c.categoria === 'recursos_humanos'
-        ? `rh:${c.subcategoria || 'all'}`
-        : c.categoria;
+  const totaisCards = (() => {
+    const totalPagoVal = contasFiltradas.filter((c) => c.pago).reduce((s, c) => s + c.valor, 0);
+    const totalVencidoVal = contasFiltradas.filter((c) => isVencida(c)).reduce((s, c) => s + c.valor, 0);
+    const totalAPagarVal = contasFiltradas.filter((c) => !c.pago && !isVencida(c)).reduce((s, c) => s + c.valor, 0);
+    return {
+      totalPago: totalPagoVal,
+      totalVencido: totalVencidoVal,
+      totalAPagar: totalAPagarVal,
+      totalGeral: totalPagoVal + totalAPagarVal + totalVencidoVal,
+    };
+  })();
 
-  const totalPendente = contas.filter((c) => !c.pago).reduce((s, c) => s + c.valor, 0);
-  const totalPago = contas.filter((c) => c.pago).reduce((s, c) => s + c.valor, 0);
-  const totalVencido = contas.filter((c) => isVencida(c)).reduce((s, c) => s + c.valor, 0);
+  const contasOrdenadas = ordenar(contasFiltradas);
+  const anosFiltro = anosPermitidosContasPagar(new Date().getFullYear());
 
   const abrirCriar = () => {
     setEditando(null);
-    setForm({ ...FORM_INICIAL, caixa: codigoPadrao(contasCorrentes) });
+    setForm({ ...FORM_INICIAL, caixa: codigoPadrao(contasCorrentes), tipo_despesa: 'variavel' });
     setArquivoNf(null);
     setNovaAberto(false);
     setNovaNome('');
@@ -209,6 +287,7 @@ export default function Contas() {
       data_pagamento: c.data_pagamento || '',
       fornecedor_id: c.fornecedor_id ? String(c.fornecedor_id) : '',
       caixa: caixaInicialForm(c.caixa, contasCorrentes),
+      tipo_despesa: c.tipo_despesa === 'fixo' ? 'fixo' : 'variavel',
     });
     setModalAberto(true);
   };
@@ -251,6 +330,10 @@ export default function Contas() {
       toast.error('Recursos Humanos exige uma subcategoria');
       return;
     }
+    if (!form.tipo_despesa) {
+      toast.error('Selecione o Tipo (Fixo ou Variável)');
+      return;
+    }
     const valorNum = parseMoedaInput(form.valor);
     if (valorNum === null || valorNum <= 0) {
       toast.error('Informe um valor válido maior que zero');
@@ -267,7 +350,8 @@ export default function Contas() {
         data_pagamento: string | null;
         fornecedor_id: number | null;
         pago?: boolean;
-        caixa?: string | null;
+        caixa: string;
+        tipo_despesa: 'fixo' | 'variavel';
       } = {
         descricao: form.descricao,
         categoria: form.categoria,
@@ -276,10 +360,9 @@ export default function Contas() {
         data_vencimento: form.data_vencimento,
         data_pagamento: form.data_pagamento || null,
         fornecedor_id: form.fornecedor_id ? parseInt(form.fornecedor_id, 10) : null,
+        caixa: form.caixa || codigoPadrao(contasCorrentes),
+        tipo_despesa: form.tipo_despesa,
       };
-      if (form.data_pagamento) {
-        dados.caixa = form.caixa || codigoPadrao(contasCorrentes);
-      }
       if (editando) {
         dados.pago = !!form.data_pagamento;
         await contasService.atualizar(editando.id, dados);
@@ -359,9 +442,9 @@ export default function Contas() {
   };
 
   const deletar = async (conta: ContaPagar) => {
-    if (!confirm(`Deletar "${conta.descricao}"?`)) return;
-    try { await contasService.deletar(conta.id); toast.success('Conta deletada'); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh(); }
-    catch { toast.error('Erro ao deletar'); }
+    if (!confirm(`Excluir "${conta.descricao}"?`)) return;
+    try { await contasService.deletar(conta.id); toast.success('Conta excluída'); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh(); }
+    catch { toast.error('Erro ao excluir'); }
   };
 
   const importarXlsx = async (arquivo: File) => {
@@ -384,7 +467,13 @@ export default function Contas() {
     }
   };
 
-  const exportarXlsx = () => contasService.exportarXlsx();
+  const exportarXlsx = () => contasService.exportarXlsx({
+    categoria: contasCategoria || undefined,
+    subcategoria: contasSubcategoria || undefined,
+    pago: contasPago === '' ? undefined : contasPago === 'true',
+    mes: contasMesTodos ? undefined : contasMes,
+    ano: contasMesTodos ? undefined : contasAno,
+  });
 
   const abrirUploadComprovante = (conta: ContaPagar) => {
     setUploadingComprovante(conta.id);
@@ -419,14 +508,16 @@ export default function Contas() {
     } catch (err: any) { toast.error(mensagemErro(err, 'Erro ao remover nota fiscal')); }
   };
 
-  const exportar = () => exportarCSV(contas.map((c) => ({
+  const exportar = () => exportarCSV(contasOrdenadas.map((c) => ({
     Descrição: c.descricao,
-    Categorias: categoriaLabel(c),
-    Subcategoria: c.subcategoria || '',
+    Categoria: categoriaLabel(c),
+    'Mês/Ano': rotuloMesAnoColuna(c.data_vencimento),
+    Fornecedor: c.fornecedor_nome || '',
     Valor: c.valor,
     Vencimento: c.data_vencimento,
     Pagamento: c.data_pagamento || '',
-    'Conta corrente': rotuloContaOrigem(c.caixa, contasCorrentes),
+    Conta: rotuloContaOrigem(c.caixa, contasCorrentes),
+    Tipo: labelTipoDespesa(c.tipo_despesa),
     Status: c.pago ? 'Pago' : isVencida(c) ? 'Vencida' : 'Pendente',
     Pendente_reclassificacao: c.categoria_pendente ? 'sim' : 'nao',
   })), 'contas_a_pagar');
@@ -434,67 +525,38 @@ export default function Contas() {
   const fmt = (v: number) => v?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) ?? 'R$ 0,00';
   const INPUT = 'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm';
 
-  const tituloGrupo = (key: string, items: ContaPagar[]) => {
-    const sample = items[0];
-    if (!sample) return key;
-    if (sample.categoria_pendente) return `⚠ Reclassificar — ${categoriaLabel(sample)}`;
-    return categoriaLabel(sample);
-  };
-
-  const gruposLista = useMemo(() => {
-    return agruparPorMes(contasFiltradas).map((g) => {
-      const chavesCat = [...new Set(g.contas.map(grupoKey))];
-      const categorias = chavesCat.map((key) => {
-        const items = g.contas.filter((c) => grupoKey(c) === key);
-        return { chave: key, titulo: tituloGrupo(key, items), items, total: totalGrupo(items) };
-      });
-      return { chave: g.chave, titulo: g.rotulo, total: g.total, categorias };
-    });
-  }, [contasFiltradas, catalog]);
-
-  const chavesGrupos = gruposLista.map((g) => g.chave).join('|');
-
-  useEffect(() => {
-    const keys = gruposLista.map((g) => g.chave);
-    if (resetColapsoMesRef.current) {
-      resetColapsoMesRef.current = false;
-      const inicial = chaveMesInicialAberta(keys);
-      setGruposAbertos(inicial ? new Set([inicial]) : new Set());
-      return;
-    }
-    setGruposAbertos((prev) => {
-      const next = new Set([...prev].filter((k) => keys.includes(k)));
-      if (next.size === 0 && keys.length > 0) {
-        const inicial = chaveMesInicialAberta(keys);
-        if (inicial) next.add(inicial);
-      }
-      return next;
-    });
-  }, [chavesGrupos]);
-
-  const alternarGrupoMes = (chave: string) => {
-    setGruposAbertos((prev) => {
-      const next = new Set(prev);
-      if (next.has(chave)) next.delete(chave);
-      else next.add(chave);
-      return next;
-    });
-  };
+  const COLUNAS_TABELA = [
+    { label: 'Descrição', campo: 'descricao' },
+    { label: 'Categoria', campo: 'categoria' },
+    { label: 'Mês/Ano', campo: 'mes_ano' },
+    { label: 'Fornecedor', campo: 'fornecedor_nome' },
+    { label: 'Valor', campo: 'valor' },
+    { label: 'Vencimento', campo: 'data_vencimento' },
+    { label: 'Pagamento', campo: 'data_pagamento' },
+    { label: 'Conta', campo: 'caixa' },
+    { label: 'Tipo', campo: 'tipo_despesa' },
+    { label: 'Status', campo: 'status' },
+    { label: 'Nota fiscal', campo: null },
+    { label: '', campo: null },
+  ] as const;
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
+      <div className="print-only mb-4">
+        <h1 className="text-2xl font-bold">Contas a Pagar</h1>
+        <p className="text-sm text-gray-600">
+          {contasMesTodos ? 'Todos os meses' : `${MESES_NOME_LONGO[contasMes - 1]}/${contasAno}`}
+          {' · '}{contasOrdenadas.length} conta(s)
+        </p>
+      </div>
+      <div className="no-print bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">Contas a Pagar - <span className="text-lg font-normal text-gray-500 dark:text-gray-400">{contas.length} conta(s) registrada(s)</span></h1>
         <div className="flex gap-2 flex-wrap justify-end">
           {papel === 'admin' && (
-            <button onClick={() => setImportAberto(true)} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-              ↑ Importar CSV
-            </button>
+            <ActionButton variant="importar" context="header" label="Importar CSV" onClick={() => setImportAberto(true)} />
           )}
           {contas.length > 0 && (
-            <button onClick={exportar} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-              ↓ Exportar CSV
-            </button>
+            <ActionButton variant="exportar-csv" context="header" label="Exportar CSV" onClick={exportar} />
           )}
           {papel === 'admin' && (
             <>
@@ -512,45 +574,43 @@ export default function Contas() {
                 className="hidden"
                 onChange={handleComprovanteFile}
               />
-              <button
+              <ActionButton
+                variant="importar"
+                context="header"
+                label={importandoXlsx ? 'Importando...' : 'Importar Excel (.xlsx)'}
                 onClick={() => xlsxInputRef.current?.click()}
                 disabled={importandoXlsx}
-                className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition disabled:opacity-50"
-              >
-                {importandoXlsx ? 'Importando...' : '↑ Importar Excel (.xlsx)'}
-              </button>
+              />
             </>
           )}
-          <button onClick={exportarXlsx} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-            ↓ Exportar Excel (.xlsx)
-          </button>
-          <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-            Exportar PDF
-          </button>
+          <ActionButton variant="exportar-xlsx" context="header" label="Exportar Excel (.xlsx)" onClick={exportarXlsx} />
+          <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
           {papel === 'admin' && (
-            <button onClick={abrirCriar} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-              + Nova conta a pagar
-            </button>
+            <ActionButton variant="criar" context="header" label="Nova conta a pagar" onClick={abrirCriar} />
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="no-print grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+          <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">Total</p>
+          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{fmt(totaisCards.totalGeral)}</p>
+        </div>
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+          <p className="text-xs text-green-700 dark:text-green-400 font-medium">Pago</p>
+          <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-1">{fmt(totaisCards.totalPago)}</p>
+        </div>
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-          <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">Total a Pagar</p>
-          <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{fmt(totalPendente)}</p>
+          <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">A pagar</p>
+          <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{fmt(totaisCards.totalAPagar)}</p>
         </div>
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <p className="text-xs text-red-600 dark:text-red-400 font-medium">Vencido</p>
-          <p className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{fmt(totalVencido)}</p>
-        </div>
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-          <p className="text-xs text-green-700 dark:text-green-400 font-medium">Total Pago</p>
-          <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-1">{fmt(totalPago)}</p>
+          <p className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{fmt(totaisCards.totalVencido)}</p>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
+      <div className="no-print bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Categorias</label>
           <select
@@ -599,6 +659,45 @@ export default function Contas() {
           </select>
         </div>
         <div>
+          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1" htmlFor="contas-filtro-todos">Mês/Ano</label>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+              <input
+                id="contas-filtro-todos"
+                type="checkbox"
+                checked={contasMesTodos}
+                onChange={(e) => setContasMesTodos(e.target.checked)}
+                className="rounded border-gray-300 dark:border-gray-600"
+              />
+              Todos
+            </label>
+            <select
+              id="contas-filtro-mes"
+              aria-label="Mês de vencimento"
+              disabled={contasMesTodos}
+              className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
+              value={contasMes}
+              onChange={(e) => setContasMes(Number(e.target.value))}
+            >
+              {mesesDisponiveis().map((m) => (
+                <option key={m} value={m}>{MESES_NOME_LONGO[m - 1]}</option>
+              ))}
+            </select>
+            <select
+              id="contas-filtro-ano"
+              aria-label="Ano de vencimento"
+              disabled={contasMesTodos}
+              className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
+              value={contasAno}
+              onChange={(e) => setContasAno(Number(e.target.value))}
+            >
+              {anosFiltro.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Descrição</label>
           <input type="text" className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-44"
             value={buscaDescricao} onChange={(e) => setBuscaDescricao(e.target.value)} placeholder="Buscar..." />
@@ -621,158 +720,124 @@ export default function Contas() {
 
       {loading ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
+      ) : contasOrdenadas.length === 0 ? (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">Nenhuma conta encontrada</div>
       ) : (
-        <div className="space-y-4">
-          {gruposLista.map((grupo) => {
-            const aberto = gruposAbertos.has(grupo.chave);
-            return (
-              <div key={grupo.chave} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                <button
-                  type="button"
-                  aria-expanded={aberto}
-                  onClick={() => alternarGrupoMes(grupo.chave)}
-                  className="w-full bg-gray-50 dark:bg-gray-700 px-4 py-3 border-b border-gray-200 dark:border-gray-600 flex items-center justify-between text-left hover:bg-gray-100 dark:hover:bg-gray-600/80 transition"
-                >
-                  <span className="font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
-                    <span className="text-gray-400 dark:text-gray-500 text-xs" aria-hidden>{aberto ? '▼' : '▶'}</span>
-                    {grupo.titulo}
-                  </span>
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Total: {fmt(grupo.total)}</span>
-                </button>
-                {aberto && (
-                <div>
-                  {grupo.categorias.map((cat) => (
-                    <div key={cat.chave}>
-                      <div className="px-4 py-2 bg-gray-50/80 dark:bg-gray-700/40 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                        <h4 className="text-sm font-medium text-gray-600 dark:text-gray-300">{cat.titulo}</h4>
-                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Total: {fmt(cat.total)}</span>
-                      </div>
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50/50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
-                    <tr>
-                      {[
-                        { label: 'Descrição', campo: 'descricao' },
-                        { label: 'Fornecedor', campo: 'fornecedor_nome' },
-                        { label: 'Valor', campo: 'valor' },
-                        { label: 'Vencimento', campo: 'data_vencimento' },
-                        { label: 'Pagamento', campo: 'data_pagamento' },
-                        { label: 'Conta corrente', campo: 'caixa' },
-                        { label: 'Status', campo: 'status' },
-                        { label: 'Nota fiscal', campo: null },
-                        { label: '', campo: null },
-                      ].map(({ label, campo }) => (
-                        <th
-                          key={label}
-                          onClick={campo ? () => alternarOrdenacao(campo) : undefined}
-                          className={`px-4 py-2 text-gray-500 dark:text-gray-400 font-medium text-xs ${label === 'Valor' ? 'text-right' : 'text-left'} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto print-area">
+          <table className="w-full text-sm min-w-[1100px]">
+            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+              <tr>
+                {COLUNAS_TABELA.map(({ label, campo }) => (
+                  <th
+                    key={label || 'acoes'}
+                    onClick={campo ? () => alternarOrdenacao(campo) : undefined}
+                    className={`px-4 py-3 text-gray-500 dark:text-gray-400 font-medium text-xs whitespace-nowrap ${label === 'Valor' ? 'text-right' : 'text-left'} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
+                  >
+                    {label}{campo && <SortIcon campo={campo} />}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {contasOrdenadas.map((conta) => (
+                <tr key={conta.id} className={`transition-colors ${conta.pago ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100/80 dark:hover:bg-green-900/20' : isVencida(conta) ? 'bg-orange-50 dark:bg-orange-900/10 hover:bg-orange-100/80 dark:hover:bg-orange-900/20' : 'bg-yellow-50 dark:bg-yellow-900/10 hover:bg-yellow-100/80 dark:hover:bg-yellow-900/20'}`}>
+                  <td className="px-4 py-3 text-gray-800 dark:text-gray-200">
+                    {conta.descricao}
+                    {conta.categoria_pendente && (
+                      <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                        Reclassificar
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs whitespace-nowrap">
+                    {categoriaLabel(conta)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs whitespace-nowrap">
+                    {rotuloMesAnoColuna(conta.data_vencimento)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
+                    {conta.fornecedor_nome || '—'}
+                    {conta.fornecedor_id && conta.fornecedor_ativo === false && (
+                      <span className="ml-1 text-gray-400">(inativo)</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmt(conta.valor)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
+                    {conta.data_vencimento || '—'}
+                    {isVencida(conta) && <span className="ml-2 text-orange-600 dark:text-orange-400 font-medium">VENCIDA</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs whitespace-nowrap">
+                    {conta.pago && conta.data_pagamento ? (
+                      <span className="text-green-600 dark:text-green-400">{conta.data_pagamento}</span>
+                    ) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                    {rotuloContaOrigem(conta.caixa, contasCorrentes)}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                    {labelTipoDespesa(conta.tipo_despesa)}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${conta.pago ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400' : isVencida(conta) ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400'}`}>
+                      {conta.pago ? 'Pago' : isVencida(conta) ? 'Vencida' : 'Pendente'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {conta.comprovante_nome ? (
+                      <div className="flex flex-col gap-1 items-start">
+                        <button
+                          onClick={() => contasService.downloadComprovante(conta.id, conta.comprovante_nome)}
+                          className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                          title={conta.comprovante_nome}
                         >
-                          {label}{campo && <SortIcon campo={campo} />}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {ordenar(cat.items).map((conta) => (
-                      <tr key={conta.id} className={`transition-colors ${conta.pago ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100/80 dark:hover:bg-green-900/20' : isVencida(conta) ? 'bg-orange-50 dark:bg-orange-900/10 hover:bg-orange-100/80 dark:hover:bg-orange-900/20' : 'bg-yellow-50 dark:bg-yellow-900/10 hover:bg-yellow-100/80 dark:hover:bg-yellow-900/20'}`}>
-                        <td className="px-4 py-3 text-gray-800 dark:text-gray-200">
-                          {conta.descricao}
-                          {conta.categoria_pendente && (
-                            <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                              Reclassificar
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
-                          {conta.fornecedor_nome || '—'}
-                          {conta.fornecedor_id && conta.fornecedor_ativo === false && (
-                            <span className="ml-1 text-gray-400">(inativo)</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right font-medium text-gray-700 dark:text-gray-300">{fmt(conta.valor)}</td>
-                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
-                          Venc: {conta.data_vencimento}
-                          {isVencida(conta) && <span className="ml-2 text-orange-600 dark:text-orange-400 font-medium">VENCIDA</span>}
-                        </td>
-                        <td className="px-4 py-3 text-xs">
-                          {conta.pago && conta.data_pagamento && (
-                            <span className="text-green-600 dark:text-green-400">Pago em {conta.data_pagamento}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
-                          {rotuloContaOrigem(conta.caixa, contasCorrentes)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${conta.pago ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400' : isVencida(conta) ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400'}`}>
-                            {conta.pago ? 'Pago' : isVencida(conta) ? 'Vencida' : 'Pendente'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs">
-                          {conta.comprovante_nome ? (
-                            <div className="flex flex-col gap-1 items-start">
-                              <button
-                                onClick={() => contasService.downloadComprovante(conta.id, conta.comprovante_nome)}
-                                className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
-                                title={conta.comprovante_nome}
-                              >
-                                <span>📎</span>
-                                <span className="max-w-[80px] truncate">{conta.comprovante_nome}</span>
-                              </button>
-                              {papel === 'admin' && (
-                                <div className="flex gap-1">
-                                  <button
-                                    onClick={() => abrirUploadComprovante(conta)}
-                                    className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
-                                    title="Substituir nota fiscal"
-                                  >
-                                    Substituir
-                                  </button>
-                                  <button
-                                    onClick={() => removerNotaFiscal(conta)}
-                                    className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition"
-                                    title="Remover nota fiscal"
-                                  >
-                                    Remover
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ) : papel === 'admin' ? (
+                          <span>📎</span>
+                          <span className="max-w-[80px] truncate">{conta.comprovante_nome}</span>
+                        </button>
+                        {papel === 'admin' && (
+                          <div className="flex gap-1">
                             <button
                               onClick={() => abrirUploadComprovante(conta)}
                               className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
-                              title="Anexar nota fiscal"
+                              title="Substituir nota fiscal"
                             >
-                              + Anexar
+                              Substituir
                             </button>
-                          ) : (
-                            <span className="text-gray-300 dark:text-gray-600">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {papel === 'admin' && (
-                            <div className="flex gap-1 justify-end">
-                              {!conta.pago && (
-                                <button onClick={() => abrirPago(conta)} className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700">Pagar</button>
-                              )}
-                              <button onClick={() => abrirEditar(conta)} className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded hover:bg-blue-200">Editar</button>
-                              <button onClick={() => deletar(conta)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200">Deletar</button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                    </div>
-                  ))}
-                </div>
-                )}
-              </div>
-            );
-          })}
-          {gruposLista.length === 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">Nenhuma conta encontrada</div>
-          )}
+                            <button
+                              onClick={() => removerNotaFiscal(conta)}
+                              className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition"
+                              title="Remover nota fiscal"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : papel === 'admin' ? (
+                      <ActionButton
+                        variant="anexar"
+                        context="row"
+                        label="Anexar"
+                        onClick={() => abrirUploadComprovante(conta)}
+                      />
+                    ) : (
+                      <span className="text-gray-300 dark:text-gray-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 no-print">
+                    {papel === 'admin' && (
+                      <div className="flex gap-1 justify-end flex-wrap">
+                        {!conta.pago && (
+                          <ActionButton variant="fluxo" context="row" label="Pagar" onClick={() => abrirPago(conta)} />
+                        )}
+                        <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditar(conta)} />
+                        <ActionButton variant="excluir" context="row" label="Excluir" onClick={() => deletar(conta)} />
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -903,6 +968,31 @@ export default function Contas() {
                 </div>
               )}
               <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tipo *</label>
+                <select
+                  className={INPUT}
+                  value={form.tipo_despesa}
+                  onChange={(e) => setForm({ ...form, tipo_despesa: e.target.value as 'fixo' | 'variavel' })}
+                  disabled={papel !== 'admin'}
+                >
+                  <option value="variavel">Variável</option>
+                  <option value="fixo">Fixo</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta *</label>
+                <select
+                  className={INPUT}
+                  value={form.caixa || codigoPadrao(contasCorrentes)}
+                  onChange={(e) => setForm({ ...form, caixa: e.target.value })}
+                  disabled={papel !== 'admin'}
+                >
+                  {contasCorrentes.filter((c) => c.ativo).map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor *</label>
                 <input
                   type="text"
@@ -919,24 +1009,9 @@ export default function Contas() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Pagamento</label>
-                <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value, caixa: e.target.value ? (form.caixa || codigoPadrao(contasCorrentes)) : form.caixa })} />
+                <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Preencher apenas se já foi pago</p>
               </div>
-              {form.data_pagamento && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
-                  <select
-                    className={INPUT}
-                    value={form.caixa || codigoPadrao(contasCorrentes)}
-                    onChange={(e) => setForm({ ...form, caixa: e.target.value })}
-                    disabled={papel !== 'admin'}
-                  >
-                    {contasCorrentes.filter((c) => c.ativo).map((c) => (
-                      <option key={c.codigo} value={c.codigo}>{c.nome}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nota fiscal (PDF, JPEG ou PNG)</label>
                 {editando?.comprovante_nome && (
@@ -980,7 +1055,7 @@ export default function Contas() {
                 )}
               </div>
             </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
               <button onClick={() => { setModalAberto(false); setArquivoNf(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
@@ -1003,7 +1078,7 @@ export default function Contas() {
                 <input type="date" className={INPUT} value={dataPagoForm} onChange={(e) => setDataPagoForm(e.target.value)} />
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta *</label>
                 <select className={INPUT} value={caixaPagoForm} onChange={(e) => setCaixaPagoForm(e.target.value)}>
                   {contasCorrentes.filter((c) => c.ativo).map((c) => (
                     <option key={c.codigo} value={c.codigo}>{c.nome}</option>
@@ -1011,7 +1086,7 @@ export default function Contas() {
                 </select>
               </div>
             </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
               <button onClick={() => setPagoModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={confirmarPago} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Confirmar pagamento</button>
             </div>

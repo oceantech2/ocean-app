@@ -246,7 +246,13 @@ export const contasService = {
     return api.post('/contas/importar-xlsx', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
 
-  exportarXlsx: async (params?: { mes?: number; ano?: number }) => {
+  exportarXlsx: async (params?: {
+    categoria?: string;
+    subcategoria?: string;
+    pago?: boolean;
+    mes?: number;
+    ano?: number;
+  }) => {
     const res = await api.get('/contas/exportar-xlsx', { params, responseType: 'blob' });
     const url = URL.createObjectURL(new Blob([res.data]));
     const a = document.createElement('a');
@@ -273,10 +279,10 @@ export const contasService = {
     api.delete(`/contas/${contaId}/comprovante`),
 };
 
-// Bônus
+// Bônus / Comissões
 export const bonusService = {
-  listar: (skip = 0, limit = 100, colaborador_id?: number, mes?: number, ano?: number) =>
-    api.get('/bonus', { params: { skip, limit, colaborador_id, mes, ano } }),
+  listar: (skip = 0, limit = 100, colaborador_id?: number, mes?: number, ano?: number, nf_id?: number) =>
+    api.get('/bonus', { params: { skip, limit, colaborador_id, mes, ano, nf_id } }),
 
   obter: (id: number) =>
     api.get(`/bonus/${id}`),
@@ -289,6 +295,18 @@ export const bonusService = {
 
   deletar: (id: number) =>
     api.delete(`/bonus/${id}`),
+
+  liberar: (id: number) =>
+    api.post(`/bonus/${id}/liberar`),
+
+  pagar: (id: number) =>
+    api.post(`/bonus/${id}/pagar`),
+
+  liberarLote: (ids: number[]) =>
+    api.post<{ processados: number; ignorados: number }>('/bonus/acoes/liberar', { ids }),
+
+  pagarLote: (ids: number[]) =>
+    api.post<{ processados: number; ignorados: number }>('/bonus/acoes/pagar', { ids }),
 };
 
 // Férias

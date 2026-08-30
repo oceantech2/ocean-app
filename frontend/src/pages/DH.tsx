@@ -7,6 +7,7 @@ import Pagination from '../components/Pagination';
 import { exportarCSV } from '../utils/export';
 import ImportCSV from '../components/ImportCSV';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ITENS_POR_PAGINA = 15;
@@ -115,9 +116,9 @@ export default function DHPage() {
   };
 
   const deletar = async (dh: DH) => {
-    if (!confirm(`Deletar DH "${dh.assunto}"?`)) return;
-    try { await dhService.deletar(dh.id); toast.success('DH deletado'); carregarDHs(); }
-    catch { toast.error('Erro ao deletar'); }
+    if (!confirm(`Excluir DH "${dh.assunto}"?`)) return;
+    try { await dhService.deletar(dh.id); toast.success('DH excluído'); carregarDHs(); }
+    catch { toast.error('Erro ao excluir'); }
   };
 
   const colaboradoresUnicos = [...new Set(dhs.map((d) => d.colaborador_preencheu))];
@@ -150,24 +151,16 @@ export default function DHPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">DH — Demonstrativo de Honorários <span className="text-gray-500 dark:text-gray-400 font-normal text-base">— {dhs.length} DH(s) no período</span></h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
           {papel === 'admin' && (
-            <button onClick={() => setImportAberto(true)} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-              ↑ Importar CSV
-            </button>
+            <ActionButton variant="importar" context="header" label="Importar CSV" onClick={() => setImportAberto(true)} />
           )}
           {dhs.length > 0 && (
-            <button onClick={exportar} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-              ↓ Exportar CSV
-            </button>
+            <ActionButton variant="exportar-csv" context="header" label="Exportar CSV" onClick={exportar} />
           )}
-          <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition">
-            Exportar PDF
-          </button>
+          <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
           {papel === 'admin' && (
-            <button onClick={() => setModalAberto(true)} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-              + Novo DH
-            </button>
+            <ActionButton variant="criar" context="header" label="Novo DH" onClick={() => setModalAberto(true)} />
           )}
         </div>
       </div>
@@ -311,7 +304,7 @@ export default function DHPage() {
                       </td>
                       <td className="px-4 py-3">
                         {papel === 'admin' && (
-                          <button onClick={() => deletar(dh)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200 dark:hover:bg-red-900/60">Deletar</button>
+                          <ActionButton variant="excluir" context="row" label="Excluir" onClick={() => deletar(dh)} />
                         )}
                       </td>
                     </tr>
@@ -357,7 +350,7 @@ export default function DHPage() {
                 </div>
               )}
             </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
               <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Criar DH'}

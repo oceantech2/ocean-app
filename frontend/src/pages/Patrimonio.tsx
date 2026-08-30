@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { patrimonioService, colaboradoresService } from '../services/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 import { mensagemErro } from '../utils/erros';
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -187,9 +188,7 @@ export default function Patrimonio() {
             {colaboradores.map((c) => <option key={c.id} value={String(c.id)}>{c.nome}</option>)}
           </select>
           {papel === 'admin' && (
-            <button onClick={abrirCriar} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-              + Novo item
-            </button>
+            <ActionButton variant="criar" context="header" label="Novo item" onClick={abrirCriar} />
           )}
         </div>
       </div>
@@ -281,9 +280,9 @@ export default function Patrimonio() {
                     </td>
                     <td className="px-4 py-3">
                       {papel === 'admin' && (
-                        <div className="flex gap-1 justify-end">
-                          <button onClick={() => abrirEditar(item)} className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded hover:bg-blue-200">Editar</button>
-                          <button onClick={() => deletar(item)} className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded hover:bg-red-200">Excluir</button>
+                        <div className="flex gap-1 justify-end flex-wrap">
+                          <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditar(item)} />
+                          <ActionButton variant="excluir" context="row" label="Excluir" onClick={() => deletar(item)} />
                         </div>
                       )}
                     </td>

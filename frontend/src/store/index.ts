@@ -96,17 +96,9 @@ export const useNotifStore = create<NotifState>((set) => ({
 }));
 
 // ==================== UI (dark mode + sidebar) ====================
+// Preferência de sidebar NÃO persiste entre visitas (feature 045-padronizar-icones-menu).
+// Estado expandido/colapsado vale só na sessão corrente; sempre inicia expandido.
 const sidebarKey = (usuario: string) => `ocean-sidebar-collapsed:${usuario}`;
-
-const readSidebarCollapsed = (usuario: string | null): boolean => {
-  if (!usuario) return false;
-  return localStorage.getItem(sidebarKey(usuario)) === 'true';
-};
-
-const writeSidebarCollapsed = (usuario: string | null, collapsed: boolean) => {
-  if (!usuario) return;
-  localStorage.setItem(sidebarKey(usuario), String(collapsed));
-};
 
 interface UIState {
   darkMode: boolean;
@@ -127,21 +119,21 @@ export const useUIStore = create<UIState>(() => ({
     });
   },
   sidebarCollapsed: false,
-  setSidebarCollapsed: (collapsed, usuario) => {
-    const user = usuario ?? useAuthStore.getState().usuario;
-    writeSidebarCollapsed(user, collapsed);
+  setSidebarCollapsed: (collapsed) => {
     useUIStore.setState({ sidebarCollapsed: collapsed });
   },
-  toggleSidebarCollapsed: (usuario) => {
-    const user = usuario ?? useAuthStore.getState().usuario;
-    useUIStore.setState((state) => {
-      const next = !state.sidebarCollapsed;
-      writeSidebarCollapsed(user, next);
-      return { sidebarCollapsed: next };
-    });
+  toggleSidebarCollapsed: () => {
+    useUIStore.setState((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
   },
   hydrateSidebarCollapsed: (usuario) => {
-    useUIStore.setState({ sidebarCollapsed: readSidebarCollapsed(usuario) });
+    if (usuario) {
+      try {
+        localStorage.removeItem(sidebarKey(usuario));
+      } catch {
+        /* ignore */
+      }
+    }
+    useUIStore.setState({ sidebarCollapsed: false });
   },
 }));
 

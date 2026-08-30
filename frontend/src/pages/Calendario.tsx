@@ -4,6 +4,7 @@ import { NF, ContaPagar } from '../types';
 import { useNotifStore } from '../store';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
+import ActionButton from '../components/ActionButton';
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -125,29 +126,24 @@ export default function Calendario() {
           <button onClick={() => navegar(-1)} className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">←</button>
           <span className="font-semibold text-gray-800 dark:text-gray-100 w-40 text-center">{MESES[mes]} {ano}</span>
           <button onClick={() => navegar(1)} className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">→</button>
-          <button
+          <ActionButton
+            variant="importar"
+            context="header"
+            label="Importar CSV"
             onClick={() => toast('Use as páginas NFs e Contas para importar dados', { icon: 'ℹ️' })}
-            className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-          >
-            ↑ Importar CSV
-          </button>
-          <button
+          />
+          <ActionButton
+            variant="exportar-csv"
+            context="header"
+            label="Exportar CSV"
             onClick={() => exportarCSV(
               Object.entries(eventosPorDia).flatMap(([data, evts]) =>
                 evts.map((e) => ({ Data: data, Tipo: e.tipo === 'nf' ? 'NF' : 'Conta', Título: e.titulo, Valor: e.valor, Status: e.pago ? 'Pago' : 'Pendente' }))
               ).sort((a, b) => a.Data.localeCompare(b.Data)),
               `calendario_${MESES[mes]}_${ano}`
             )}
-            className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-          >
-            ↓ Exportar CSV
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-          >
-            Exportar PDF
-          </button>
+          />
+          <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
         </div>
       </div>
 

@@ -37,6 +37,7 @@ export interface NF {
   candidato?: string;
   valor_bruto: number;
   valor_imposto?: number | null;
+  aliquota_imposto?: number | null;
   valor_liquido: number;
   data_ent_pgto?: string | null;
   data_emissao: string | null;
@@ -54,18 +55,44 @@ export interface NF {
   anexo_nome?: string | null;
 }
 
-// Bônus
+// Bônus / Comissões
 export interface Bonus {
   id: number;
   colaborador_id: number;
+  nf_id?: number | null;
   mes: number;
   ano: number;
   etapa: string;
+  atividades?: string[];
   percentual: number;
   valor_bonus: number;
+  liberado?: boolean;
+  pago?: boolean;
+  data_liberacao?: string | null;
+  data_pagamento?: string | null;
   cliente?: string;
   posicao?: string;
   numero_nf?: string;
+}
+
+export interface ComissaoLinhaForm {
+  id?: number;
+  colaborador_id: number;
+  mes: number;
+  ano: number;
+  atividades: string[];
+  percentual: number;
+  liberado?: boolean;
+  pago?: boolean;
+}
+
+export interface ComissaoLinhaInput {
+  id?: number;
+  colaborador_id: number;
+  mes: number;
+  ano: number;
+  atividades: string[];
+  percentual: number;
 }
 
 // Usuário do App
@@ -143,6 +170,7 @@ export interface ContaPagar {
   fornecedor_id?: number | null;
   fornecedor_nome?: string | null;
   fornecedor_ativo?: boolean | null;
+  tipo_despesa?: 'fixo' | 'variavel';
 }
 
 export interface CategoriaOficialItem {
