@@ -15,6 +15,7 @@ import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 
 const SENTINELA_NOVA = '__nova__';
+const SENTINELA_NOVA_SUB = '__nova_sub__';
 
 const MESES_NOME_LONGO = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -59,8 +60,8 @@ function validarNomeCategoriaLocal(nomeBruto: string): string | null {
   if (!nome) return 'Nome é obrigatório';
   if (nome.length > 20) return 'Nome deve ter no máximo 20 caracteres';
   for (const ch of nome) {
-    if (ch === '_' || !/^[\p{L}\p{N} \-/]$/u.test(ch)) {
-      return 'Use apenas letras, números, espaços, hífen e barra';
+    if (ch === '_' || !/^[\p{L}\p{N} \-/&]$/u.test(ch)) {
+      return 'Use apenas letras, números, espaços, hífen, barra e &';
     }
   }
   return null;
@@ -114,6 +115,13 @@ export default function Contas() {
   const [novaAberto, setNovaAberto] = useState(false);
   const [novaNome, setNovaNome] = useState('');
   const [salvandoCategoria, setSalvandoCategoria] = useState(false);
+  const [editCatId, setEditCatId] = useState<number | null>(null);
+  const [editCatNome, setEditCatNome] = useState('');
+  const [novaSubAberto, setNovaSubAberto] = useState(false);
+  const [novaSubNome, setNovaSubNome] = useState('');
+  const [editSubId, setEditSubId] = useState<number | null>(null);
+  const [editSubNome, setEditSubNome] = useState('');
+  const [salvandoSub, setSalvandoSub] = useState(false);
   const [contasMesTodos, setContasMesTodos] = useState(false);
   const [contasMes, setContasMes] = useState(() => mesAnoCorrentes().mes);
   const [contasAno, setContasAno] = useState(() => mesAnoCorrentes().ano);
@@ -218,12 +226,19 @@ export default function Contas() {
     if (campo === 'mes_ano') return chaveMesVencimento(c.data_vencimento);
     if (campo === 'caixa') return rotuloContaOrigem(c.caixa, contasCorrentes);
     if (campo === 'tipo_despesa') return c.tipo_despesa === 'fixo' ? 0 : 1;
+    if (campo === 'criado_em') return c.criado_em || '';
     const raw = (c as unknown as Record<string, string | number | null | undefined>)[campo];
     return raw ?? '';
   };
 
   const ordenar = (items: ContaPagar[]) => [...items].sort((a, b) => {
     const mult = sortDir === 'asc' ? 1 : -1;
+    if (sortField === 'criado_em') {
+      const ta = a.criado_em ? new Date(a.criado_em).getTime() : 0;
+      const tb = b.criado_em ? new Date(b.criado_em).getTime() : 0;
+      if (ta !== tb) return (ta - tb) * mult;
+      return (a.id - b.id) * mult;
+    }
     if (sortField === 'data_vencimento' || sortField === 'mes_ano') {
       const ka = chaveMesVencimento(a.data_vencimento);
       const kb = chaveMesVencimento(b.data_vencimento);
@@ -310,6 +325,113 @@ export default function Contas() {
       toast.error(mensagemErro(e, 'Não foi possível cadastrar a categoria'));
     } finally {
       setSalvandoCategoria(false);
+    }
+  };
+
+  const cadastradaSelecionada = catalog?.cadastradas.find((c) => c.codigo === form.categoria) ?? null;
+
+  const iniciarEditarCategoria = () => {
+    if (!cadastradaSelecionada) return;
+    setEditCatId(cadastradaSelecionada.id);
+    setEditCatNome(cadastradaSelecionada.nome);
+    setNovaAberto(false);
+  };
+
+  const confirmarEditarCategoria = async () => {
+    if (editCatId == null) return;
+    const local = validarNomeCategoriaLocal(editCatNome);
+    if (local) {
+      toast.error(local);
+      return;
+    }
+    try {
+      setSalvandoCategoria(true);
+      await contasService.atualizarCategoria(editCatId, editCatNome.trim());
+      await carregarCatalogo();
+      setEditCatId(null);
+      setEditCatNome('');
+      toast.success('Categoria atualizada');
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Não foi possível atualizar a categoria'));
+    } finally {
+      setSalvandoCategoria(false);
+    }
+  };
+
+  const excluirCategoriaSelecionada = async () => {
+    if (!cadastradaSelecionada) return;
+    if (!confirm(`Excluir a categoria "${cadastradaSelecionada.nome}"?`)) return;
+    try {
+      await contasService.excluirCategoria(cadastradaSelecionada.id);
+      await carregarCatalogo();
+      setForm({ ...form, categoria: 'adm_financeiro', subcategoria: '' });
+      toast.success('Categoria excluída');
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Não foi possível excluir a categoria'));
+    }
+  };
+
+  const confirmarNovaSubcategoria = async () => {
+    const local = validarNomeCategoriaLocal(novaSubNome);
+    if (local) {
+      toast.error(local);
+      return;
+    }
+    try {
+      setSalvandoSub(true);
+      const res = await contasService.criarSubcategoriaRh(novaSubNome.trim());
+      await carregarCatalogo();
+      setForm({ ...form, subcategoria: res.data.codigo });
+      setNovaSubAberto(false);
+      setNovaSubNome('');
+      toast.success('Subcategoria cadastrada');
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Não foi possível cadastrar a subcategoria'));
+    } finally {
+      setSalvandoSub(false);
+    }
+  };
+
+  const subSelecionada = catalog?.subcategorias_rh.find((s) => s.codigo === form.subcategoria) ?? null;
+
+  const iniciarEditarSub = () => {
+    if (!subSelecionada?.id) return;
+    setEditSubId(subSelecionada.id);
+    setEditSubNome(subSelecionada.nome);
+    setNovaSubAberto(false);
+  };
+
+  const confirmarEditarSub = async () => {
+    if (editSubId == null) return;
+    const local = validarNomeCategoriaLocal(editSubNome);
+    if (local) {
+      toast.error(local);
+      return;
+    }
+    try {
+      setSalvandoSub(true);
+      await contasService.atualizarSubcategoriaRh(editSubId, editSubNome.trim());
+      await carregarCatalogo();
+      setEditSubId(null);
+      setEditSubNome('');
+      toast.success('Subcategoria atualizada');
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Não foi possível atualizar a subcategoria'));
+    } finally {
+      setSalvandoSub(false);
+    }
+  };
+
+  const excluirSubSelecionada = async () => {
+    if (!subSelecionada?.id || subSelecionada.sistema) return;
+    if (!confirm(`Excluir a subcategoria "${subSelecionada.nome}"?`)) return;
+    try {
+      await contasService.excluirSubcategoriaRh(subSelecionada.id);
+      await carregarCatalogo();
+      setForm({ ...form, subcategoria: '' });
+      toast.success('Subcategoria excluída');
+    } catch (e: any) {
+      toast.error(mensagemErro(e, 'Não foi possível excluir a subcategoria'));
     }
   };
 
@@ -533,6 +655,7 @@ export default function Contas() {
     { label: 'Valor', campo: 'valor' },
     { label: 'Vencimento', campo: 'data_vencimento' },
     { label: 'Pagamento', campo: 'data_pagamento' },
+    { label: 'Lançamento', campo: 'criado_em' },
     { label: 'Conta', campo: 'caixa' },
     { label: 'Tipo', campo: 'tipo_despesa' },
     { label: 'Status', campo: 'status' },
@@ -771,6 +894,9 @@ export default function Contas() {
                       <span className="text-green-600 dark:text-green-400">{conta.data_pagamento}</span>
                     ) : '—'}
                   </td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
+                    {conta.criado_em ? new Date(conta.criado_em).toLocaleString('pt-BR') : '—'}
+                  </td>
                   <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">
                     {rotuloContaOrigem(conta.caixa, contasCorrentes)}
                   </td>
@@ -914,20 +1040,29 @@ export default function Contas() {
                     if (v === SENTINELA_NOVA) {
                       setNovaAberto(true);
                       setNovaNome('');
+                      setEditCatId(null);
                       return;
                     }
                     setNovaAberto(false);
+                    setEditCatId(null);
                     setForm({
                       ...form,
                       categoria: v,
                       subcategoria: v === 'recursos_humanos' ? form.subcategoria : '',
                     });
                   }}
+                  disabled={papel !== 'admin' && !editando}
                 >
                   {(catalog?.oficiais || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
                   {(catalog?.cadastradas || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
                   {papel === 'admin' && <option value={SENTINELA_NOVA}>Nova categoria…</option>}
                 </select>
+                {papel === 'admin' && cadastradaSelecionada && !novaAberto && editCatId == null && (
+                  <div className="flex gap-2 mt-2">
+                    <button type="button" className="text-xs text-blue-600 dark:text-blue-400 hover:underline" onClick={iniciarEditarCategoria}>Editar nome</button>
+                    <button type="button" className="text-xs text-red-600 dark:text-red-400 hover:underline" onClick={excluirCategoriaSelecionada}>Excluir</button>
+                  </div>
+                )}
               </div>
               {novaAberto && papel === 'admin' && (
                 <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 space-y-2">
@@ -958,13 +1093,73 @@ export default function Contas() {
                   </div>
                 </div>
               )}
+              {editCatId != null && papel === 'admin' && (
+                <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 space-y-2">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block">Editar nome da categoria *</label>
+                  <input className={INPUT} value={editCatNome} maxLength={20} onChange={(e) => setEditCatNome(e.target.value)} />
+                  <div className="flex justify-end gap-2">
+                    <button type="button" className="text-xs px-3 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => { setEditCatId(null); setEditCatNome(''); }}>Cancelar</button>
+                    <button type="button" disabled={salvandoCategoria} className="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" onClick={confirmarEditarCategoria}>
+                      {salvandoCategoria ? 'Salvando...' : 'Salvar'}
+                    </button>
+                  </div>
+                </div>
+              )}
               {form.categoria === 'recursos_humanos' && (
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Subcategoria RH *</label>
-                  <select className={INPUT} value={form.subcategoria} onChange={(e) => setForm({ ...form, subcategoria: e.target.value })}>
+                  <select
+                    className={INPUT}
+                    value={form.subcategoria}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === SENTINELA_NOVA_SUB) {
+                        setNovaSubAberto(true);
+                        setNovaSubNome('');
+                        setEditSubId(null);
+                        return;
+                      }
+                      setNovaSubAberto(false);
+                      setEditSubId(null);
+                      setForm({ ...form, subcategoria: v });
+                    }}
+                  >
                     <option value="">Selecione...</option>
                     {(catalog?.subcategorias_rh || []).map((s) => <option key={s.codigo} value={s.codigo}>{s.nome}</option>)}
+                    {papel === 'admin' && <option value={SENTINELA_NOVA_SUB}>Nova subcategoria…</option>}
                   </select>
+                  {papel === 'admin' && subSelecionada?.id && !novaSubAberto && editSubId == null && (
+                    <div className="flex gap-2 mt-2">
+                      <button type="button" className="text-xs text-blue-600 dark:text-blue-400 hover:underline" onClick={iniciarEditarSub}>Editar nome</button>
+                      {!subSelecionada.sistema && (
+                        <button type="button" className="text-xs text-red-600 dark:text-red-400 hover:underline" onClick={excluirSubSelecionada}>Excluir</button>
+                      )}
+                    </div>
+                  )}
+                  {novaSubAberto && papel === 'admin' && (
+                    <div className="mt-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 space-y-2">
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block">Nome da nova subcategoria *</label>
+                      <input className={INPUT} value={novaSubNome} maxLength={20} onChange={(e) => setNovaSubNome(e.target.value)} />
+                      <div className="flex justify-end gap-2">
+                        <button type="button" className="text-xs px-3 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => { setNovaSubAberto(false); setNovaSubNome(''); }}>Cancelar</button>
+                        <button type="button" disabled={salvandoSub} className="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" onClick={confirmarNovaSubcategoria}>
+                          {salvandoSub ? 'Salvando...' : 'Confirmar'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {editSubId != null && papel === 'admin' && (
+                    <div className="mt-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 space-y-2">
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block">Editar nome da subcategoria *</label>
+                      <input className={INPUT} value={editSubNome} maxLength={20} onChange={(e) => setEditSubNome(e.target.value)} />
+                      <div className="flex justify-end gap-2">
+                        <button type="button" className="text-xs px-3 py-1 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => { setEditSubId(null); setEditSubNome(''); }}>Cancelar</button>
+                        <button type="button" disabled={salvandoSub} className="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" onClick={confirmarEditarSub}>
+                          {salvandoSub ? 'Salvando...' : 'Salvar'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <div>

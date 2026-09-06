@@ -22,6 +22,7 @@ def _serializar(r: FluxoMovimento) -> dict:
         "ano": r.ano,
         "conta": r.conta or "corrente",
         "par_id": r.par_id,
+        "criado_em": r.criado_em.isoformat() if r.criado_em else None,
     }
 
 

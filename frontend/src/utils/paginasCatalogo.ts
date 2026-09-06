@@ -22,6 +22,7 @@ export const PAGINAS_CATALOGO: PaginaCatalogo[] = [
   { key: 'colaboradores', label: 'Fornecedores', path: '/fornecedores', desc: 'Cadastro de fornecedores', ocultavel: true },
   { key: 'ferias', label: 'Férias', path: '/ferias', desc: 'Gestão de férias', ocultavel: true, notifKey: 'feriasAguardando' },
   { key: 'patrimonio', label: 'Patrimônio', path: '/patrimonio', desc: 'Equipamentos por colaborador', ocultavel: true },
+  { key: 'contratos', label: 'Contratos', path: '/contratos', desc: 'Acesso às pastas de contratos no Google Drive', ocultavel: true },
   { key: 'auditoria', label: 'Auditoria', path: '/auditoria', desc: 'Histórico de alterações', ocultavel: true, adminOnly: true },
   { key: 'seguranca', label: 'Segurança', path: '/seguranca', desc: 'Autenticação em duas etapas', ocultavel: true, adminOnly: true },
 ];

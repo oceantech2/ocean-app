@@ -23,21 +23,41 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Interceptor de resposta: redireciona para login somente quando o token está ausente/expirado
+const AUTH_STORAGE_KEYS = [
+  'access_token',
+  'usuario',
+  'papel',
+  'permissoes',
+  'paginas_visibilidade',
+] as const;
+
+function clearAuthStorage() {
+  for (const key of AUTH_STORAGE_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
+
+function isAuthTokenRequest(url?: string): boolean {
+  if (!url) return false;
+  return url.includes('/auth/token');
+}
+
+// Interceptor de resposta: redireciona para login somente quando a sessão autenticada expirou
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
     const detail = error.response?.data?.detail ?? '';
-    // Só desloga se for 401 real de sessão expirada (não 2FA_REQUIRED, não 403 admin)
-    if (status === 401 && detail !== '2FA_REQUIRED') {
-      const token = localStorage.getItem('access_token');
-      // Só redireciona se havia um token (sessão expirou), ignorando erros de rotas sem token
-      if (token) {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('usuario');
-        window.location.href = '/login';
-      }
+    const requestUrl = error.config?.url ?? '';
+    // Não tratar 401 do próprio login (credenciais/2FA) como sessão expirada
+    if (
+      status === 401 &&
+      detail !== '2FA_REQUIRED' &&
+      !isAuthTokenRequest(requestUrl) &&
+      localStorage.getItem('access_token')
+    ) {
+      clearAuthStorage();
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -46,7 +66,7 @@ api.interceptors.response.use(
 // Auth Service
 export const authService = {
   login: async (username: string, password: string, totpCode?: string): Promise<LoginResponse> => {
-    const formData = new FormData();
+    const formData = new URLSearchParams();
     formData.append('username', username);
     formData.append('password', password);
     if (totpCode) formData.append('totp_code', totpCode);
@@ -57,6 +77,7 @@ export const authService = {
       },
     });
 
+    // Persistência parcial só no 200; setAuth no Login completa papel/permissões/páginas
     localStorage.setItem('access_token', response.data.access_token);
     localStorage.setItem('usuario', response.data.usuario);
 
@@ -64,8 +85,7 @@ export const authService = {
   },
 
   logout: () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('usuario');
+    clearAuthStorage();
   },
 
   getCurrentUser: async () => {
@@ -160,7 +180,17 @@ export const nfsService = {
   importarXlsx: (arquivo: File, on_conflict?: 'reject' | 'update') => {
     const fd = new FormData();
     fd.append('file', arquivo);
-    return api.post<{ ok: number; atualizados: number; erros: Array<{ linha?: number; numero?: string; motivo?: string }> }>(
+    return api.post<{
+      ok: number;
+      atualizados: number;
+      erros: Array<{
+        linha?: number;
+        numero?: string;
+        motivo?: 'duplicado_arquivo' | 'duplicado_cadastro' | 'conflito_origem' | string;
+        origem_existente?: 'manual' | 'maggo' | string;
+        nf_id?: number;
+      }>;
+    }>(
       '/nfs/importar-xlsx',
       fd,
       {
@@ -231,6 +261,21 @@ export const contasService = {
   criarCategoria: (nome: string) =>
     api.post('/contas/categorias', { nome }),
 
+  atualizarCategoria: (id: number, nome: string) =>
+    api.patch(`/contas/categorias/${id}`, { nome }),
+
+  excluirCategoria: (id: number) =>
+    api.delete(`/contas/categorias/${id}`),
+
+  criarSubcategoriaRh: (nome: string) =>
+    api.post('/contas/categorias/subcategorias-rh', { nome }),
+
+  atualizarSubcategoriaRh: (id: number, nome: string) =>
+    api.patch(`/contas/categorias/subcategorias-rh/${id}`, { nome }),
+
+  excluirSubcategoriaRh: (id: number) =>
+    api.delete(`/contas/categorias/subcategorias-rh/${id}`),
+
   criar: (dados: ContaPagarCreatePayload) =>
     api.post('/contas', dados),
 
@@ -292,9 +337,6 @@ export const bonusService = {
 
   atualizar: (id: number, dados: any) =>
     api.put(`/bonus/${id}`, dados),
-
-  deletar: (id: number) =>
-    api.delete(`/bonus/${id}`),
 
   liberar: (id: number) =>
     api.post(`/bonus/${id}/liberar`),

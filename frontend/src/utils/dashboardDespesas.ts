@@ -1,4 +1,4 @@
-/** Agregações de despesa/impostos do Dashboard (feature 040). */
+/** Agregações de despesa/impostos do Dashboard (features 040, 047). */
 
 export type NaturezaDespesa = 'fixa' | 'variavel' | 'excluida';
 
@@ -92,14 +92,13 @@ export function totaisDespesa(
 
 export function lucroCard(
   receitaLiquida: number,
-  receitaBruta: number,
   fixas: number,
   variaveis: number,
 ): { valor: number; pct: number | null } {
-  const valor = (Number(receitaLiquida) || 0) - (Number(fixas) || 0) - (Number(variaveis) || 0);
-  const bruto = Number(receitaBruta) || 0;
-  if (bruto <= 0) return { valor, pct: null };
-  return { valor, pct: (valor / bruto) * 100 };
+  const liquida = Number(receitaLiquida) || 0;
+  const valor = liquida - (Number(fixas) || 0) - (Number(variaveis) || 0);
+  if (liquida <= 0) return { valor, pct: null };
+  return { valor, pct: (valor / liquida) * 100 };
 }
 
 export type CategoriaCusto = {
@@ -133,39 +132,40 @@ export function filtrarCustoSemImpostos(resposta: RespostaCusto | null | undefin
   return { ...resposta, total, categorias };
 }
 
-export type ItemImpostoDeContas = {
-  mes: number;
-  ano: number;
+export type NfParaImposto = {
+  status?: string | null;
   valor_imposto?: number | null;
-  faturamento?: number | null;
-  percentual_imposto?: number | null;
+  data_emissao?: string | null;
+  excluida_em?: string | null;
 };
 
-export function impostosDoRecorte(
-  itens: ItemImpostoDeContas[],
+function parseEmissao(s?: string | null): { ano: number; mes: number } | null {
+  return parseVencimento(s);
+}
+
+/** Impostos por competência: Σ valor_imposto das NFs pagas no recorte; alíquota ÷ Receita Bruta. */
+export function impostosDeNfsPagas(
+  nfs: NfParaImposto[],
   mes: number | null,
   ano: number,
+  receitaBruta: number,
   mesAte?: number,
 ): { valor: number; aliquota: number | null } {
-  const doAno = (itens || []).filter((i) => Number(i.ano) === ano);
-  if (mes != null) {
-    const item = doAno.find((i) => Number(i.mes) === mes);
-    const valor = Number(item?.valor_imposto) || 0;
-    const fat = Number(item?.faturamento) || 0;
-    const pctApi = Number(item?.percentual_imposto);
-    if (fat > 0) {
-      const aliquota = Number.isFinite(pctApi) && pctApi > 0 ? pctApi : (valor / fat) * 100;
-      return { valor, aliquota };
+  let valor = 0;
+  for (const nf of nfs || []) {
+    if (String(nf.status || '').trim().toLowerCase() !== 'paga') continue;
+    if (nf.excluida_em) continue;
+    const em = parseEmissao(nf.data_emissao);
+    if (!em || em.ano !== ano) continue;
+    if (mes != null) {
+      if (em.mes !== mes) continue;
+    } else {
+      const ate = mesAte ?? 12;
+      if (em.mes < 1 || em.mes > ate) continue;
     }
-    return { valor, aliquota: null };
+    valor += Number(nf.valor_imposto) || 0;
   }
-  const ate = mesAte ?? 12;
-  const faixa = doAno.filter((i) => {
-    const m = Number(i.mes);
-    return m >= 1 && m <= ate;
-  });
-  const valor = faixa.reduce((s, i) => s + (Number(i.valor_imposto) || 0), 0);
-  const fat = faixa.reduce((s, i) => s + (Number(i.faturamento) || 0), 0);
-  if (fat <= 0) return { valor, aliquota: null };
-  return { valor, aliquota: (valor / fat) * 100 };
+  const bruto = Number(receitaBruta) || 0;
+  if (bruto <= 0) return { valor, aliquota: null };
+  return { valor, aliquota: (valor / bruto) * 100 };
 }

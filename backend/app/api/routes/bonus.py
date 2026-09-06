@@ -187,18 +187,3 @@ def atualizar_bonus(
     db.refresh(db_bonus)
     return BonusResponse(**serializar_bonus(db_bonus))
 
-
-@router.delete("/{bonus_id}", status_code=status.HTTP_204_NO_CONTENT)
-def deletar_bonus(
-    bonus_id: int,
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
-):
-    """Deletar comissão (API legado; UI não expõe)"""
-    db_bonus = db.query(Bonus).filter(Bonus.id == bonus_id).first()
-    if not db_bonus:
-        raise HTTPException(status_code=404, detail="Comissão não encontrada")
-    registrar_auditoria(db, current_user, "deletar", "Bonus", db_bonus.id, f"Colaborador {db_bonus.colaborador_id} — R$ {db_bonus.valor_bonus:,.2f}")
-    db.delete(db_bonus)
-    db.commit()
-    return None

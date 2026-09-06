@@ -162,9 +162,32 @@ def _migrar():
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_categorias_pagar_cadastradas_nome_lower "
                 "ON categorias_pagar_cadastradas (LOWER(nome))"
             ))
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS subcategorias_rh_cadastradas ("
+                "id SERIAL PRIMARY KEY, "
+                "codigo VARCHAR(64) UNIQUE, "
+                "nome VARCHAR(20) NOT NULL, "
+                "sistema BOOLEAN NOT NULL DEFAULT FALSE, "
+                "criado_em TIMESTAMP NOT NULL DEFAULT NOW(), "
+                "criado_por VARCHAR(255)"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_subcategorias_rh_cadastradas_nome_lower "
+                "ON subcategorias_rh_cadastradas (LOWER(nome))"
+            ))
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # Seed subcategorias RH padrão (idempotente)
+    with SessionLocal() as db:
+        try:
+            from app.services.categorias_contas import seed_subcategorias_rh
+            seed_subcategorias_rh(db)
+            db.commit()
+        except Exception:
+            db.rollback()
 
     # Migração centro_custo → categoria / subcategoria / categoria_pendente (one-shot)
     with engine.connect() as conn:

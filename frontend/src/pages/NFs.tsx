@@ -60,6 +60,13 @@ function origemLabel(origem?: string | null) {
   return origem === 'manual' ? 'Manual' : 'Maggo';
 }
 
+function motivoImportLabel(motivo?: string) {
+  if (motivo === 'conflito_origem') return 'Conflito de origem (já existe em Maggo)';
+  if (motivo === 'duplicado_cadastro') return 'Duplicado no cadastro Manual';
+  if (motivo === 'duplicado_arquivo') return 'Duplicado no arquivo';
+  return motivo || 'erro';
+}
+
 const MSG_DATA_PAGAMENTO = 'Informe a data de pagamento para marcar como recebido.';
 const MSG_NF_EXIGE_EMISSAO = 'Informe a data de emissão junto com o número da NF.';
 
@@ -128,12 +135,13 @@ const COLUNAS: { label: string; campo: string | null; className: string; width: 
   { label: 'Emissão', campo: 'data_emissao', width: '5.5rem', className: '' },
   { label: 'Vencimento', campo: 'data_vencimento', width: '5.5rem', className: '' },
   { label: 'Pagamento', campo: 'data_pagamento', width: '5.5rem', className: '' },
+  { label: 'Lançamento', campo: 'criado_em', width: '7rem', className: '' },
   { label: 'Conta corrente', campo: 'caixa', width: '7rem', className: '' },
   { label: 'Status', campo: 'status', width: '5.5rem', className: '' },
   { label: 'Ações', campo: null, width: '8rem', className: 'sticky right-0 z-[2] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
 ];
 
-const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1156px]';
+const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1268px]';
 
 export default function NFs() {
   const papel = useAuthStore((s) => s.papel);
@@ -163,6 +171,10 @@ export default function NFs() {
   const [arquivoNfForm, setArquivoNfForm] = useState<File | null>(null);
   const [uploadingAnexo, setUploadingAnexo] = useState<number | null>(null);
   const anexoInputRef = useRef<HTMLInputElement>(null);
+  const importXlsxRef = useRef<HTMLInputElement>(null);
+  const [importandoXlsx, setImportandoXlsx] = useState(false);
+  const [importPendente, setImportPendente] = useState<File | null>(null);
+  const [dialogImportConflito, setDialogImportConflito] = useState(false);
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
   const [comissoesLinhas, setComissoesLinhas] = useState<ComissaoLinhaForm[]>([]);
@@ -229,12 +241,9 @@ export default function NFs() {
       }
       const headers = nfsRes.headers || {};
       const maggoStatus = headers['x-ocean-maggo-status'];
-      const ignorados = headers['x-ocean-maggo-ignorados'];
+      // Colisões Maggo×Manual: só diagnóstico no header X-Ocean-Maggo-Ignorados (sem toast dedicado — 053)
       if (maggoStatus === 'unavailable') {
         toast('Fonte Maggo indisponível — exibindo registros locais', { icon: '⚠️' });
-      }
-      if (ignorados) {
-        toast(`Maggo ignorou número(s) manuais: ${ignorados}`, { icon: 'ℹ️' });
       }
     } catch (e: any) {
       setNfs([]);
@@ -354,13 +363,67 @@ export default function NFs() {
 
   const tratarConflitoNumero = (e: any): boolean => {
     const d = detalheObjeto(e);
-    if (e?.response?.status === 409 && d?.code === 'NF_NUMERO_DUPLICADO' && d.nf_id) {
+    if (e?.response?.status !== 409 || !d?.nf_id) return false;
+    if (d.code === 'NF_NUMERO_ORIGEM_CONFLITO') {
+      const num = d.numero || form.numero;
+      const origem = d.origem_existente === 'manual' ? 'Manual' : d.origem_existente === 'maggo' ? 'Maggo' : (d.origem_existente || 'outra origem');
+      toast.error(
+        d.message ||
+          `O número ${num} já existe na origem ${origem}. A mesma nota não pode vir de duas origens.`,
+      );
+      setConflitoNfId(d.nf_id);
+      return true;
+    }
+    if (d.code === 'NF_NUMERO_DUPLICADO') {
       const num = d.numero || form.numero;
       toast.error(d.message || `Já existe uma conta a receber com o número ${num}.`);
       setConflitoNfId(d.nf_id);
       return true;
     }
     return false;
+  };
+
+  const concluirImportNfs = (data: {
+    ok: number;
+    atualizados: number;
+    erros?: Array<{ linha?: number; numero?: string; motivo?: string }>;
+  }) => {
+    const { ok, atualizados, erros } = data;
+    if (ok > 0 || atualizados > 0) {
+      toast.success(`${ok} criada(s), ${atualizados} atualizada(s)`);
+      carregarNFs();
+      triggerNotifRefresh();
+    }
+    if (erros && erros.length > 0) {
+      const resumo = erros
+        .slice(0, 8)
+        .map((er) => `L${er.linha ?? '?'}: ${er.numero || '—'} — ${motivoImportLabel(er.motivo)}`)
+        .join('\n');
+      toast.error(`${erros.length} linha(s) com erro na importação`);
+      console.warn('Erros importação NFs:\n' + resumo, erros);
+    } else if (ok === 0 && atualizados === 0) {
+      toast('Nenhuma linha importada', { icon: 'ℹ️' });
+    }
+  };
+
+  const importarNfsXlsx = async (arquivo: File, on_conflict?: 'reject' | 'update') => {
+    try {
+      setImportandoXlsx(true);
+      const res = await nfsService.importarXlsx(arquivo, on_conflict);
+      setDialogImportConflito(false);
+      setImportPendente(null);
+      concluirImportNfs(res.data);
+    } catch (e: any) {
+      const d = detalheObjeto(e);
+      if (e?.response?.status === 422 && d?.code === 'NF_IMPORT_ON_CONFLICT_REQUIRED') {
+        setImportPendente(arquivo);
+        setDialogImportConflito(true);
+        return;
+      }
+      toast.error(mensagemErro(e, 'Erro ao importar arquivo Excel'));
+    } finally {
+      setImportandoXlsx(false);
+    }
   };
 
   const salvar = async () => {
@@ -593,6 +656,12 @@ export default function NFs() {
       : nfs;
     return [...base].sort((a, b) => {
       const mult = sortDir === 'asc' ? 1 : -1;
+      if (sortField === 'criado_em') {
+        const ta = a.criado_em ? new Date(a.criado_em).getTime() : 0;
+        const tb = b.criado_em ? new Date(b.criado_em).getTime() : 0;
+        if (ta !== tb) return mult * (ta - tb);
+        return mult * (a.id - b.id);
+      }
       const va = (a as any)[sortField] ?? '';
       const vb = (b as any)[sortField] ?? '';
       if (typeof va === 'number' && typeof vb === 'number') return mult * (va - vb);
@@ -646,7 +715,27 @@ export default function NFs() {
           <ActionButton variant="exportar-xlsx" context="header" label="Exportar Excel (.xlsx)" onClick={exportarXlsx} />
           <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
           {papel === 'admin' && (
-            <ActionButton variant="criar" context="header" label="Nova conta a receber" onClick={abrirCriar} />
+            <>
+              <input
+                ref={importXlsxRef}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (f) importarNfsXlsx(f);
+                }}
+              />
+              <ActionButton
+                variant="importar"
+                context="header"
+                label={importandoXlsx ? 'Importando…' : 'Importar Excel'}
+                onClick={() => importXlsxRef.current?.click()}
+                disabled={importandoXlsx}
+              />
+              <ActionButton variant="criar" context="header" label="Nova conta a receber" onClick={abrirCriar} />
+            </>
           )}
         </div>
       </div>
@@ -851,6 +940,9 @@ export default function NFs() {
                         ? <span className="text-green-700 dark:text-green-400 font-medium">{nf.data_pagamento}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
+                    <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
+                      {nf.criado_em ? new Date(nf.criado_em).toLocaleString('pt-BR') : '—'}
+                    </td>
                     <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{rotuloContaOrigem(nf.caixa, contasCorrentes)}</td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${statusColor(nf.status)}`}>{statusLabel(nf.status)}</span>
@@ -903,7 +995,7 @@ export default function NFs() {
       {modalAberto && (editando || criando) && (() => {
         const isManual = criando || editando?.origem === 'manual';
         const maggoEditavel = papel === 'admin';
-        const oceanEditavel = true;
+        const oceanEditavel = papel === 'admin';
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div
@@ -918,7 +1010,9 @@ export default function NFs() {
               {!criando && (
                 <p className="text-xs text-gray-500 mt-1">
                   Origem: {origemLabel(editando?.origem)}
-                  {isManual ? ' — dados Maggo e Ocean editáveis' : ' — dados Maggo e Ocean editáveis no Ocean'}
+                  {isManual
+                    ? ' — dados Maggo e Ocean editáveis'
+                    : ' — dados Maggo e Ocean editáveis no Ocean (correção não atualiza a Maggo)'}
                 </p>
               )}
             </div>
@@ -1047,6 +1141,8 @@ export default function NFs() {
                 <input
                   className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.numero}
+                  readOnly={!oceanEditavel}
+                  disabled={!oceanEditavel}
                   onChange={(e) => setForm({ ...form, numero: e.target.value })}
                 />
               </div>
@@ -1102,6 +1198,8 @@ export default function NFs() {
                   type="date"
                   className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.data_emissao}
+                  readOnly={!oceanEditavel}
+                  disabled={!oceanEditavel}
                   onChange={(e) => setForm({ ...form, data_emissao: e.target.value })}
                 />
               </div>
@@ -1111,14 +1209,17 @@ export default function NFs() {
                   type="date"
                   className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.data_vencimento}
+                  readOnly={!oceanEditavel}
+                  disabled={!oceanEditavel}
                   onChange={(e) => setForm({ ...form, data_vencimento: e.target.value })}
                 />
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Pagamento</label>
                 <select
-                  className={INPUT}
+                  className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.pagamento_estado}
+                  disabled={!oceanEditavel}
                   onChange={(e) => {
                     const v = e.target.value as 'pendente' | 'recebido';
                     setForm({
@@ -1142,16 +1243,23 @@ export default function NFs() {
               {form.pagamento_estado === 'recebido' && (
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento *</label>
-                  <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
+                  <input
+                    type="date"
+                    className={oceanEditavel ? INPUT : INPUT_RO}
+                    value={form.data_pagamento}
+                    readOnly={!oceanEditavel}
+                    disabled={!oceanEditavel}
+                    onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })}
+                  />
                 </div>
               )}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Conta corrente *</label>
                 <select
-                  className={INPUT}
+                  className={oceanEditavel ? INPUT : INPUT_RO}
                   value={form.caixa || codigoSlot1(contasCorrentes)}
                   onChange={(e) => setForm({ ...form, caixa: e.target.value })}
-                  disabled={papel !== 'admin'}
+                  disabled={!oceanEditavel}
                 >
                   {contasCorrentes.filter((c) => c.ativo).map((c) => (
                     <option key={c.codigo} value={c.codigo}>{c.nome}</option>
@@ -1180,9 +1288,11 @@ export default function NFs() {
             </div>
             <div className="shrink-0 px-6 py-4 border-t dark:border-gray-700 flex justify-end gap-3 bg-white dark:bg-gray-800 text-sm">
               <button onClick={fecharModal} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
-              <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {salvando ? 'Salvando...' : 'Salvar'}
-              </button>
+              {papel === 'admin' && (
+                <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {salvando ? 'Salvando...' : 'Salvar'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1223,6 +1333,45 @@ export default function NFs() {
               <button onClick={() => setPagarModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={confirmarPagamento} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
                 Confirmar recebimento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialogImportConflito && importPendente && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
+            <div className="p-6 border-b dark:border-gray-700">
+              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Números já cadastrados (Manual)</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                Alguns números deste arquivo já existem em lançamentos Manual. Deseja rejeitar essas linhas ou atualizar as contas existentes?
+                Linhas cujo número já existe em Maggo serão sempre rejeitadas (conflito de origem).
+              </p>
+            </div>
+            <div className="p-6 flex flex-wrap justify-end gap-3 text-sm">
+              <button
+                type="button"
+                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                onClick={() => { setDialogImportConflito(false); setImportPendente(null); }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+                disabled={importandoXlsx}
+                onClick={() => importPendente && importarNfsXlsx(importPendente, 'reject')}
+              >
+                Rejeitar
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                disabled={importandoXlsx}
+                onClick={() => importPendente && importarNfsXlsx(importPendente, 'update')}
+              >
+                Atualizar
               </button>
             </div>
           </div>

@@ -9,7 +9,13 @@ export type DetailObjeto = {
   nf_id?: number | null;
   numero?: string;
   razao_social?: string | null;
-  conflitos?: Array<{ linha?: number; numero?: string; nf_id?: number }>;
+  origem_existente?: 'manual' | 'maggo' | string | null;
+  conflitos?: Array<{
+    linha?: number;
+    numero?: string;
+    nf_id?: number;
+    origem_existente?: string;
+  }>;
 };
 
 export function detalheErro(e: any): DetailObjeto | string | any[] | null {

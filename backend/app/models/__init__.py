@@ -189,6 +189,17 @@ class CategoriaPagarCadastrada(Base):
     criado_por = Column(String(255), nullable=True)
 
 
+class SubcategoriaRhCadastrada(Base):
+    __tablename__ = "subcategorias_rh_cadastradas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String(64), unique=True, nullable=True, index=True)
+    nome = Column(String(20), nullable=False)
+    sistema = Column(Boolean, default=False, nullable=False)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    criado_por = Column(String(255), nullable=True)
+
+
 # ==================== CONTAS CORRENTES ====================
 class ContaCorrente(Base):
     __tablename__ = "contas_correntes"

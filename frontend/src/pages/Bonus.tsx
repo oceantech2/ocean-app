@@ -378,7 +378,15 @@ export default function BonusPage() {
           </div>
           {colsList.length > ITENS_POR_PAGINA && (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
-              <Pagination total={colsList.length} pagina={pagina} tamanho={ITENS_POR_PAGINA} onChange={setPagina} />
+              <Pagination
+                total={colsList.length}
+                pagina={pagina}
+                tamanho={ITENS_POR_PAGINA}
+                onChange={(p) => {
+                  setPagina(p);
+                  setSelecionados(new Set());
+                }}
+              />
             </div>
           )}
         </>

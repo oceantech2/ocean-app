@@ -28,6 +28,7 @@ class ColaboradorBase(BaseModel):
 
 class ColaboradorCreate(ColaboradorBase):
     data_admissao: Optional[date] = None
+    data_desligamento: Optional[date] = None
 
 class ColaboradorUpdate(BaseModel):
     nome: Optional[str] = None
@@ -170,15 +171,26 @@ class NFCreate(NFBase):
         return self
 
 class NFUpdate(BaseModel):
-    """Atualização de conta a receber (Maggo e Ocean)."""
+    """Atualização de conta a receber (Maggo e Ocean).
+
+    `aliquota_imposto` é editável (0–100). `valor_imposto` e `valor_liquido` podem
+    vir no body por compatibilidade, mas NÃO são autoritativos no write — o servidor
+    recalcula a partir de valor_bruto + aliquota_imposto.
+    """
     numero: Optional[str] = None
     razao_social: Optional[str] = None
     posicao: Optional[str] = None
     candidato: Optional[str] = None
     valor_bruto: Optional[float] = None
-    valor_imposto: Optional[float] = None
-    aliquota_imposto: Optional[float] = None
-    valor_liquido: Optional[float] = None
+    valor_imposto: Optional[float] = Field(
+        default=None,
+        description="Ignorado no write; derivado de bruto + alíquota no servidor",
+    )
+    aliquota_imposto: Optional[float] = Field(default=None, ge=0, le=100)
+    valor_liquido: Optional[float] = Field(
+        default=None,
+        description="Ignorado no write; derivado de bruto + alíquota no servidor",
+    )
     data_ent_pgto: Optional[date] = None
     data_emissao: Optional[date] = None
     data_vencimento: Optional[date] = None
@@ -330,8 +342,10 @@ class CategoriaCadastradaItem(BaseModel):
 
 
 class SubcategoriaRhItem(BaseModel):
+    id: Optional[int] = None
     codigo: str
     nome: str
+    sistema: bool = True
 
 
 class CatalogoCategoriasContas(BaseModel):
@@ -348,6 +362,20 @@ class CategoriaCadastradaResponse(BaseModel):
     id: int
     codigo: str
     nome: str
+
+    class Config:
+        from_attributes = True
+
+
+class SubcategoriaRhCreate(BaseModel):
+    nome: str
+
+
+class SubcategoriaRhResponse(BaseModel):
+    id: int
+    codigo: str
+    nome: str
+    sistema: bool
 
     class Config:
         from_attributes = True

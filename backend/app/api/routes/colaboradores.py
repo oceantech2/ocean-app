@@ -36,13 +36,34 @@ def _validar_pf_cnpj(
     nome = (pf_nome or "").strip() or None
     endereco = (pf_endereco or "").strip() or None
     cpf_digits = doc.so_digitos(pf_cpf) if pf_cpf else ""
-    if not nome or not endereco or not pf_data_nascimento or not cpf_digits:
-        raise HTTPException(status_code=400, detail="Preencha os dados da pessoa física do CNPJ")
-    if not doc.validar_cpf(cpf_digits):
-        raise HTTPException(status_code=400, detail="CPF da pessoa física inválido")
-    if pf_data_nascimento > date.today():
+    if not nome or not endereco:
+        raise HTTPException(status_code=400, detail="Preencha nome e endereço da pessoa física do CNPJ")
+    cpf_out = None
+    if cpf_digits:
+        if not doc.validar_cpf(cpf_digits):
+            raise HTTPException(status_code=400, detail="CPF da pessoa física inválido")
+        cpf_out = cpf_digits
+    dn_out = pf_data_nascimento
+    if dn_out is not None and dn_out > date.today():
         raise HTTPException(status_code=400, detail="Data de nascimento da pessoa física inválida")
-    return nome, cpf_digits, endereco, pf_data_nascimento
+    return nome, cpf_out, endereco, dn_out
+
+
+def _as_date(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    return v
+
+
+def _validar_salario_e_datas(salario, data_admissao, data_desligamento):
+    if salario is not None and salario < 0:
+        raise HTTPException(status_code=400, detail="Salário não pode ser negativo")
+    inicio = _as_date(data_admissao)
+    termino = _as_date(data_desligamento)
+    if inicio is not None and termino is not None and termino < inicio:
+        raise HTTPException(status_code=400, detail="Data de término não pode ser anterior à data de início")
 
 
 def _normalizar_cadastro(
@@ -82,8 +103,9 @@ def _normalizar_cadastro(
     if not doc.validar_email(email):
         raise HTTPException(status_code=400, detail="E-mail inválido")
     if elegivel_equipe and tipo_documento == "cpf":
-        if not cargo or salario is None or not data_nascimento:
+        if not cargo or not data_nascimento:
             raise HTTPException(status_code=400, detail="Preencha os campos obrigatórios de equipe")
+    _validar_salario_e_datas(salario, None, None)
     return tipo_documento, chave, razao, (email.strip() if email else None), tipo_fornecedor, pf_out
 
 
@@ -316,7 +338,7 @@ def criar_colaborador(
         colaborador.email,
         False,
         None,
-        None,
+        colaborador.salario,
         None,
         colaborador.tipo_fornecedor,
         colaborador.pf_nome,
@@ -327,10 +349,13 @@ def criar_colaborador(
     )
     _checar_duplicidade(db, digitos)
     _checar_pf_duplicidade(db, pf_out[1])
+    _validar_salario_e_datas(colaborador.salario, colaborador.data_admissao, colaborador.data_desligamento)
 
     dados = colaborador.dict()
     if dados.get("data_admissao") is None:
         dados.pop("data_admissao", None)
+    if dados.get("data_desligamento") is None:
+        dados.pop("data_desligamento", None)
     dados["tipo"] = "fornecedor"
     dados["elegivel_equipe"] = False
     dados["tipo_fornecedor"] = tipo_fornecedor
@@ -342,7 +367,7 @@ def criar_colaborador(
     dados["telefone"] = (colaborador.telefone or "").strip() or None
     dados["pf_nome"], dados["pf_cpf"], dados["pf_endereco"], dados["pf_data_nascimento"] = pf_out
     dados["cargo"] = None
-    dados["salario"] = None
+    dados["salario"] = colaborador.salario
     dados["data_nascimento"] = None
     dados["beneficio"] = None
     novo_colaborador = Colaborador(**dados)
@@ -374,7 +399,7 @@ def atualizar_colaborador(
     dados_atualizacao.pop("elegivel_equipe", None)
 
     if not db_colaborador.elegivel_equipe:
-        for k in ("cargo", "salario", "data_nascimento", "beneficio", "data_admissao", "data_desligamento"):
+        for k in ("cargo", "data_nascimento", "beneficio"):
             dados_atualizacao.pop(k, None)
 
     tipo_documento = dados_atualizacao.get("tipo_documento", db_colaborador.tipo_documento)
@@ -437,6 +462,12 @@ def atualizar_colaborador(
         if not doc.validar_email(dados_atualizacao["email"]):
             raise HTTPException(status_code=400, detail="E-mail inválido")
         dados_atualizacao["email"] = dados_atualizacao["email"].strip() or None
+
+    salario_final = dados_atualizacao.get("salario", db_colaborador.salario) if "salario" in dados_atualizacao else db_colaborador.salario
+    inicio_final = dados_atualizacao.get("data_admissao", db_colaborador.data_admissao) if "data_admissao" in dados_atualizacao else db_colaborador.data_admissao
+    termino_final = dados_atualizacao.get("data_desligamento", db_colaborador.data_desligamento) if "data_desligamento" in dados_atualizacao else db_colaborador.data_desligamento
+    if any(k in dados_atualizacao for k in ("salario", "data_admissao", "data_desligamento")):
+        _validar_salario_e_datas(salario_final, inicio_final, termino_final)
 
     for campo, valor in dados_atualizacao.items():
         setattr(db_colaborador, campo, valor)

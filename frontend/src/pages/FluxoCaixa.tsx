@@ -77,6 +77,16 @@ function useOrdenacao(campoInicial: string) {
   );
   const ordenar = <T,>(items: T[], extrator: (item: T, campo: string) => any) => [...items].sort((a, b) => {
     const mult = dir === 'asc' ? 1 : -1;
+    if (campo === 'criado_em') {
+      const va = extrator(a, 'criado_em');
+      const vb = extrator(b, 'criado_em');
+      const ta = va ? new Date(String(va)).getTime() : 0;
+      const tb = vb ? new Date(String(vb)).getTime() : 0;
+      if (ta !== tb) return mult * (ta - tb);
+      const ida = String(extrator(a, 'id') ?? '');
+      const idb = String(extrator(b, 'id') ?? '');
+      return mult * ida.localeCompare(idb);
+    }
     const va = extrator(a, campo) ?? '';
     const vb = extrator(b, campo) ?? '';
     if (typeof va === 'number' && typeof vb === 'number') return mult * (va - vb);
@@ -508,6 +518,7 @@ export default function FluxoCaixa() {
                   { label: 'Tipo', campo: 'tipo' },
                   { label: 'Origem', campo: 'origem_rotulo' },
                   { label: 'Descrição', campo: 'desc' },
+                  { label: 'Lançamento', campo: 'criado_em' },
                   { label: 'Valor', campo: 'valor' },
                   { label: '', campo: null },
                 ].map(({ label, campo }) => (
@@ -532,6 +543,9 @@ export default function FluxoCaixa() {
                   </td>
                   <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300">{mov.origem_rotulo}</td>
                   <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300">{mov.desc}</td>
+                  <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
+                    {mov.criado_em ? new Date(mov.criado_em).toLocaleString('pt-BR') : '—'}
+                  </td>
                   <td className={`px-4 py-2.5 text-right font-medium ${mov.tipo === 'entrada' ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
                     {mov.tipo === 'entrada' ? '+' : ''}{fmt(Math.abs(mov.valor))}
                   </td>

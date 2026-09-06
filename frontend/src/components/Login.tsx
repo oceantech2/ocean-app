@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { authService } from '../services/api';
 import { useAuthStore } from '../store';
+
+const MSG_CREDENCIAIS = 'Usuário ou senha incorretos';
+const MSG_REDE = 'Não foi possível conectar. Tente novamente.';
+const MSG_GENERICA = 'Não foi possível entrar. Tente novamente.';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -12,6 +16,11 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((state) => state.setAuth);
+
+  // FR-008: limpar sessão residual ao abrir o login
+  useEffect(() => {
+    useAuthStore.getState().logout();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,12 +38,20 @@ export default function Login() {
       toast.success('Login realizado com sucesso!');
       navigate('/dashboard');
     } catch (error: any) {
+      if (!error.response) {
+        toast.error(MSG_REDE);
+        return;
+      }
       const detail = error.response?.data?.detail;
       if (detail === '2FA_REQUIRED') {
         setPrecisa2fa(true);
         toast('Digite o código do seu app autenticador', { icon: '🔐' });
+      } else if (detail === 'Código 2FA inválido') {
+        toast.error('Código 2FA inválido');
+      } else if (error.response?.status === 401) {
+        toast.error(MSG_CREDENCIAIS);
       } else {
-        toast.error(detail || 'Erro ao fazer login');
+        toast.error(typeof detail === 'string' && detail ? detail : MSG_GENERICA);
       }
     } finally {
       setLoading(false);

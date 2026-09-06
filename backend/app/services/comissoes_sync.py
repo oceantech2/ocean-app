@@ -54,7 +54,14 @@ def _preencher_de_nf(bonus: Bonus, nf: NF) -> None:
     bonus.numero_nf = nf.numero
 
 
-def _aplicar_linha(db: Session, bonus: Bonus, linha: ComissaoLinhaInput, nf: NF) -> None:
+def _aplicar_linha(
+    db: Session,
+    bonus: Bonus,
+    linha: ComissaoLinhaInput,
+    nf: NF,
+    *,
+    preservar_valor_bonus: bool = False,
+) -> None:
     _exigir_fornecedor_ativo(db, linha.colaborador_id)
     bonus.colaborador_id = linha.colaborador_id
     bonus.mes = linha.mes
@@ -62,7 +69,8 @@ def _aplicar_linha(db: Session, bonus: Bonus, linha: ComissaoLinhaInput, nf: NF)
     bonus.atividades = _atividades_json(linha.atividades)
     bonus.etapa = linha.atividades[0]
     bonus.percentual = linha.percentual
-    bonus.valor_bonus = calcular_valor_bonus(linha.percentual, nf.valor_liquido)
+    if not preservar_valor_bonus:
+        bonus.valor_bonus = calcular_valor_bonus(linha.percentual, nf.valor_liquido)
     _preencher_de_nf(bonus, nf)
 
 
@@ -72,7 +80,11 @@ def sincronizar(
     linhas: Optional[List[ComissaoLinhaInput]],
     current_user: str,
 ) -> None:
-    """Cria/atualiza/remove comissões não liberadas da NF."""
+    """Cria/atualiza/remove comissões não liberadas da NF.
+
+    Não recalcula valor_bonus de linhas existentes só porque o líquido da NF mudou
+    (FR-012). Recalcula apenas em linha nova ou quando percentual/atividades mudam.
+    """
     if linhas is None:
         return
 
@@ -88,7 +100,15 @@ def sincronizar(
                 raise HTTPException(status_code=422, detail=f"Comissão {linha.id} não encontrada nesta conta")
             if bonus.liberado:
                 raise HTTPException(status_code=422, detail="Comissão liberada não pode ser alterada")
-            _aplicar_linha(db, bonus, linha, nf)
+            percentual_igual = float(bonus.percentual) == float(linha.percentual)
+            atividades_gravadas = _parse_atividades(bonus.atividades)
+            if not atividades_gravadas and bonus.etapa:
+                atividades_gravadas = [bonus.etapa]
+            atividades_iguais = frozenset(atividades_gravadas) == frozenset(linha.atividades)
+            _aplicar_linha(
+                db, bonus, linha, nf,
+                preservar_valor_bonus=percentual_igual and atividades_iguais,
+            )
             registrar_auditoria(
                 db, current_user, "editar", "Bonus", bonus.id,
                 f"NF #{nf.id} — fornecedor {bonus.colaborador_id} — R$ {bonus.valor_bonus:,.2f}",
@@ -122,10 +142,6 @@ def sincronizar(
                 f"Removida do sync NF #{nf.id}",
             )
             db.delete(bonus)
-
-    # Recalcular linhas não liberadas se valor líquido mudou (PUT da NF)
-    for bonus in db.query(Bonus).filter(Bonus.nf_id == nf.id, Bonus.liberado.is_(False)).all():
-        bonus.valor_bonus = calcular_valor_bonus(bonus.percentual, nf.valor_liquido)
 
 
 def serializar_bonus(bonus: Bonus, nf: Optional[NF] = None) -> dict:

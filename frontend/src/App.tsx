@@ -22,6 +22,7 @@ const FluxoCaixa = lazy(() => import('./pages/FluxoCaixa'));
 const Impostos = lazy(() => import('./pages/Impostos'));
 const Retiradas = lazy(() => import('./pages/Retiradas'));
 const Patrimonio = lazy(() => import('./pages/Patrimonio'));
+const Contratos = lazy(() => import('./pages/Contratos'));
 
 const PAGE_COMPONENTS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   dashboard: Dashboard,
@@ -38,6 +39,7 @@ const PAGE_COMPONENTS: Record<string, React.LazyExoticComponent<() => JSX.Elemen
   impostos: Impostos,
   retiradas: Retiradas,
   patrimonio: Patrimonio,
+  contratos: Contratos,
 };
 
 function DarkModeSync() {

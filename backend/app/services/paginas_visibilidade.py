@@ -20,6 +20,7 @@ PAGINAS_VISIBILIDADE_DEFAULT: Dict[str, bool] = {
     "colaboradores": True,
     "ferias": True,
     "patrimonio": True,
+    "contratos": True,
     "auditoria": True,
     "seguranca": True,
 }

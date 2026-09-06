@@ -32,7 +32,7 @@ SUB_BENEFICIOS = "beneficios"
 
 SUBCATEGORIAS_RH = {
     SUB_SALARIO: "Salário",
-    SUB_BONUS: "Comissões",
+    SUB_BONUS: "Bônus & Comissão",
     SUB_COMISSAO: "Comissão",
     SUB_RETIRADA: "Retirada Sócios",
     SUB_BENEFICIOS: "Benefícios",
@@ -65,13 +65,19 @@ _IMPORT_SUB_ALIASES = {
     **{v.lower(): k for k, v in SUBCATEGORIAS_RH.items()},
     "retirada sócios": SUB_RETIRADA,
     "retirada socios": SUB_RETIRADA,
+    "comissões": SUB_BONUS,
+    "comissoes": SUB_BONUS,
+    "bônus & comissão": SUB_BONUS,
+    "bonus & comissao": SUB_BONUS,
+    "bônus e comissão": SUB_BONUS,
+    "bonus e comissao": SUB_BONUS,
 }
 
 
 def normalizar_codigo(valor: Optional[str]) -> str:
     if not valor:
         return ""
-    return str(valor).strip().lower().replace(" ", "_").replace("-", "_")
+    return str(valor).strip().lower().replace(" ", "_").replace("-", "_").replace("&", "")
 
 
 def label_categoria(
@@ -91,7 +97,12 @@ def label_categoria(
     if base is None:
         base = codigo
     if c == CATEGORIA_RH and subcategoria:
-        sub = SUBCATEGORIAS_RH.get(normalizar_codigo(subcategoria), subcategoria)
+        sub_code = normalizar_codigo(subcategoria)
+        sub = SUBCATEGORIAS_RH.get(sub_code, subcategoria)
+        if db is not None:
+            row = _buscar_sub_rh(db, sub_code)
+            if row:
+                sub = row.nome
         return f"{base} / {sub}"
     return base
 
@@ -99,7 +110,6 @@ def label_categoria(
 def mapear_legado(valor_antigo: Optional[str]) -> tuple[str, Optional[str], bool]:
     """Retorna (categoria, subcategoria, pendente) a partir do centro_custo legado."""
     v = normalizar_codigo(valor_antigo)
-    # Enum SQLAlchemy às vezes persiste NAME em maiúsculas
     mapa = {
         "administrativo": (CATEGORIA_ADM, None, False),
         "salario": (CATEGORIA_RH, SUB_SALARIO, False),
@@ -110,7 +120,6 @@ def mapear_legado(valor_antigo: Optional[str]) -> tuple[str, Optional[str], bool
     }
     if v in mapa:
         return mapa[v]
-    # Não mapeável — mantém valor antigo, pendente
     return (v or "desconhecido", None, True)
 
 
@@ -129,12 +138,31 @@ def resolver_import_categoria(raw: Optional[str], db: Optional["Session"] = None
     return None
 
 
-def resolver_import_subcategoria(raw: Optional[str]) -> Optional[str]:
+def resolver_import_subcategoria(raw: Optional[str], db: Optional["Session"] = None) -> Optional[str]:
     if raw is None or str(raw).strip() == "":
         return None
     key = str(raw).strip().lower()
     key_norm = normalizar_codigo(raw)
-    return _IMPORT_SUB_ALIASES.get(key) or _IMPORT_SUB_ALIASES.get(key_norm)
+    found = _IMPORT_SUB_ALIASES.get(key) or _IMPORT_SUB_ALIASES.get(key_norm)
+    if found:
+        return found
+    if db is not None:
+        row = _buscar_sub_rh_por_nome_ou_codigo(db, str(raw).strip())
+        if row:
+            return row.codigo
+    return None
+
+
+def _codigos_sub_rh_validos(db: Optional["Session"]) -> set[str]:
+    codes = set(SUBCATEGORIAS_RH.keys())
+    if db is None:
+        return codes
+    from app.models import SubcategoriaRhCadastrada
+
+    for r in db.query(SubcategoriaRhCadastrada).all():
+        if r.codigo:
+            codes.add(r.codigo)
+    return codes
 
 
 def validar_classificacao(
@@ -166,9 +194,11 @@ def validar_classificacao(
         raise ValueError(f"Categoria inválida: {categoria}")
 
     if cat == CATEGORIA_RH:
-        if not sub or sub not in SUBCATEGORIAS_RH:
+        validos = _codigos_sub_rh_validos(db)
+        if not sub or sub not in validos:
             raise ValueError(
-                "Recursos Humanos exige subcategoria: salário, comissões, comissão, retirada sócios ou benefícios"
+                "Recursos Humanos exige uma subcategoria válida "
+                "(ex.: salário, bônus & comissão, comissão, retirada sócios ou benefícios)"
             )
         return cat, sub
 
@@ -204,7 +234,7 @@ def inferir_de_descricao(descricao: str) -> tuple[str, Optional[str]]:
 
 
 def _char_nome_ok(ch: str) -> bool:
-    if ch in " -/":
+    if ch in " -/&":
         return True
     return ch.isalnum() and ch != "_"
 
@@ -238,9 +268,58 @@ def _buscar_cadastrada_por_nome_ou_codigo(db: "Session", bruto: str):
     )
 
 
+def _buscar_sub_rh(db: "Session", codigo: str):
+    from app.models import SubcategoriaRhCadastrada
+
+    if not codigo:
+        return None
+    return (
+        db.query(SubcategoriaRhCadastrada)
+        .filter(SubcategoriaRhCadastrada.codigo == codigo)
+        .first()
+    )
+
+
+def _buscar_sub_rh_por_nome_ou_codigo(db: "Session", bruto: str):
+    from sqlalchemy import func
+    from app.models import SubcategoriaRhCadastrada
+
+    nome = (bruto or "").strip()
+    if not nome:
+        return None
+    por_codigo = _buscar_sub_rh(db, normalizar_codigo(nome))
+    if por_codigo:
+        return por_codigo
+    return (
+        db.query(SubcategoriaRhCadastrada)
+        .filter(func.lower(SubcategoriaRhCadastrada.nome) == nome.casefold())
+        .first()
+    )
+
+
+def _labels_ocupados(db: "Session", *, excluir_cat_id: Optional[int] = None, excluir_sub_id: Optional[int] = None) -> set[str]:
+    from app.models import CategoriaPagarCadastrada, SubcategoriaRhCadastrada
+
+    labels = {v.casefold() for v in CATEGORIAS.values()}
+    for r in db.query(CategoriaPagarCadastrada).all():
+        if excluir_cat_id is not None and r.id == excluir_cat_id:
+            continue
+        labels.add(r.nome.casefold())
+    sub_rows = db.query(SubcategoriaRhCadastrada).all()
+    if sub_rows:
+        for r in sub_rows:
+            if excluir_sub_id is not None and r.id == excluir_sub_id:
+                continue
+            labels.add(r.nome.casefold())
+    else:
+        for nome in SUBCATEGORIAS_RH.values():
+            labels.add(nome.casefold())
+    return labels
+
+
 def listar_catalogo(db: "Session") -> dict:
     from sqlalchemy import func
-    from app.models import CategoriaPagarCadastrada
+    from app.models import CategoriaPagarCadastrada, SubcategoriaRhCadastrada
 
     oficiais = [
         {
@@ -260,10 +339,28 @@ def listar_catalogo(db: "Session") -> dict:
         for r in rows
         if r.codigo
     ]
-    subcategorias_rh = [
-        {"codigo": codigo, "nome": nome}
-        for codigo, nome in SUBCATEGORIAS_RH.items()
-    ]
+
+    sub_rows = (
+        db.query(SubcategoriaRhCadastrada)
+        .order_by(SubcategoriaRhCadastrada.sistema.desc(), func.lower(SubcategoriaRhCadastrada.nome))
+        .all()
+    )
+    if sub_rows:
+        subcategorias_rh = [
+            {
+                "id": r.id,
+                "codigo": r.codigo,
+                "nome": r.nome,
+                "sistema": bool(r.sistema),
+            }
+            for r in sub_rows
+            if r.codigo
+        ]
+    else:
+        subcategorias_rh = [
+            {"id": None, "codigo": codigo, "nome": nome, "sistema": True}
+            for codigo, nome in SUBCATEGORIAS_RH.items()
+        ]
     return {
         "oficiais": oficiais,
         "cadastradas": cadastradas,
@@ -271,36 +368,31 @@ def listar_catalogo(db: "Session") -> dict:
     }
 
 
-def validar_nome_nova(nome_bruto: Optional[str], db: "Session") -> str:
-    from sqlalchemy import func
-    from app.models import CategoriaPagarCadastrada
-
+def validar_nome_nova(
+    nome_bruto: Optional[str],
+    db: "Session",
+    *,
+    excluir_cat_id: Optional[int] = None,
+    excluir_sub_id: Optional[int] = None,
+) -> str:
     nome = (nome_bruto or "").strip()
     if not nome:
         raise ValueError("Nome é obrigatório")
     if len(nome) > 20:
         raise ValueError("Nome deve ter no máximo 20 caracteres")
     if any(not _char_nome_ok(ch) for ch in nome):
-        raise ValueError("Use apenas letras, números, espaços, hífen e barra")
+        raise ValueError("Use apenas letras, números, espaços, hífen, barra e &")
 
     chave = nome.casefold()
-    labels_ocupados = {v.casefold() for v in CATEGORIAS.values()}
-    labels_ocupados.update(v.casefold() for v in SUBCATEGORIAS_RH.values())
-    if chave in labels_ocupados:
-        raise ValueError("Já existe uma categoria com este nome")
+    if chave in _labels_ocupados(db, excluir_cat_id=excluir_cat_id, excluir_sub_id=excluir_sub_id):
+        raise ValueError("Já existe uma categoria ou subcategoria com este nome")
 
-    codigo_tentativa = normalizar_codigo(nome)
-    reservados = set(CATEGORIAS.keys()) | set(SUBCATEGORIAS_RH.keys())
-    if codigo_tentativa in reservados:
-        raise ValueError("Este nome conflita com uma categoria ou subcategoria existente")
+    if excluir_cat_id is None and excluir_sub_id is None:
+        codigo_tentativa = normalizar_codigo(nome)
+        reservados = set(CATEGORIAS.keys()) | set(SUBCATEGORIAS_RH.keys())
+        if codigo_tentativa in reservados:
+            raise ValueError("Este nome conflita com uma categoria ou subcategoria existente")
 
-    existente = (
-        db.query(CategoriaPagarCadastrada)
-        .filter(func.lower(CategoriaPagarCadastrada.nome) == chave)
-        .first()
-    )
-    if existente:
-        raise ValueError("Já existe uma categoria com este nome")
     return nome
 
 
@@ -315,3 +407,115 @@ def criar_cadastrada(db: "Session", nome_bruto: str, criado_por: Optional[str] =
     db.flush()
     return row
 
+
+def atualizar_cadastrada(db: "Session", cat_id: int, nome_bruto: str):
+    from app.models import CategoriaPagarCadastrada
+
+    row = db.query(CategoriaPagarCadastrada).filter(CategoriaPagarCadastrada.id == cat_id).first()
+    if not row:
+        raise LookupError("Categoria não encontrada")
+    nome = validar_nome_nova(nome_bruto, db, excluir_cat_id=cat_id)
+    # validar_nome_nova rejeita codigo reservado mesmo em rename de cadastrada com nome livre
+    # Revalidar só unicidade sem o check de codigo reservado se nome normalizado colidir
+    row.nome = nome
+    db.flush()
+    return row
+
+
+def excluir_cadastrada(db: "Session", cat_id: int):
+    from app.models import CategoriaPagarCadastrada, ContaPagar
+
+    row = db.query(CategoriaPagarCadastrada).filter(CategoriaPagarCadastrada.id == cat_id).first()
+    if not row:
+        raise LookupError("Categoria não encontrada")
+    codigo = row.codigo or f"cat_{row.id}"
+    vinculados = (
+        db.query(ContaPagar)
+        .filter(
+            ContaPagar.categoria == codigo,
+            ContaPagar.categoria_pendente == False,  # noqa: E712
+        )
+        .count()
+    )
+    if vinculados > 0:
+        raise ValueError("Há contas usando esta categoria")
+    db.delete(row)
+    db.flush()
+
+
+def criar_subcategoria_rh(db: "Session", nome_bruto: str, criado_por: Optional[str] = None):
+    from app.models import SubcategoriaRhCadastrada
+
+    nome = validar_nome_nova(nome_bruto, db)
+    row = SubcategoriaRhCadastrada(nome=nome, codigo=None, sistema=False, criado_por=criado_por)
+    db.add(row)
+    db.flush()
+    row.codigo = f"sub_{row.id}"
+    db.flush()
+    return row
+
+
+def atualizar_subcategoria_rh(db: "Session", sub_id: int, nome_bruto: str):
+    from app.models import SubcategoriaRhCadastrada
+
+    row = db.query(SubcategoriaRhCadastrada).filter(SubcategoriaRhCadastrada.id == sub_id).first()
+    if not row:
+        raise LookupError("Subcategoria não encontrada")
+    nome = (nome_bruto or "").strip()
+    if not nome:
+        raise ValueError("Nome é obrigatório")
+    if len(nome) > 20:
+        raise ValueError("Nome deve ter no máximo 20 caracteres")
+    if any(not _char_nome_ok(ch) for ch in nome):
+        raise ValueError("Use apenas letras, números, espaços, hífen, barra e &")
+    chave = nome.casefold()
+    if chave in _labels_ocupados(db, excluir_sub_id=sub_id):
+        raise ValueError("Já existe uma categoria ou subcategoria com este nome")
+    row.nome = nome
+    db.flush()
+    return row
+
+
+def excluir_subcategoria_rh(db: "Session", sub_id: int):
+    from app.models import ContaPagar, SubcategoriaRhCadastrada
+
+    row = db.query(SubcategoriaRhCadastrada).filter(SubcategoriaRhCadastrada.id == sub_id).first()
+    if not row:
+        raise LookupError("Subcategoria não encontrada")
+    if row.sistema:
+        raise ValueError("Subcategoria padrão não pode ser excluída")
+    codigo = row.codigo
+    vinculados = (
+        db.query(ContaPagar)
+        .filter(
+            ContaPagar.categoria == CATEGORIA_RH,
+            ContaPagar.subcategoria == codigo,
+        )
+        .count()
+    )
+    if vinculados > 0:
+        raise ValueError("Há contas usando esta subcategoria")
+    db.delete(row)
+    db.flush()
+
+
+def seed_subcategorias_rh(db: "Session") -> None:
+    """Garante as 5 subcategorias padrão no banco."""
+    from app.models import SubcategoriaRhCadastrada
+
+    existentes = {r.codigo: r for r in db.query(SubcategoriaRhCadastrada).all() if r.codigo}
+    for codigo, nome in SUBCATEGORIAS_RH.items():
+        if codigo in existentes:
+            row = existentes[codigo]
+            if row.sistema and codigo == SUB_BONUS and row.nome == "Comissões":
+                row.nome = nome
+            continue
+        db.add(
+            SubcategoriaRhCadastrada(
+                codigo=codigo,
+                nome=nome,
+                sistema=True,
+                criado_por=None,
+            )
+        )
+    db.flush()

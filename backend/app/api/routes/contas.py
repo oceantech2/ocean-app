@@ -12,6 +12,8 @@ from app.schemas import (
     CatalogoCategoriasContas,
     CategoriaCadastradaCreate,
     CategoriaCadastradaResponse,
+    SubcategoriaRhCreate,
+    SubcategoriaRhResponse,
     ContaPagarCreate,
     ContaPagarResponse,
     ContaPagarUpdate,
@@ -157,6 +159,139 @@ def criar_categoria_cadastrada(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Já existe uma categoria com este nome",
         )
+
+
+@router.patch("/categorias/{cat_id}", response_model=CategoriaCadastradaResponse)
+def atualizar_categoria_cadastrada(
+    cat_id: int,
+    body: CategoriaCadastradaCreate,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    try:
+        row = cat_svc.atualizar_cadastrada(db, cat_id, body.nome)
+        registrar_auditoria(
+            db, current_user, "atualizar", "CategoriaPagarCadastrada", row.id, row.nome
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Já existe uma categoria com este nome",
+        )
+
+
+@router.delete("/categorias/{cat_id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_categoria_cadastrada(
+    cat_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    try:
+        cat_svc.excluir_cadastrada(db, cat_id)
+        registrar_auditoria(
+            db, current_user, "excluir", "CategoriaPagarCadastrada", cat_id, None
+        )
+        db.commit()
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+
+@router.post(
+    "/categorias/subcategorias-rh",
+    response_model=SubcategoriaRhResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def criar_subcategoria_rh(
+    body: SubcategoriaRhCreate,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    try:
+        row = cat_svc.criar_subcategoria_rh(db, body.nome, criado_por=current_user)
+        registrar_auditoria(
+            db, current_user, "criar", "SubcategoriaRhCadastrada", row.id, row.nome
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Já existe uma subcategoria com este nome",
+        )
+
+
+@router.patch("/categorias/subcategorias-rh/{sub_id}", response_model=SubcategoriaRhResponse)
+def atualizar_subcategoria_rh(
+    sub_id: int,
+    body: SubcategoriaRhCreate,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    try:
+        row = cat_svc.atualizar_subcategoria_rh(db, sub_id, body.nome)
+        registrar_auditoria(
+            db, current_user, "atualizar", "SubcategoriaRhCadastrada", row.id, row.nome
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Já existe uma subcategoria com este nome",
+        )
+
+
+@router.delete("/categorias/subcategorias-rh/{sub_id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_subcategoria_rh(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    try:
+        cat_svc.excluir_subcategoria_rh(db, sub_id)
+        registrar_auditoria(
+            db, current_user, "excluir", "SubcategoriaRhCadastrada", sub_id, None
+        )
+        db.commit()
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        detail = str(e)
+        code = (
+            status.HTTP_409_CONFLICT
+            if "usando" in detail.lower()
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        db.rollback()
+        raise HTTPException(status_code=code, detail=detail)
 
 
 def _rotulo_mes_ano_coluna(data_vencimento) -> str:

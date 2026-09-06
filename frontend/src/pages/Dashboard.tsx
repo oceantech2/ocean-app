@@ -4,11 +4,11 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService, impostosService } from '../services/api';
+import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService } from '../services/api';
 import { codigoPadrao, CODIGO_INVESTIMENTO } from '../utils/fluxoCaixaMovimentos';
 import {
   filtrarCustoSemImpostos,
-  impostosDoRecorte,
+  impostosDeNfsPagas,
   lucroCard,
   totaisDespesa,
 } from '../utils/dashboardDespesas';
@@ -258,7 +258,7 @@ function PencilIcon({ className = 'w-4 h-4' }: { className?: string }) {
 
 function cortarEixoDre(dados: DrePonto[], anoSelecionado: number): DrePonto[] {
   if (anoSelecionado > ANO_ATUAL) return [];
-  if (anoSelecionado === ANO_ATUAL) return dados.slice(0, MES_ATUAL);
+  // Ano corrente e anteriores: 12 meses (API já devolve jan–dez; não truncar no mês atual)
   return dados;
 }
 
@@ -513,7 +513,7 @@ export default function Dashboard() {
         relatoriosService.faturamentoLiquidoMes(y).catch(() => ({ data: { dados: [] } })),
       );
 
-      const [faturRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, impostosDeContasRes, ...drlRespostas] = await Promise.all([
+      const [faturRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, ...drlRespostas] = await Promise.all([
         relatoriosService.faturamentoLiquidoMes(ano),
         resumoPromise,
         metaMesPromise,
@@ -530,7 +530,6 @@ export default function Dashboard() {
         nfsService.listar(0, 1000, undefined, undefined, 'paga', false).catch(() => ({ data: [] })),
         contasService.listar(0, 1000).catch(() => ({ data: [] })),
         fluxoMovimentosService.listar().catch(() => ({ data: [] })),
-        impostosService.deContas(ano).catch(() => ({ data: [] })),
         ...drlPromises,
       ]);
 
@@ -600,10 +599,11 @@ export default function Dashboard() {
       const mesAteDespesa = mes ?? (mesAteAnual ?? 12);
       setDespesasTotais(totaisDespesa(contasPagarLista, { ano, mes, mesAte: mesAteDespesa }));
 
-      const itensImpostos = Array.isArray(impostosDeContasRes.data)
-        ? impostosDeContasRes.data
-        : (impostosDeContasRes.data?.dados || []);
-      setImpostosCard(impostosDoRecorte(itensImpostos, mes, ano, mesAteDespesa));
+      const resumoData = resumoRes.data || RESUMO_VAZIO;
+      const brutoRecorte = Number(resumoData.faturamento_bruto_pago) || 0;
+      setImpostosCard(
+        impostosDeNfsPagas(nfsLista, mes, ano, brutoRecorte, mesAteDespesa),
+      );
 
       const dreBruto: DrePonto[] = (dreRes.data?.dados || []).map((d: any) => {
         const receita_bruta = Number(d.receita_bruta) || 0;
@@ -695,7 +695,6 @@ export default function Dashboard() {
 
   const lucro = lucroCard(
     resumo.faturamento_liquido_pago,
-    resumo.faturamento_bruto_pago,
     despesasTotais.fixas,
     despesasTotais.variaveis,
   );
@@ -1025,7 +1024,7 @@ export default function Dashboard() {
                   {fmt(lucro.valor)}
                 </p>
                 <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                  {fmtLucroPct(lucro.pct)} sobre Receita Bruta
+                  {fmtLucroPct(lucro.pct)} sobre Receita Líquida
                 </p>
                 {rotuloRecorteKpi && (
                   <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>

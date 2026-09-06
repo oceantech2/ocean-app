@@ -53,6 +53,7 @@ export interface NF {
   caixa?: string | null;
   origem?: 'manual' | 'maggo' | null;
   anexo_nome?: string | null;
+  criado_em?: string;
 }
 
 // Bônus / Comissões
@@ -152,6 +153,7 @@ export interface MovimentoFluxo {
   manual: boolean;
   movId?: number;
   parId?: string | null;
+  criado_em?: string | null;
 }
 
 // Conta a Pagar
@@ -171,6 +173,7 @@ export interface ContaPagar {
   fornecedor_nome?: string | null;
   fornecedor_ativo?: boolean | null;
   tipo_despesa?: 'fixo' | 'variavel';
+  criado_em?: string;
 }
 
 export interface CategoriaOficialItem {
@@ -186,8 +189,10 @@ export interface CategoriaCadastradaItem {
 }
 
 export interface SubcategoriaRhItem {
+  id?: number | null;
   codigo: string;
   nome: string;
+  sistema?: boolean;
 }
 
 export interface CatalogoCategoriasContas {

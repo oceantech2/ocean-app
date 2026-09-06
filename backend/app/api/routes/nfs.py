@@ -122,8 +122,13 @@ def _aplicar_recalculo_fiscal(db_nf: NF, aliquota: float | None | object = ...) 
 
 
 def _sync_maggo_stub(db: Session) -> Tuple[Set[str], List[str]]:
-    """Merge stub Maggo → nfs por maggo_id. Preserva grupo Ocean e registros manuais.
-    Retorna (ids no stub, maggo_ids ignorados por colisão com origem manual).
+    """Merge stub Maggo → nfs por maggo_id.
+
+    - maggo_id inédito → cria registro (origem Maggo), salvo conflito de número com Manual
+    - maggo_id já existente Maggo → no-op nos campos Maggo; não ressuscita
+    - colisão com origem manual (mesmo maggo_id ou mesmo número) → registra e ignora
+
+    Preserva grupo Ocean. Retorna (ids no stub, maggo_ids ignorados por colisão de origem).
     """
     itens = listar_contas_receber()
     ids: Set[str] = set()
@@ -136,14 +141,22 @@ def _sync_maggo_stub(db: Session) -> Tuple[Set[str], List[str]]:
         tipo_enum = _parse_tipo_maggo(item.get("tipo"), item.get("tipo_abertura_fechamento"))
         if tipo_enum is None:
             continue
+        # Visível ou excluída: não atualiza campos Maggo nem limpa excluida_em
         db_nf = db.query(NF).filter(NF.maggo_id == maggo_id).first()
         if db_nf:
-            if (db_nf.origem or "maggo") == "manual":
+            if dup.origem_de(db_nf) == "manual":
                 colisoes.append(maggo_id)
             continue
+        numero_item = dup.normalizar_numero(item.get("numero")) or None
+        if numero_item:
+            outra = dup.buscar_por_numero(db, numero_item)
+            if outra:
+                # Mesmo número já cadastrado (Manual ou outro Maggo) — não criar segundo registro
+                colisoes.append(maggo_id)
+                continue
         db_nf = NF(
             maggo_id=maggo_id,
-            numero=None,
+            numero=numero_item,
             razao_social=item["razao_social"],
             posicao=item.get("posicao"),
             candidato=item.get("candidato"),
@@ -238,8 +251,10 @@ def importar_nfs_xlsx(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    """Importa NFs do XLSX. Duplicatas no arquivo: primeira vale.
-    Conflitos com cadastro: exige on_conflict=reject|update.
+    """Importa NFs do XLSX (origem=manual). Duplicatas no arquivo: primeira vale.
+
+    Conflitos com NF Manual: exige on_conflict=reject|update.
+    Conflitos com NF Maggo: sempre rejeitados (conflito_origem), sem on_conflict.
     """
     conteudo = file.file.read()
     try:
@@ -262,23 +277,30 @@ def importar_nfs_xlsx(
             continue
         elegiveis.append(r)
 
-    conflitos = []
+    # 422 somente para conflitos na mesma origem (Manual)
+    conflitos_manual = []
     for r in elegiveis:
+        if not r["numero"]:
+            continue
         existente = dup.buscar_por_numero(db, r["numero"])
-        if existente:
-            conflitos.append({
+        if existente and dup.origem_de(existente) == "manual":
+            conflitos_manual.append({
                 "linha": r.get("_linha"),
                 "numero": r["numero"],
                 "nf_id": existente.id,
+                "origem_existente": "manual",
             })
 
-    if conflitos and on_conflict is None:
+    if conflitos_manual and on_conflict is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": dup.CODE_IMPORT_ON_CONFLICT,
-                "message": "Há números já cadastrados. Informe on_conflict=reject ou on_conflict=update.",
-                "conflitos": conflitos,
+                "message": (
+                    "Há números já cadastrados na origem Manual. "
+                    "Informe on_conflict=reject ou on_conflict=update."
+                ),
+                "conflitos": conflitos_manual,
             },
         )
 
@@ -287,9 +309,20 @@ def importar_nfs_xlsx(
 
     for r in elegiveis:
         numero = r["numero"]
-        existente = dup.buscar_por_numero(db, numero)
+        existente = dup.buscar_por_numero(db, numero) if numero else None
 
         if existente:
+            orig = dup.origem_de(existente)
+            if orig == "maggo":
+                erros.append({
+                    "linha": r.get("_linha"),
+                    "numero": numero,
+                    "motivo": "conflito_origem",
+                    "origem_existente": "maggo",
+                    "nf_id": existente.id,
+                })
+                continue
+            # mesma origem Manual
             if on_conflict == "reject":
                 erros.append({
                     "linha": r.get("_linha"),
@@ -316,7 +349,7 @@ def importar_nfs_xlsx(
                     })
                 continue
 
-        # Novo registro
+        # Novo registro Manual
         try:
             db.begin_nested()
             tipo_enum = TipoFechamento.PARCELAMENTO
@@ -325,7 +358,7 @@ def importar_nfs_xlsx(
             else:
                 status_nf = _calcular_status_nf(r.get("data_vencimento") or date.today(), r.get("data_pagamento"))
             nova = NF(
-                numero=numero,
+                numero=numero or None,
                 razao_social=r["razao_social"],
                 posicao=r.get("posicao"),
                 valor_bruto=r["valor_bruto"],
@@ -337,6 +370,7 @@ def importar_nfs_xlsx(
                 tipo_abertura_fechamento=None,
                 status=status_nf,
                 arquivada=False,
+                origem="manual",
             )
             db.add(nova)
             db.flush()
@@ -344,12 +378,22 @@ def importar_nfs_xlsx(
             ok += 1
         except IntegrityError:
             db.rollback()
-            existente = dup.buscar_por_numero(db, numero)
-            erros.append({
+            existente = dup.buscar_por_numero(db, numero) if numero else None
+            if existente and dup.origem_de(existente) == "maggo":
+                motivo = "conflito_origem"
+            elif existente:
+                motivo = "duplicado_cadastro"
+            else:
+                motivo = "erro_unicidade"
+            err: dict = {
                 "linha": r.get("_linha"),
                 "numero": numero,
-                "motivo": "duplicado_cadastro" if existente else "erro_unicidade",
-            })
+                "motivo": motivo,
+            }
+            if existente:
+                err["nf_id"] = existente.id
+                err["origem_existente"] = dup.origem_de(existente)
+            erros.append(err)
         except Exception as e:
             db.rollback()
             erros.append({
@@ -519,7 +563,7 @@ def criar_nf(
     current_user: str = Depends(require_admin),
 ):
     """Criar conta a receber manualmente (origem=manual; NF e datas Ocean opcionais)."""
-    numero = dup.garantir_numero_livre(db, nf.numero)
+    numero = dup.garantir_numero_livre(db, nf.numero, origem_operacao="manual")
     _exigir_emissao_se_numero(numero, nf.data_emissao)
     tipo_enum = _parse_tipo_create(nf.tipo)
 
@@ -562,7 +606,7 @@ def criar_nf(
         db.commit()
         db.refresh(db_nf)
     except IntegrityError as e:
-        dup.raise_se_integrity_numero(db, e, numero)
+        dup.raise_se_integrity_numero(db, e, numero, origem_operacao="manual")
     return db_nf
 
 @router.put("/{nf_id}", response_model=NFResponse)
@@ -572,17 +616,28 @@ def atualizar_nf(
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin),
 ):
-    """Atualizar conta a receber (grupos Maggo e Ocean)."""
+    """Atualizar conta a receber (grupos Maggo e Ocean).
+
+    Imposto/líquido são derivados no servidor (não autoritativos no body).
+    Não cria nem altera movimentos de Fluxo de Caixa por mudança de valor.
+    origem e maggo_id são imutáveis.
+    """
     db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
 
     pagamento_antes = db_nf.data_pagamento
     dados_atualizacao = nf_update.model_dump(exclude_unset=True)
     comissoes_payload = dados_atualizacao.pop("comissoes", None)
     caixa_pedido = dados_atualizacao.pop("caixa", None)
+    # Cliente pode enviar imposto/líquido; fonte de verdade é bruto + alíquota
+    dados_atualizacao.pop("valor_imposto", None)
+    dados_atualizacao.pop("valor_liquido", None)
 
     if "numero" in dados_atualizacao:
         dados_atualizacao["numero"] = dup.garantir_numero_livre(
-            db, dados_atualizacao.get("numero"), excluir_id=db_nf.id
+            db,
+            dados_atualizacao.get("numero"),
+            origem_operacao=dup.origem_de(db_nf),
+            excluir_id=db_nf.id,
         )
 
     if "tipo" in dados_atualizacao:
@@ -626,7 +681,7 @@ def atualizar_nf(
         db.commit()
         db.refresh(db_nf)
     except IntegrityError as e:
-        dup.raise_se_integrity_numero(db, e, db_nf.numero)
+        dup.raise_se_integrity_numero(db, e, db_nf.numero, origem_operacao=dup.origem_de(db_nf))
 
     return db_nf
 

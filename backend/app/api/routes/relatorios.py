@@ -265,8 +265,8 @@ def dre_mensal(
     current_user: str = Depends(get_current_user),
 ):
     """
-    DRE mensal do ano: receita bruta (NFs pagas), despesa e impostos (contas por vencimento),
-    lucro derivado. Sempre retorna 12 meses.
+    DRE mensal do ano: receita bruta e impostos (NFs pagas por emissão),
+    despesa (contas por vencimento, exceto impostos), lucro derivado. Sempre 12 meses.
     """
     dados = []
     for mes in range(1, 13):
@@ -277,12 +277,11 @@ def dre_mensal(
             extract("month", NF.data_emissao) == mes,
         ).scalar() or 0.0
 
-        impostos = db.query(func.sum(ContaPagar.valor)).filter(
-            ContaPagar.categoria == CATEGORIA_IMPOSTOS,
-            ContaPagar.categoria_pendente == False,  # noqa: E712
-            ContaPagar.data_vencimento.isnot(None),
-            extract("year", ContaPagar.data_vencimento) == ano,
-            extract("month", ContaPagar.data_vencimento) == mes,
+        impostos = db.query(func.sum(NF.valor_imposto)).filter(
+            NF.status == StatusNF.PAGA,
+            NF.excluida_em.is_(None),
+            extract("year", NF.data_emissao) == ano,
+            extract("month", NF.data_emissao) == mes,
         ).scalar() or 0.0
 
         despesa = db.query(func.sum(ContaPagar.valor)).filter(

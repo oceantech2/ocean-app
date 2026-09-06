@@ -10,6 +10,7 @@ export type MovimentoManualOrigem = {
   data_movimento: string;
   conta?: FluxoConta | string | null;
   par_id?: string | null;
+  criado_em?: string | null;
 };
 
 export type SaldoHistorico = {
@@ -130,6 +131,7 @@ export function mapearMovimentos(
       desc: descricaoReceber(nf),
       valor: Number(nf.valor_liquido),
       manual: false,
+      criado_em: nf.criado_em ?? null,
     }));
 
   const saidas: MovimentoFluxo[] = contas
@@ -147,6 +149,7 @@ export function mapearMovimentos(
       desc: c.descricao,
       valor: -Number(c.valor),
       manual: false,
+      criado_em: c.criado_em ?? null,
     }));
 
   const manuaisMap: MovimentoFluxo[] = manuais
@@ -168,6 +171,7 @@ export function mapearMovimentos(
         manual: !transferencia,
         movId: m.id,
         parId: m.par_id || undefined,
+        criado_em: m.criado_em ?? null,
       };
     });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { colaboradoresService, historicoService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
 import { Colaborador } from '../types';
@@ -11,6 +11,10 @@ import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 
 const ITENS_POR_PAGINA = 15;
+
+function formatBRL(n: number) {
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
 
 function labelTipo(tf?: string) {
   return tf === 'spot' ? 'Spot' : 'Fixo';
@@ -110,11 +114,19 @@ export default function Fornecedores() {
   const carregarFornecedores = async () => {
     try {
       setLoading(true);
-      const res = await colaboradoresService.listar(0, 200, mostrarInativos ? undefined : true);
+      const res = await colaboradoresService.listar(0, 1000, mostrarInativos ? undefined : true);
       setFornecedores(res.data);
     } catch { toast.error('Erro ao carregar fornecedores'); }
     finally { setLoading(false); }
   };
+
+  const totalFolha = useMemo(
+    () =>
+      fornecedores
+        .filter((c) => c.ativo && (c.tipo_fornecedor || 'fixo') === 'fixo')
+        .reduce((s, c) => s + (c.salario ?? 0), 0),
+    [fornecedores],
+  );
 
   const cargos = [...new Set(fornecedores.map((c) => c.cargo).filter(Boolean) as string[])].sort();
   const filtrados = fornecedores.filter((c) => {
@@ -156,7 +168,7 @@ export default function Fornecedores() {
   const salvar = async () => {
     if (!form.nome || !form.documento || !form.tipo_fornecedor) { toast.error('Preencha os campos obrigatórios'); return; }
     const ehLegado = !!editando?.elegivel_equipe;
-    if (ehLegado && form.tipo_documento === 'cpf' && (!form.cargo || !form.salario || !form.data_nascimento)) {
+    if (ehLegado && form.tipo_documento === 'cpf' && (!form.cargo || !form.data_nascimento)) {
       toast.error('Preencha os campos obrigatórios de equipe'); return;
     }
     const chave = form.tipo_documento === 'cnpj' ? normalizarCNPJ(form.documento) : form.documento.replace(/\D/g, '');
@@ -164,10 +176,24 @@ export default function Fornecedores() {
     if (form.tipo_documento === 'cnpj' && !validarCNPJ(chave)) { toast.error('CNPJ inválido'); return; }
     if (form.tipo_documento === 'cnpj' && !form.razao_social.trim()) { toast.error('Razão Social é obrigatória para CNPJ'); return; }
     if (form.tipo_documento === 'cnpj') {
-      if (!form.pf_nome.trim() || !form.pf_cpf.trim() || !form.pf_endereco.trim() || !form.pf_data_nascimento) {
-        toast.error('Preencha os dados da pessoa física do CNPJ'); return;
+      if (!form.pf_nome.trim() || !form.pf_endereco.trim()) {
+        toast.error('Preencha nome e endereço da pessoa física do CNPJ'); return;
       }
-      if (!validarCPF(form.pf_cpf.replace(/\D/g, ''))) { toast.error('CPF da pessoa física inválido'); return; }
+      const pfCpfDigits = form.pf_cpf.replace(/\D/g, '');
+      if (pfCpfDigits && !validarCPF(pfCpfDigits)) { toast.error('CPF da pessoa física inválido'); return; }
+      if (form.pf_data_nascimento) {
+        const dn = form.pf_data_nascimento;
+        if (dn > new Date().toISOString().slice(0, 10)) {
+          toast.error('Data de nascimento da pessoa física inválida'); return;
+        }
+      }
+    }
+    if (form.salario.trim() !== '') {
+      const sal = parseFloat(form.salario);
+      if (Number.isNaN(sal) || sal < 0) { toast.error('Salário não pode ser negativo'); return; }
+    }
+    if (form.data_admissao && form.data_desligamento && form.data_desligamento < form.data_admissao) {
+      toast.error('Data de término não pode ser anterior à data de início'); return;
     }
     if (!emailOk(form.email)) { toast.error('E-mail inválido'); return; }
     try {
@@ -181,22 +207,22 @@ export default function Fornecedores() {
         telefone: form.telefone.trim() || null,
         email: form.email.trim() || null,
         observacao: form.observacao || null,
+        salario: form.salario.trim() !== '' ? parseFloat(form.salario) : null,
+        data_admissao: form.data_admissao || null,
+        data_desligamento: form.data_desligamento || null,
       };
       if (form.tipo_documento === 'cnpj') {
         dados.pf_nome = form.pf_nome.trim();
-        dados.pf_cpf = form.pf_cpf.replace(/\D/g, '');
+        dados.pf_cpf = form.pf_cpf.replace(/\D/g, '') || null;
         dados.pf_endereco = form.pf_endereco.trim();
-        dados.pf_data_nascimento = form.pf_data_nascimento;
+        dados.pf_data_nascimento = form.pf_data_nascimento || null;
       }
       if (ehLegado) {
         dados.cargo = form.cargo;
-        dados.salario = parseFloat(form.salario);
         if (form.tipo_documento === 'cpf') dados.data_nascimento = form.data_nascimento;
         dados.endereco_completo = form.endereco_completo || null;
         dados.cep = form.cep || null;
         dados.beneficio = form.beneficio || null;
-        if (form.data_admissao) dados.data_admissao = form.data_admissao;
-        if (form.data_desligamento) dados.data_desligamento = form.data_desligamento;
       }
       if (editando) { await colaboradoresService.atualizar(editando.id, dados); toast.success('Fornecedor atualizado!'); }
       else { await colaboradoresService.criar(dados); toast.success('Fornecedor criado!'); }
@@ -307,6 +333,10 @@ export default function Fornecedores() {
           <div>
             <div className="flex items-center gap-4 flex-wrap">
               <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Fornecedores</h1>
+              <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2">
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Total da folha</p>
+                <p className="text-lg font-semibold text-emerald-800 dark:text-emerald-300 tabular-nums">{formatBRL(totalFolha)}</p>
+              </div>
             </div>
             <p className="text-gray-500 dark:text-gray-400 mt-1">{filtrados.length} encontrado(s)</p>
           </div>
@@ -529,11 +559,11 @@ export default function Fornecedores() {
                     <input className={INPUT} value={form.pf_nome} onChange={(e) => setForm({ ...form, pf_nome: e.target.value })} />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CPF *</label>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CPF</label>
                     <input className={INPUT} value={form.pf_cpf} onChange={(e) => setForm({ ...form, pf_cpf: formatarCPF(e.target.value) })} />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Nascimento *</label>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Nascimento</label>
                     <input type="date" className={INPUT} value={form.pf_data_nascimento} onChange={(e) => setForm({ ...form, pf_data_nascimento: e.target.value })} />
                   </div>
                   <div className="col-span-2">
@@ -542,6 +572,18 @@ export default function Fornecedores() {
                   </div>
                 </>
               )}
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário</label>
+                <input type="number" step="0.01" min="0" className={INPUT} value={form.salario} onChange={(e) => setForm({ ...form, salario: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de início</label>
+                <input type="date" className={INPUT} value={form.data_admissao} onChange={(e) => setForm({ ...form, data_admissao: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de término</label>
+                <input type="date" className={INPUT} value={form.data_desligamento} onChange={(e) => setForm({ ...form, data_desligamento: e.target.value })} />
+              </div>
               {ehLegadoForm && form.tipo_documento === 'cpf' && (
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Nascimento *</label>
@@ -554,10 +596,6 @@ export default function Fornecedores() {
                     <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cargo *</label>
                     <input className={INPUT} value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} />
                   </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário *</label>
-                    <input type="number" step="0.01" className={INPUT} value={form.salario} onChange={(e) => setForm({ ...form, salario: e.target.value })} />
-                  </div>
                   <div className="col-span-2">
                     <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Endereço</label>
                     <input className={INPUT} value={form.endereco_completo} onChange={(e) => setForm({ ...form, endereco_completo: e.target.value })} />
@@ -565,14 +603,6 @@ export default function Fornecedores() {
                   <div>
                     <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CEP</label>
                     <input className={INPUT} value={form.cep} onChange={(e) => setForm({ ...form, cep: e.target.value })} placeholder="00000-000" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Admissão</label>
-                    <input type="date" className={INPUT} value={form.data_admissao} onChange={(e) => setForm({ ...form, data_admissao: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Desligamento</label>
-                    <input type="date" className={INPUT} value={form.data_desligamento} onChange={(e) => setForm({ ...form, data_desligamento: e.target.value })} />
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Benefícios</label>
