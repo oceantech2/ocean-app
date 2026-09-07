@@ -180,14 +180,8 @@ def _migrar():
         except Exception:
             conn.rollback()
 
-    # Seed subcategorias RH padrão (idempotente)
-    with SessionLocal() as db:
-        try:
-            from app.services.categorias_contas import seed_subcategorias_rh
-            seed_subcategorias_rh(db)
-            db.commit()
-        except Exception:
-            db.rollback()
+    # Seed estrutural (subcategorias RH, conta corrente, paginas_visibilidade)
+    # NÃO roda no startup — usar `python scripts/seed_estrutura.py` (FR-011 / feature 055).
 
     # Migração centro_custo → categoria / subcategoria / categoria_pendente (one-shot)
     with engine.connect() as conn:
@@ -343,13 +337,7 @@ def _migrar():
                 )
                 """
             ))
-            conn.execute(text(
-                """
-                INSERT INTO contas_correntes (codigo, nome, banco, padrao, ativo)
-                SELECT 'corrente', 'Conta corrente', 'A definir', TRUE, TRUE
-                WHERE NOT EXISTS (SELECT 1 FROM contas_correntes WHERE codigo = 'corrente')
-                """
-            ))
+            # Conta corrente padrão: seed apenas via scripts/seed_estrutura.py
             conn.execute(text(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_contas_correntes_nome_ativo
@@ -395,17 +383,7 @@ def _migrar():
                 )
                 """
             ))
-            from app.services.paginas_visibilidade import seed_paginas_visibilidade_json
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO configuracao_app (chave, valor)
-                    VALUES ('paginas_visibilidade', :valor)
-                    ON CONFLICT (chave) DO NOTHING
-                    """
-                ),
-                {"valor": seed_paginas_visibilidade_json()},
-            )
+            # paginas_visibilidade: seed apenas via scripts/seed_estrutura.py
             conn.commit()
         except Exception:
             conn.rollback()
@@ -457,6 +435,12 @@ app.include_router(fluxo_movimentos.transferencias_router, prefix="/api/fluxo-tr
 app.include_router(contas_correntes.router, prefix="/api/contas-correntes", tags=["Contas correntes"])
 app.include_router(patrimonio.router, prefix="/api/patrimonio", tags=["Patrimônio"])
 app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arquivos NFs"])
+
+# Wipe destrutivo: só monta rotas em DEBUG (dev local)
+if settings.DEBUG:
+    from app.api.routes import dev_wipe
+
+    app.include_router(dev_wipe.router, prefix="/api/dev", tags=["Dev"])
 
 @app.get("/")
 def root():

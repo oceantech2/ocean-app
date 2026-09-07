@@ -74,10 +74,16 @@ def _aplicar_linha(
     _preencher_de_nf(bonus, nf)
 
 
+def _como_linha(linha: ComissaoLinhaInput | dict) -> ComissaoLinhaInput:
+    if isinstance(linha, ComissaoLinhaInput):
+        return linha
+    return ComissaoLinhaInput.model_validate(linha)
+
+
 def sincronizar(
     db: Session,
     nf: NF,
-    linhas: Optional[List[ComissaoLinhaInput]],
+    linhas: Optional[List[ComissaoLinhaInput | dict]],
     current_user: str,
 ) -> None:
     """Cria/atualiza/remove comissões não liberadas da NF.
@@ -87,6 +93,8 @@ def sincronizar(
     """
     if linhas is None:
         return
+
+    linhas = [_como_linha(l) for l in linhas]
 
     existentes = db.query(Bonus).filter(Bonus.nf_id == nf.id).all()
     por_id = {b.id: b for b in existentes}

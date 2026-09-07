@@ -4,6 +4,7 @@ import { useAuthStore, useUIStore, usePageFilters } from '../store';
 import { useNotificacoes } from '../hooks/useNotificacoes';
 import { getNavIcon, ChevronLeftIcon, ChevronRightIcon } from './navIcons';
 import { PAGINAS_MENU, paginaVisivelGlobal } from '../utils/paginasCatalogo';
+import DevToolsSlot from '../dev/DevToolsSlot';
 
 interface LayoutProps {
   children: ReactNode;
@@ -199,6 +200,7 @@ export default function Layout({ children }: LayoutProps) {
                 </span>
               )}
             </div>
+            <DevToolsSlot />
             <button
               onClick={handleLogout}
               className="px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"

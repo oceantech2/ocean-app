@@ -3,24 +3,49 @@ from __future__ import annotations
 
 import os
 from datetime import date
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+# Gravada pelo wipe (zerar_dados) para impedir re-seed do stub após limpeza
+CHAVE_MAGGO_STUB_EMPTY = "maggo_stub_empty"
 
 
 class MaggoStubError(Exception):
     """Falha controlada da fonte simulada Maggo."""
 
 
-def listar_contas_receber() -> list[dict]:
+def stub_vazio_ativo(db: Optional["Session"] = None) -> bool:
+    """True se env MAGGO_STUB_EMPTY ou flag em configuracao_app (pós-wipe)."""
+    flag = os.getenv("MAGGO_STUB_EMPTY", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    if db is not None:
+        from app.models import ConfiguracaoApp
+
+        row = (
+            db.query(ConfiguracaoApp)
+            .filter(ConfiguracaoApp.chave == CHAVE_MAGGO_STUB_EMPTY)
+            .first()
+        )
+        if row and (row.valor or "").strip().lower() in ("1", "true", "yes", "on"):
+            return True
+    return False
+
+
+def listar_contas_receber(*, forcar_vazio: bool = False) -> list[dict]:
     """Retorna contas a receber no shape Maggo desta entrega.
 
     Envia maggo_id + grupo Maggo. Não envia numero / data_emissao / data_vencimento.
     Se MAGGO_STUB_FAIL=true, levanta MaggoStubError.
+    Se MAGGO_STUB_EMPTY / forcar_vazio / flag pós-wipe, retorna [].
     """
     flag = os.getenv("MAGGO_STUB_FAIL", "").strip().lower()
     if flag in ("1", "true", "yes", "on"):
         raise MaggoStubError("Fonte Maggo (stub) indisponível")
 
-    empty = os.getenv("MAGGO_STUB_EMPTY", "").strip().lower()
-    if empty in ("1", "true", "yes", "on"):
+    if forcar_vazio or stub_vazio_ativo(None):
         return []
 
     hoje = date.today()

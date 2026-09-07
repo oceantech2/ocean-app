@@ -130,7 +130,12 @@ def _sync_maggo_stub(db: Session) -> Tuple[Set[str], List[str]]:
 
     Preserva grupo Ocean. Retorna (ids no stub, maggo_ids ignorados por colisão de origem).
     """
-    itens = listar_contas_receber()
+    from app.services.maggo_stub import stub_vazio_ativo
+
+    if stub_vazio_ativo(db):
+        return set(), []
+
+    itens = listar_contas_receber(forcar_vazio=False)
     ids: Set[str] = set()
     colisoes: List[str] = []
     for item in itens:
@@ -625,8 +630,11 @@ def atualizar_nf(
     db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
 
     pagamento_antes = db_nf.data_pagamento
-    dados_atualizacao = nf_update.model_dump(exclude_unset=True)
-    comissoes_payload = dados_atualizacao.pop("comissoes", None)
+    # model_dump transforma ComissaoLinhaInput em dict; sincronizar espera o modelo
+    comissoes_payload = (
+        nf_update.comissoes if "comissoes" in nf_update.model_fields_set else None
+    )
+    dados_atualizacao = nf_update.model_dump(exclude_unset=True, exclude={"comissoes"})
     caixa_pedido = dados_atualizacao.pop("caixa", None)
     # Cliente pode enviar imposto/líquido; fonte de verdade é bruto + alíquota
     dados_atualizacao.pop("valor_imposto", None)

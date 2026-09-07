@@ -25,6 +25,9 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/.DS_Store
 
+# Botão local de wipe (dev only — não versionar)
+frontend/src/dev/DevWipeButton.tsx
+
 # IDE
 .vscode/
 .idea/
