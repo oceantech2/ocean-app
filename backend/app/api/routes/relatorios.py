@@ -137,7 +137,7 @@ def receita_caixa(
     current_user: str = Depends(get_current_user),
 ):
     """
-    Aba Por Caixa: Recebido / Impostos por data_pagamento;
+    Aba Por Caixa: Recebido por data_pagamento; Impostos por data_emissao;
     pendentes (A Receber / A Faturar) por data_ent_pgto no período.
     Exclui canceladas e soft-delete; inclui arquivadas.
     """
@@ -155,13 +155,23 @@ def receita_caixa(
         q_recebido = q_recebido.filter(extract("month", NF.data_pagamento) == mes)
 
     recebido_liq = recebido_bru = 0.0
-    impostos = 0.0
     cont_recebido = 0
     for nf in q_recebido.all():
         recebido_liq += float(nf.valor_liquido or 0)
         recebido_bru += float(nf.valor_bruto or 0)
-        impostos += float(nf.valor_imposto or 0)
         cont_recebido += 1
+
+    q_impostos = db.query(NF).filter(
+        *exclusoes,
+        NF.data_emissao.isnot(None),
+        extract("year", NF.data_emissao) == ano,
+    )
+    if mes is not None:
+        q_impostos = q_impostos.filter(extract("month", NF.data_emissao) == mes)
+
+    impostos = 0.0
+    for nf in q_impostos.all():
+        impostos += float(nf.valor_imposto or 0)
 
     q_pend = db.query(NF).filter(
         *exclusoes,

@@ -44,7 +44,7 @@ Sem param de toggle — a resposta traz as duas bases onde aplicável.
 |-------|-----------|
 | `mes` | `null` se request sem mês |
 | `recebido` | NFs com `data_pagamento` no período |
-| `impostos_recolhidos` | `SUM(COALESCE(valor_imposto,0))` no mesmo universo do Recebido — **não** dual-base |
+| `impostos_recolhidos` | `SUM(COALESCE(valor_imposto,0))` das NFs com `data_emissao` no período — **não** dual-base |
 | `a_receber` | `data_ent_pgto` no período ∧ `data_emissao` NOT NULL ∧ `data_pagamento` NULL |
 | `a_faturar` | `data_ent_pgto` no período ∧ `data_emissao` NULL ∧ `data_pagamento` NULL |
 
@@ -61,11 +61,12 @@ type TotaisDual = {
 ## Regras normativas (MUST)
 
 1. Exclusões: `excluida_em IS NULL` e `status != cancelada`; **incluir** `arquivada`.
-2. Período em `recebido` / impostos: filtro por **`data_pagamento`** (`mes`+`ano` ou só `ano`).
-3. Período em `a_receber` / `a_faturar`: filtro por **`data_ent_pgto`** (não estoque global).
-4. `valor_liquido` / `valor_bruto` = SUM dos campos correspondentes; `contagem` única por bloco.
-5. `impostos_recolhidos` MUST NOT variar com interpretação bruto/líquido no client.
-6. Registro sem `valor_imposto` contribui 0 aos impostos.
+2. Período em `recebido`: filtro por **`data_pagamento`** (`mes`+`ano` ou só `ano`).
+3. Período em `impostos_recolhidos`: filtro por **`data_emissao`** (`mes`+`ano` ou só `ano`); não exige pagamento.
+4. Período em `a_receber` / `a_faturar`: filtro por **`data_ent_pgto`** (não estoque global).
+5. `valor_liquido` / `valor_bruto` = SUM dos campos correspondentes; `contagem` única por bloco.
+6. `impostos_recolhidos` MUST NOT variar com interpretação bruto/líquido no client.
+7. Registro sem `valor_imposto` contribui 0 aos impostos.
 
 ## Erros
 
