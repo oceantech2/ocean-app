@@ -421,6 +421,24 @@ export const relatoriosService = {
   dreMensal: (ano: number) =>
     api.get('/relatorios/dre-mensal', { params: { ano } }),
 
+  pipelineReceita: (ano: number, mes?: number | null) => {
+    const params: Record<string, number> = { ano };
+    if (mes != null) params.mes = mes;
+    return api.get('/relatorios/pipeline-receita', { params });
+  },
+
+  receitaCaixa: (ano: number, mes?: number | null) => {
+    const params: Record<string, number> = { ano };
+    if (mes != null) params.mes = mes;
+    return api.get('/relatorios/receita-caixa', { params });
+  },
+
+  /** Estoque global — sem ano/mês */
+  agingRecebiveis: () => api.get('/relatorios/aging-recebiveis'),
+
+  /** Próximo recebimento (estoque global, vencimento ≥ hoje) */
+  proximoRecebimento: () => api.get('/relatorios/proximo-recebimento'),
+
   custoPorCategoria: (ano: number, mesAte: number, mesDe: number = 1) =>
     api.get('/relatorios/custo-por-categoria', {
       params: { ano, mes_ate: mesAte, mes_de: mesDe },
@@ -444,6 +462,17 @@ export const metasService = {
 
   definir: (mes: number, ano: number, valor_meta: number) =>
     api.put('/metas', { mes, ano, valor_meta }),
+
+  obterPeriodo: (mes: number, ano: number) =>
+    api.get('/metas/periodo', { params: { mes, ano } }),
+
+  salvarPeriodo: (payload: {
+    mes: number;
+    ano: number;
+    meta_liquida: number;
+    aliquota_periodo: number;
+    confirmar_atualizacao_massa?: boolean;
+  }) => api.put('/metas/periodo', payload),
 };
 
 // Documentos do colaborador
@@ -491,6 +520,10 @@ export const configuracoesService = {
   obterPaginasVisibilidade: () => api.get<{ paginas: Record<string, boolean> }>('/configuracoes/paginas-visibilidade'),
   atualizarPaginasVisibilidade: (paginas: Record<string, boolean>) =>
     api.put<{ paginas: Record<string, boolean> }>('/configuracoes/paginas-visibilidade', { paginas }),
+  obterLimiarAlertaFluxo: () =>
+    api.get<{ limiar_percentual: number }>('/configuracoes/limiar-alerta-fluxo'),
+  salvarLimiarAlertaFluxo: (limiar_percentual: number) =>
+    api.put<{ limiar_percentual: number }>('/configuracoes/limiar-alerta-fluxo', { limiar_percentual }),
 };
 
 // Saldos (Fluxo de Caixa / Conta Investimento)

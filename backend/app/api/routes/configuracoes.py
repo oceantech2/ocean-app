@@ -10,9 +10,12 @@ from app.schemas import (
     UsuarioAppResponse,
     PaginasVisibilidadeResponse,
     PaginasVisibilidadeUpdate,
+    LimiarAlertaFluxoResponse,
+    LimiarAlertaFluxoPut,
 )
 from app.api.routes.auth import require_admin, get_current_user
 from app.services.paginas_visibilidade import ler_paginas_visibilidade, salvar_paginas_visibilidade
+from app.services.limiar_alerta_fluxo import ler_limiar, salvar_limiar
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
@@ -34,6 +37,24 @@ def atualizar_paginas_visibilidade(
 ):
     paginas = salvar_paginas_visibilidade(db, payload.paginas)
     return {"paginas": paginas}
+
+
+@router.get("/limiar-alerta-fluxo", response_model=LimiarAlertaFluxoResponse)
+def obter_limiar_alerta_fluxo(
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    return {"limiar_percentual": ler_limiar(db)}
+
+
+@router.put("/limiar-alerta-fluxo", response_model=LimiarAlertaFluxoResponse)
+def atualizar_limiar_alerta_fluxo(
+    payload: LimiarAlertaFluxoPut,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    valor = salvar_limiar(db, payload.limiar_percentual)
+    return {"limiar_percentual": valor}
 
 
 @router.get("/", response_model=List[UsuarioAppResponse])

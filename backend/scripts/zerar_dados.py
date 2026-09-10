@@ -114,7 +114,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"  usuarios_app: {depois['usuarios_app']} (antes {antes['usuarios_app']})")
         print(f"  usuarios_auth: {depois['usuarios_auth']} (antes {antes['usuarios_auth']})")
         print(f"  fornecedores_puros: {depois['fornecedores_puros']} (antes {antes['fornecedores_puros']})")
-        print(f"  nfs restantes: {depois['nfs']}")
+        print(f"  nfs restantes: {depois.get('nfs_contas_receber', depois.get('nfs'))}")
         print(f"  contas_pagar restantes: {depois['contas_pagar']}")
         print(f"  contas_correntes restantes: {depois['contas_correntes']}")
         print(f"  configuracao_app restantes: {depois['configuracao_app']}")

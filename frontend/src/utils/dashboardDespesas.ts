@@ -1,52 +1,40 @@
-/** Agregações de despesa/impostos do Dashboard (features 040, 047). */
+/** Agregações de despesa/impostos do Dashboard (features 040, 047, 059). */
 
 export type NaturezaDespesa = 'fixa' | 'variavel' | 'excluida';
-
-const FIXAS = new Set([
-  'adm_financeiro',
-  'recursos_humanos',
-  'beneficios',
-  'tecnologia',
-]);
-
-const VARIAVEIS = new Set([
-  'operacoes',
-  'marketing',
-  'comercial',
-]);
-
-/** Categorias excluídas dos cards/gráficos de Despesa (incl. aliases legados IMPOSTOS). */
-const EXCLUIDAS = new Set(['impostos']);
 
 export function categoriaEhImpostos(categoria: string | null | undefined): boolean {
   const c = String(categoria || '').trim().toLowerCase();
   return c === 'impostos';
 }
 
+/**
+ * Helper legado (ex.: saldo): só distingue exclusão de impostos.
+ * Cards canônicos de Despesa (059) usam `tipo_despesa`, não esta classificação.
+ */
 export function naturezaDespesa(categoria: string | null | undefined): NaturezaDespesa {
-  const c = String(categoria || '').trim().toLowerCase();
-  if (!c || EXCLUIDAS.has(c)) return 'excluida';
-  if (FIXAS.has(c)) return 'fixa';
-  if (VARIAVEIS.has(c)) return 'variavel';
+  if (categoriaEhImpostos(categoria)) return 'excluida';
   return 'variavel';
 }
 
 export type ContaParaDespesa = {
   categoria?: string | null;
   valor?: number | null;
-  pago?: boolean;
+  tipo_despesa?: 'fixo' | 'variavel' | null;
+  data_pagamento?: string | null;
   data_vencimento?: string | null;
+  /** Ignorado nos cards canônicos Seção 07 (059). */
+  pago?: boolean;
 };
 
 export type RecorteDespesa = {
   ano: number;
-  /** Mês concreto 1–12, ou null = jan..mesAte (YTD / ano completo) */
+  /** Mês concreto 1–12, ou null = jan..mesAte (ano completo quando mesAte=12) */
   mes: number | null;
-  /** Último mês inclusivo quando mes === null (ex.: YTD). Default 12. */
+  /** Último mês inclusivo quando mes === null. Default 12. */
   mesAte?: number;
 };
 
-function parseVencimento(s?: string | null): { ano: number; mes: number } | null {
+function parseAnoMes(s?: string | null): { ano: number; mes: number } | null {
   if (!s || !String(s).trim()) return null;
   const m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return null;
@@ -56,13 +44,21 @@ function parseVencimento(s?: string | null): { ano: number; mes: number } | null
   return { ano, mes };
 }
 
-function noRecorte(venc: { ano: number; mes: number }, recorte: RecorteDespesa): boolean {
-  if (venc.ano !== recorte.ano) return false;
-  if (recorte.mes != null) return venc.mes === recorte.mes;
+function noRecorte(data: { ano: number; mes: number }, recorte: RecorteDespesa): boolean {
+  if (data.ano !== recorte.ano) return false;
+  if (recorte.mes != null) return data.mes === recorte.mes;
   const ate = recorte.mesAte ?? 12;
-  return venc.mes >= 1 && venc.mes <= ate;
+  return data.mes >= 1 && data.mes <= ate;
 }
 
+function tipoDespesaCanonico(tipo?: string | null): 'fixo' | 'variavel' {
+  return String(tipo || '').trim().toLowerCase() === 'fixo' ? 'fixo' : 'variavel';
+}
+
+/**
+ * Totais canônicos Seção 07: Fixas/Variáveis por tipo + data_pagamento;
+ * Pendentes por data_vencimento + pagamento em branco. Flag `pago` irrelevante.
+ */
 export function totaisDespesa(
   contas: ContaParaDespesa[],
   recorte: RecorteDespesa,
@@ -72,33 +68,50 @@ export function totaisDespesa(
   let pendentes = 0;
 
   for (const c of contas) {
-    const venc = parseVencimento(c.data_vencimento);
-    if (!venc || !noRecorte(venc, recorte)) continue;
-    const nat = naturezaDespesa(c.categoria);
-    if (nat === 'excluida') continue;
+    if (categoriaEhImpostos(c.categoria)) continue;
     const valor = Number(c.valor) || 0;
     if (valor === 0) continue;
 
-    if (c.pago) {
-      if (nat === 'fixa') fixas += valor;
+    const pag = parseAnoMes(c.data_pagamento);
+    if (pag && noRecorte(pag, recorte)) {
+      if (tipoDespesaCanonico(c.tipo_despesa) === 'fixo') fixas += valor;
       else variaveis += valor;
-    } else {
-      pendentes += valor;
+      continue;
+    }
+
+    if (!pag) {
+      const venc = parseAnoMes(c.data_vencimento);
+      if (venc && noRecorte(venc, recorte)) pendentes += valor;
     }
   }
 
   return { fixas, variaveis, pendentes };
 }
 
+export type ResultadoCard = {
+  valor: number;
+  /** null se receita <= 0 (não inventar %). */
+  pct: number | null;
+};
+
+/**
+ * Resultado = receita − despesas_totais (fixas + variáveis; sem pendentes).
+ */
+export function calcularResultado(receita: number, despesasTotais: number): ResultadoCard {
+  const rec = Number(receita) || 0;
+  const desp = Number(despesasTotais) || 0;
+  const valor = rec - desp;
+  if (rec <= 0) return { valor, pct: null };
+  return { valor, pct: (valor / rec) * 100 };
+}
+
+/** @deprecated Preferir `calcularResultado`; mantido por compat. */
 export function lucroCard(
   receitaLiquida: number,
   fixas: number,
   variaveis: number,
-): { valor: number; pct: number | null } {
-  const liquida = Number(receitaLiquida) || 0;
-  const valor = liquida - (Number(fixas) || 0) - (Number(variaveis) || 0);
-  if (liquida <= 0) return { valor, pct: null };
-  return { valor, pct: (valor / liquida) * 100 };
+): ResultadoCard {
+  return calcularResultado(receitaLiquida, (Number(fixas) || 0) + (Number(variaveis) || 0));
 }
 
 export type CategoriaCusto = {
@@ -140,7 +153,7 @@ export type NfParaImposto = {
 };
 
 function parseEmissao(s?: string | null): { ano: number; mes: number } | null {
-  return parseVencimento(s);
+  return parseAnoMes(s);
 }
 
 /** Impostos por competência: Σ valor_imposto das NFs pagas no recorte; alíquota ÷ Receita Bruta. */

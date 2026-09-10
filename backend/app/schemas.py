@@ -580,6 +580,119 @@ class ImpostoResponse(ImpostoBase):
     class Config:
         from_attributes = True
 
+# ==================== PIPELINE DE RECEITA (Dashboard) ====================
+class PipelineEstagioTotais(BaseModel):
+    """Dual-base: valor/percentual espelham líquido (compat 056)."""
+    valor_liquido: float = 0.0
+    valor_bruto: float = 0.0
+    contagem: int = 0
+    percentual_liquido: Optional[float] = None
+    percentual_bruto: Optional[float] = None
+    # Compatível com clientes 056
+    valor: float = 0.0
+    percentual: Optional[float] = None
+
+
+class PipelineReceitaResponse(BaseModel):
+    ano: int
+    mes: Optional[int] = None
+    fechado: PipelineEstagioTotais
+    a_faturar: PipelineEstagioTotais
+    faturado_ag_pagamento: PipelineEstagioTotais
+    recebido: PipelineEstagioTotais
+
+
+# ==================== RECEITA POR CAIXA (Dashboard) ====================
+class ReceitaCaixaTotais(BaseModel):
+    valor_liquido: float = 0.0
+    valor_bruto: float = 0.0
+    contagem: int = 0
+
+
+class ReceitaCaixaResponse(BaseModel):
+    ano: int
+    mes: Optional[int] = None
+    recebido: ReceitaCaixaTotais
+    impostos_recolhidos: float = 0.0
+    a_receber: ReceitaCaixaTotais
+    a_faturar: ReceitaCaixaTotais
+
+
+# ==================== AGING DE RECEBÍVEIS (Dashboard) ====================
+class AgingTotais(BaseModel):
+    valor_liquido: float = 0.0
+    valor_bruto: float = 0.0
+    percentual_liquido: Optional[float] = None
+    percentual_bruto: Optional[float] = None
+
+
+class AgingRecebiveisResponse(BaseModel):
+    referencia: date
+    total_aberto: AgingTotais
+    a_vencer_lt_30: AgingTotais
+    d1_60: AgingTotais
+    d60_90: AgingTotais
+    d_mais_90: AgingTotais
+
+
+# ==================== ALERTA DE FLUXO DE CAIXA ====================
+class LimiarAlertaFluxoResponse(BaseModel):
+    limiar_percentual: int = 60
+
+
+class LimiarAlertaFluxoPut(BaseModel):
+    limiar_percentual: int = Field(..., ge=1, le=100)
+
+    @field_validator("limiar_percentual", mode="before")
+    @classmethod
+    def limiar_deve_ser_inteiro(cls, v):
+        if isinstance(v, bool):
+            raise ValueError("limiar_percentual deve ser um inteiro de 1 a 100")
+        if isinstance(v, float):
+            if not v.is_integer():
+                raise ValueError("limiar_percentual deve ser um inteiro de 1 a 100")
+            return int(v)
+        if isinstance(v, str):
+            s = v.strip().replace(",", ".")
+            try:
+                f = float(s)
+            except ValueError as e:
+                raise ValueError("limiar_percentual deve ser um inteiro de 1 a 100") from e
+            if not f.is_integer():
+                raise ValueError("limiar_percentual deve ser um inteiro de 1 a 100")
+            return int(f)
+        return v
+
+
+class ProximoRecebimentoResponse(BaseModel):
+    referencia: date
+    encontrado: bool
+    data_vencimento: Optional[date] = None
+    valor_liquido: Optional[float] = None
+    valor_bruto: Optional[float] = None
+    nf_id: Optional[int] = None
+
+
+# ==================== CONFIGURAÇÃO DO PERÍODO ====================
+class ConfiguracaoPeriodoPut(BaseModel):
+    mes: int = Field(..., ge=1, le=12)
+    ano: int
+    meta_liquida: float
+    aliquota_periodo: float = Field(..., ge=0, lt=100)
+    confirmar_atualizacao_massa: bool = False
+
+
+class ConfiguracaoPeriodoResponse(BaseModel):
+    mes: int
+    ano: int
+    meta_liquida: Optional[float] = None
+    aliquota_periodo: Optional[float] = None
+    meta_bruta: Optional[float] = None
+    configurada: bool = False
+    registros_afetaveis: int = 0
+    registros_atualizados: Optional[int] = None
+
+
 # ==================== RESPOSTAS GENÉRICAS ====================
 class PaginatedResponse(BaseModel):
     total: int

@@ -4,18 +4,67 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService } from '../services/api';
+import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService, configuracoesService } from '../services/api';
 import { codigoPadrao, CODIGO_INVESTIMENTO } from '../utils/fluxoCaixaMovimentos';
 import {
+  calcularResultado,
   filtrarCustoSemImpostos,
-  impostosDeNfsPagas,
-  lucroCard,
   totaisDespesa,
 } from '../utils/dashboardDespesas';
 import { saldoCorrenteDashboard } from '../utils/dashboardSaldo';
+import {
+  PIPELINE_ESTAGIOS,
+  PIPELINE_VAZIO,
+  fmtPipelinePct,
+  normalizePipelineReceita,
+  type PipelineReceita,
+} from '../utils/pipelineReceita';
+import {
+  LABELS_CAIXA,
+  LABELS_COMPETENCIA,
+  RECEITA_CAIXA_VAZIA,
+  metricasCompetencia,
+  normalizeReceitaCaixa,
+  numeradorBarraMeta,
+  rotuloNumeradorBarra,
+  type AbaReceita,
+  type ReceitaCaixa,
+} from '../utils/receitaAbas';
+import {
+  AGING_BUCKETS,
+  AGING_VAZIO,
+  fmtAgingPct,
+  normalizeAgingRecebiveis,
+  pctAging,
+  valorAging,
+  type AgingRecebiveis,
+} from '../utils/agingRecebiveis';
+import {
+  LIMIAR_ALERTA_DEFAULT,
+  PROXIMO_VAZIO,
+  calcularPctNaoRecebida,
+  deveExibirBanner,
+  ehLimiarValido,
+  fmtLimiarAlerta,
+  fmtPctAlerta,
+  normalizeProximoRecebimento,
+  rotuloIndisponivel,
+  rotuloSemProximo,
+  valorProximoPorVisao,
+  type ProximoRecebimento,
+} from '../utils/alertaFluxoCaixa';
+import {
+  metaBruta,
+  pctPorVisao,
+  rotuloVisao,
+  valorPorVisao,
+  type VisaoReceita,
+} from '../utils/metaPeriodo';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import type { ContaCorrente, ContaPagar, NF } from '../types';
+import axios from 'axios';
+import { mensagemErro } from '../utils/erros';
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -298,13 +347,6 @@ function mapCustoResposta(data: any): { fatias: CustoFatia[]; total: number } {
 }
 
 const MSG_SELECIONE_MES = 'Selecione um mês para ver este indicador';
-const RESUMO_VAZIO = {
-  faturamento_liquido_pago: 0,
-  faturamento_bruto_pago: 0,
-  faturamento_bruto_pendente: 0,
-  quantidade_pagas: 0,
-  quantidade_pendentes: 0,
-};
 
 function DonutCustoBloco({
   titulo,
@@ -397,20 +439,14 @@ export default function Dashboard() {
   const [ano, setAno] = useState(ANO_ATUAL);
   const [mes, setMes] = useState<number | null>(MES_ATUAL);
   const [loading, setLoading] = useState(true);
-  const [realizadoAnual, setRealizadoAnual] = useState(0);
   const [drlSerie, setDrlSerie] = useState<DrlPonto[]>([]);
-  const [resumo, setResumo] = useState({
-    faturamento_liquido_pago: 0,
-    faturamento_bruto_pago: 0,
-    faturamento_bruto_pendente: 0,
-    quantidade_pagas: 0,
-    quantidade_pendentes: 0,
-  });
 
-  // Meta do mês corrente
+  // Configuração do Período (meta mensal + alíquota)
   const [meta, setMeta] = useState<any>(null);
   const [editandoMeta, setEditandoMeta] = useState(false);
   const [valorMeta, setValorMeta] = useState('');
+  const [valorAliquota, setValorAliquota] = useState('');
+  const [visaoReceita, setVisaoReceita] = useState<VisaoReceita>('liquido');
 
   // Meta anual
   const [metaAnual, setMetaAnual] = useState<any>(null);
@@ -426,12 +462,21 @@ export default function Dashboard() {
   ]);
   const [saldoInvestimento, setSaldoInvestimento] = useState<any>(null);
 
-  // Impostos + Despesas + Lucro (cards)
-  const [impostosCard, setImpostosCard] = useState<{ valor: number; aliquota: number | null }>({
-    valor: 0,
-    aliquota: null,
-  });
+  // Impostos + Despesas + Resultado (cards Seção 07)
   const [despesasTotais, setDespesasTotais] = useState({ fixas: 0, variaveis: 0, pendentes: 0 });
+  const [pipeline, setPipeline] = useState<PipelineReceita>(PIPELINE_VAZIO);
+  const [pipelineErro, setPipelineErro] = useState<string | null>(null);
+  const [receitaCaixa, setReceitaCaixa] = useState<ReceitaCaixa>(RECEITA_CAIXA_VAZIA);
+  const [receitaCaixaErro, setReceitaCaixaErro] = useState<string | null>(null);
+  const [aging, setAging] = useState<AgingRecebiveis>(AGING_VAZIO);
+  const [agingErro, setAgingErro] = useState<string | null>(null);
+  const [proximoRecebimento, setProximoRecebimento] = useState<ProximoRecebimento>(PROXIMO_VAZIO);
+  const [proximoErro, setProximoErro] = useState<string | null>(null);
+  const [limiarAlerta, setLimiarAlerta] = useState(LIMIAR_ALERTA_DEFAULT);
+  const [editandoLimiar, setEditandoLimiar] = useState(false);
+  const [valorLimiar, setValorLimiar] = useState(String(LIMIAR_ALERTA_DEFAULT));
+  const [salvandoLimiar, setSalvandoLimiar] = useState(false);
+  const [abaReceita, setAbaReceita] = useState<AbaReceita>('caixa');
 
   // DRE
   const [dre, setDre] = useState<DrePonto[]>([]);
@@ -470,6 +515,10 @@ export default function Dashboard() {
       setDreErro(null);
       setCustoMesErro(null);
       setCustoAnoErro(null);
+      setPipelineErro(null);
+      setReceitaCaixaErro(null);
+      setAgingErro(null);
+      setProximoErro(null);
 
       const temMes = mes !== null;
       const mesAteAnual = mesAteAno(ano);
@@ -495,12 +544,6 @@ export default function Dashboard() {
                 return { data: null };
               });
 
-      const resumoPromise = temMes
-        ? relatoriosService.resumoFinanceiro(ano, mes)
-        : mesAteAnual != null
-          ? relatoriosService.resumoFinanceiro(ano, undefined, mesAteAnual)
-          : Promise.resolve({ data: null });
-
       const metaMesPromise = temMes
         ? metasService.progresso(mes, ano).catch(() => ({ data: null }))
         : Promise.resolve({ data: null });
@@ -513,9 +556,35 @@ export default function Dashboard() {
         relatoriosService.faturamentoLiquidoMes(y).catch(() => ({ data: { dados: [] } })),
       );
 
-      const [faturRes, resumoRes, metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, ...drlRespostas] = await Promise.all([
-        relatoriosService.faturamentoLiquidoMes(ano),
-        resumoPromise,
+      const pipelinePromise = relatoriosService
+        .pipelineReceita(ano, mes)
+        .catch(() => {
+          setPipelineErro('Não foi possível carregar o Pipeline de Receita');
+          return { data: null };
+        });
+
+      const receitaCaixaPromise = relatoriosService
+        .receitaCaixa(ano, mes)
+        .catch(() => {
+          setReceitaCaixaErro('Não foi possível carregar a Receita Por Caixa');
+          return { data: null };
+        });
+
+      const agingPromise = relatoriosService.agingRecebiveis().catch(() => {
+        setAgingErro('Não foi possível carregar o Aging de Recebíveis');
+        return { data: null };
+      });
+
+      const limiarPromise = configuracoesService.obterLimiarAlertaFluxo().catch(() => ({
+        data: { limiar_percentual: LIMIAR_ALERTA_DEFAULT },
+      }));
+
+      const proximoPromise = relatoriosService.proximoRecebimento().catch(() => {
+        setProximoErro('Não foi possível carregar o próximo recebimento');
+        return { data: null };
+      });
+
+      const [metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, pipelineRes, receitaCaixaRes, agingRes, limiarRes, proximoRes, ...drlRespostas] = await Promise.all([
         metaMesPromise,
         metasService.progresso(0, ano).catch(() => ({ data: null })),
         contasService.listar(0, 500, 'recursos_humanos', undefined, 'retirada_socios').catch(() => ({ data: [] })),
@@ -530,18 +599,15 @@ export default function Dashboard() {
         nfsService.listar(0, 1000, undefined, undefined, 'paga', false).catch(() => ({ data: [] })),
         contasService.listar(0, 1000).catch(() => ({ data: [] })),
         fluxoMovimentosService.listar().catch(() => ({ data: [] })),
+        pipelinePromise,
+        receitaCaixaPromise,
+        agingPromise,
+        limiarPromise,
+        proximoPromise,
         ...drlPromises,
       ]);
 
       if (idCarga !== cargaSeq.current) return;
-
-      const limiteMesMeta = mes ?? (mesAteAnual ?? 12);
-      const dadosAnoMeta = faturRes.data?.dados || [];
-      setRealizadoAnual(
-        dadosAnoMeta
-          .filter((d: { mes: number }) => Number(d.mes) >= 1 && Number(d.mes) <= limiteMesMeta)
-          .reduce((s: number, d: { valor: number }) => s + (Number(d.valor) || 0), 0),
-      );
 
       setDrlSerie(
         buildSerieDrl(
@@ -551,9 +617,11 @@ export default function Dashboard() {
           })),
         ),
       );
-      setResumo(resumoRes.data || RESUMO_VAZIO);
       setMeta(temMes ? metaRes.data : null);
       setValorMeta(temMes && metaRes.data?.valor_meta ? String(metaRes.data.valor_meta) : '');
+      setValorAliquota(
+        temMes && metaRes.data?.aliquota_periodo != null ? String(metaRes.data.aliquota_periodo) : '',
+      );
       setMetaAnual(metaAnualRes.data);
       setValorMetaAnual(metaAnualRes.data?.valor_meta ? String(metaAnualRes.data.valor_meta) : '');
 
@@ -596,14 +664,41 @@ export default function Dashboard() {
       const investimento = [...saldosAteMes].filter((s) => s.conta === CODIGO_INVESTIMENTO).sort((a, b) => b.mes - a.mes)[0] || null;
       setSaldoInvestimento(investimento);
 
-      const mesAteDespesa = mes ?? (mesAteAnual ?? 12);
-      setDespesasTotais(totaisDespesa(contasPagarLista, { ano, mes, mesAte: mesAteDespesa }));
+      // Seção 07: modo mês = mês; só-ano = ano civil completo (não YTD)
+      setDespesasTotais(totaisDespesa(contasPagarLista, { ano, mes, mesAte: 12 }));
 
-      const resumoData = resumoRes.data || RESUMO_VAZIO;
-      const brutoRecorte = Number(resumoData.faturamento_bruto_pago) || 0;
-      setImpostosCard(
-        impostosDeNfsPagas(nfsLista, mes, ano, brutoRecorte, mesAteDespesa),
-      );
+      if (pipelineRes.data) {
+        setPipeline(normalizePipelineReceita(pipelineRes.data));
+        setPipelineErro(null);
+      } else {
+        setPipeline({ ...PIPELINE_VAZIO, ano });
+      }
+
+      if (receitaCaixaRes.data) {
+        setReceitaCaixa(normalizeReceitaCaixa(receitaCaixaRes.data));
+        setReceitaCaixaErro(null);
+      } else {
+        setReceitaCaixa({ ...RECEITA_CAIXA_VAZIA, ano });
+      }
+
+      if (agingRes.data) {
+        setAging(normalizeAgingRecebiveis(agingRes.data));
+        setAgingErro(null);
+      } else {
+        setAging({ ...AGING_VAZIO });
+      }
+
+      const limiarLido = Number(limiarRes.data?.limiar_percentual);
+      const limiarOk = ehLimiarValido(limiarLido) ? limiarLido : LIMIAR_ALERTA_DEFAULT;
+      setLimiarAlerta(limiarOk);
+      if (!editandoLimiar) setValorLimiar(String(limiarOk));
+
+      if (proximoRes.data) {
+        setProximoRecebimento(normalizeProximoRecebimento(proximoRes.data));
+        setProximoErro(null);
+      } else {
+        setProximoRecebimento({ ...PROXIMO_VAZIO });
+      }
 
       const dreBruto: DrePonto[] = (dreRes.data?.dados || []).map((d: any) => {
         const receita_bruta = Number(d.receita_bruta) || 0;
@@ -651,13 +746,65 @@ export default function Dashboard() {
 
   const salvarMeta = async () => {
     if (mes === null) return;
-    try {
-      await metasService.definir(mes, ano, parseFloat(valorMeta) || 0);
-      toast.success('Meta atualizada!');
+    const metaLiquida = parseFloat(valorMeta);
+    const aliquota = parseFloat(valorAliquota);
+    if (!Number.isFinite(metaLiquida) || valorMeta.trim() === '') {
+      toast.error('Informe a meta líquida');
+      return;
+    }
+    if (!Number.isFinite(aliquota) || valorAliquota.trim() === '' || aliquota < 0 || aliquota >= 100) {
+      toast.error('Informe a alíquota do período (0 a menos de 100)');
+      return;
+    }
+
+    const payload = {
+      mes,
+      ano,
+      meta_liquida: metaLiquida,
+      aliquota_periodo: aliquota,
+      confirmar_atualizacao_massa: false as boolean,
+    };
+
+    const tentarSalvar = async (confirmar: boolean) => {
+      const res = await metasService.salvarPeriodo({
+        ...payload,
+        confirmar_atualizacao_massa: confirmar,
+      });
+      const atualizados = res.data?.registros_atualizados;
+      toast.success(
+        atualizados != null
+          ? `Configuração salva · ${atualizados} registro(s) atualizado(s)`
+          : 'Configuração do período salva!',
+      );
       setEditandoMeta(false);
       carregarDados();
-    } catch {
-      toast.error('Erro ao salvar meta');
+    };
+
+    try {
+      await tentarSalvar(false);
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const detail = err.response.data?.detail;
+        const n =
+          typeof detail === 'object' && detail != null
+            ? Number(detail.registros_afetaveis) || 0
+            : 0;
+        const ok = window.confirm(
+          `A alíquota mudará ${n} Conta(s) a Receber com emissão neste período (alíquota e valor líquido). Continuar?`,
+        );
+        if (!ok) return;
+        try {
+          await tentarSalvar(true);
+        } catch {
+          toast.error('Erro ao salvar configuração do período');
+        }
+        return;
+      }
+      const msg =
+        axios.isAxiosError(err) && err.response?.status === 403
+          ? 'Apenas administradores podem salvar'
+          : 'Erro ao salvar configuração do período';
+      toast.error(msg);
     }
   };
 
@@ -672,11 +819,49 @@ export default function Dashboard() {
     }
   };
 
-  const metaMensalValida = Boolean(mes !== null && meta?.tem_meta && meta.valor_meta > 0);
+  const salvarLimiarAlerta = async () => {
+    const bruto = valorLimiar.trim().replace(',', '.');
+    // rejeita decimal explícito ("60.5" / "60,5"); aceita só inteiro 1–100
+    if (/[.,]/.test(valorLimiar.trim()) || !/^\d+$/.test(bruto) || !ehLimiarValido(Number(bruto))) {
+      toast.error('Informe um limiar inteiro entre 1 e 100');
+      return;
+    }
+    const limiar = Number(bruto);
+    try {
+      setSalvandoLimiar(true);
+      const res = await configuracoesService.salvarLimiarAlertaFluxo(limiar);
+      const salvo = Number(res.data?.limiar_percentual);
+      const ok = ehLimiarValido(salvo) ? salvo : limiar;
+      setLimiarAlerta(ok);
+      setValorLimiar(String(ok));
+      setEditandoLimiar(false);
+      toast.success('Limiar do alerta salvo');
+    } catch (e: unknown) {
+      toast.error(mensagemErro(e, 'Erro ao salvar limiar'));
+    } finally {
+      setSalvandoLimiar(false);
+    }
+  };
+
+  const metaMensalValida = Boolean(
+    mes !== null && meta?.tem_meta && meta.valor_meta > 0 && meta.aliquota_periodo != null,
+  );
   const metaAnualValida = Boolean(metaAnual?.tem_meta && metaAnual.valor_meta > 0);
   const rotuloMetaMensal = mes === null
-    ? 'Meta de Receita Mensal'
-    : `Meta de Receita Mensal — ${MESES_NOME[mes - 1]}/${ano}`;
+    ? 'Configuração do Período'
+    : `Configuração do Período — ${MESES_NOME[mes - 1]}/${ano}`;
+  const metaExibida = metaMensalValida
+    ? (visaoReceita === 'bruto'
+      ? (meta?.meta_bruta ?? metaBruta(meta.valor_meta, meta.aliquota_periodo))
+      : meta.valor_meta)
+    : null;
+  const realizadoMeta = numeradorBarraMeta(abaReceita, receitaCaixa, pipeline, visaoReceita);
+  const pctMetaMensal =
+    metaExibida != null && metaExibida > 0
+      ? Math.min((realizadoMeta / metaExibida) * 100, 100)
+      : 0;
+  const pctMetaMensalDisplay = Math.round(pctMetaMensal * 10) / 10;
+  const rotuloBarraMensal = rotuloNumeradorBarra(abaReceita);
   const rotuloCustoMes = mes === null
     ? 'Despesas — mês'
     : `Despesas — ${MESES_NOME[mes - 1]}/${ano}`;
@@ -685,38 +870,71 @@ export default function Dashboard() {
     : `Sem despesas por categoria para ${MESES_NOME[mes - 1]}/${ano}`;
   const rotuloCustoAno = `Despesas — ${ano}`;
   const rotuloCustoAnoVazio = `Sem despesas por categoria para ${ano}`;
-  const mesAteKpi = mesAteAno(ano);
-  const rotuloRecorteKpi =
-    mes === null && mesAteKpi != null
-      ? `Jan–${MESES_NOME[mesAteKpi - 1]}/${ano}`
-      : mes === null
-        ? String(ano)
-        : null;
 
-  const lucro = lucroCard(
-    resumo.faturamento_liquido_pago,
-    despesasTotais.fixas,
-    despesasTotais.variaveis,
+  const despesasTotaisResultado = despesasTotais.fixas + despesasTotais.variaveis;
+  const receitaComp = valorPorVisao(
+    pipeline.fechado.valor_liquido,
+    pipeline.fechado.valor_bruto,
+    visaoReceita,
   );
+  const receitaCaixaValor = valorPorVisao(
+    receitaCaixa.recebido.valor_liquido,
+    receitaCaixa.recebido.valor_bruto,
+    visaoReceita,
+  );
+  const resultadoCompetencia = calcularResultado(receitaComp, despesasTotaisResultado);
+  const resultadoCaixa = calcularResultado(receitaCaixaValor, despesasTotaisResultado);
   const fmtAliquota = (a: number | null) =>
     a == null
       ? '—'
       : `${a.toLocaleString('pt-BR', { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`;
-  const fmtLucroPct = (p: number | null) =>
+  const fmtResultadoPct = (p: number | null) =>
     p == null
       ? '—'
       : `${p.toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 0 })}%`;
+  const rotuloDespesaResultado = mes === null ? String(ano) : null;
 
-  const pct = metaMensalValida ? Math.min(meta.percentual, 100) : 0;
+  const pct = metaMensalValida ? Math.min(pctMetaMensal, 100) : 0;
   const corBarra = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : 'bg-orange-500';
 
-  const totalAnualRealizado = realizadoAnual;
+  const pipelineFechadoValor = valorPorVisao(
+    pipeline.fechado.valor_liquido,
+    pipeline.fechado.valor_bruto,
+    visaoReceita,
+  );
+  const pipelineFechadoPct = pctPorVisao(
+    pipeline.fechado.percentual_liquido,
+    pipeline.fechado.percentual_bruto,
+    visaoReceita,
+  );
+
+  const competencia = metricasCompetencia(pipeline);
+  const pctNaoRecebida = pipelineErro
+    ? null
+    : calcularPctNaoRecebida(
+        valorPorVisao(
+          competencia.total_fechado.valor_liquido,
+          competencia.total_fechado.valor_bruto,
+          visaoReceita,
+        ),
+        valorPorVisao(
+          competencia.ja_recebido.valor_liquido,
+          competencia.ja_recebido.valor_bruto,
+          visaoReceita,
+        ),
+      );
+  const exibirAlertaFluxo = deveExibirBanner(pctNaoRecebida, limiarAlerta);
+  const valorProximoAlerta = valorProximoPorVisao(proximoRecebimento, visaoReceita);
+  const valorAgingAtencao = agingErro
+    ? null
+    : valorAging(aging.d60_90, visaoReceita);
+  const totalAnualRealizado = numeradorBarraMeta(abaReceita, receitaCaixa, pipeline, visaoReceita);
   const pctAnual = metaAnualValida
     ? Math.min((totalAnualRealizado / metaAnual.valor_meta) * 100, 100)
     : 0;
   const pctAnualDisplay = Math.round(pctAnual * 10) / 10;
   const corBarraAnual = pctAnual >= 100 ? 'bg-green-500' : pctAnual >= 60 ? 'bg-blue-500' : 'bg-orange-500';
-
+  const rotuloBarraAnual = rotuloNumeradorBarra(abaReceita);
   const dreTemValores = dre.some(
     (d) => d.receita_bruta || d.despesa || d.impostos || d.lucro
   );
@@ -739,7 +957,23 @@ export default function Dashboard() {
           <span className="text-gray-400 dark:text-gray-500 text-lg font-light">—</span>
           <span className="text-gray-500 dark:text-gray-400 text-sm">Visão geral do desempenho financeiro</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-sm">
+            <button
+              type="button"
+              onClick={() => setVisaoReceita('liquido')}
+              className={`px-3 py-2 ${visaoReceita === 'liquido' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}
+            >
+              Líquido
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisaoReceita('bruto')}
+              className={`px-3 py-2 ${visaoReceita === 'bruto' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}
+            >
+              Bruto
+            </button>
+          </div>
           <label className="text-sm text-gray-500 dark:text-gray-400">Mês:</label>
           <select
             value={mes ?? ''}
@@ -766,12 +1000,134 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Limiar do Alerta — sempre disponível para admin */}
+      {papel === 'admin' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md px-4 py-3 flex flex-wrap items-center gap-3 justify-between border border-amber-100 dark:border-amber-900/40">
+          <div>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+              Limiar do Alerta de Fluxo
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Banner quando % não recebida superar o limiar (padrão 60%). Separado da Configuração do Período.
+            </p>
+          </div>
+          {editandoLimiar ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-1.5 text-sm w-24"
+                value={valorLimiar}
+                onChange={(e) => setValorLimiar(e.target.value)}
+                disabled={salvandoLimiar}
+              />
+              <span className="text-sm text-gray-500">%</span>
+              <button
+                type="button"
+                onClick={salvarLimiarAlerta}
+                disabled={salvandoLimiar}
+                className="px-3 py-1.5 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                Salvar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditandoLimiar(false);
+                  setValorLimiar(String(limiarAlerta));
+                }}
+                disabled={salvandoLimiar}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                {fmtLimiarAlerta(limiarAlerta)}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setValorLimiar(String(limiarAlerta));
+                  setEditandoLimiar(true);
+                }}
+                className="px-3 py-1.5 text-sm rounded-lg border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+              >
+                Editar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center h-40">
           <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div>
         </div>
       ) : (
         <>
+          {/* Alerta de Fluxo de Caixa — banner âmbar (não dismissível) */}
+          {exibirAlertaFluxo && (
+            <div
+              role="status"
+              className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-5 py-4 shadow-sm"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    Alerta de Fluxo de Caixa
+                  </p>
+                  <p className="text-xs text-amber-800/80 dark:text-amber-200/80">
+                    % não recebida acima do limiar ({fmtLimiarAlerta(limiarAlerta)})
+                  </p>
+                </div>
+                <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
+                  {fmtPctAlerta(pctNaoRecebida)}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <div className="rounded-md bg-white/70 dark:bg-gray-900/40 px-3 py-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">% não recebida</p>
+                  <p className="font-semibold text-gray-800 dark:text-gray-100">{fmtPctAlerta(pctNaoRecebida)}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 capitalize">{rotuloVisao(visaoReceita)}</p>
+                </div>
+                <div className="rounded-md bg-white/70 dark:bg-gray-900/40 px-3 py-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Próximo recebimento</p>
+                  {proximoErro ? (
+                    <p className="font-semibold text-gray-600 dark:text-gray-300 italic">{rotuloIndisponivel()}</p>
+                  ) : !proximoRecebimento.encontrado ? (
+                    <p className="font-semibold text-gray-600 dark:text-gray-300">{rotuloSemProximo()}</p>
+                  ) : (
+                    <>
+                      <p className="font-semibold text-gray-800 dark:text-gray-100">
+                        {proximoRecebimento.data_vencimento
+                          ? new Date(`${proximoRecebimento.data_vencimento}T12:00:00`).toLocaleDateString('pt-BR')
+                          : '—'}
+                      </p>
+                      <p className="text-amber-900 dark:text-amber-100 font-medium">
+                        {valorProximoAlerta != null ? fmt(valorProximoAlerta) : '—'}
+                      </p>
+                    </>
+                  )}
+                </div>
+                <div className="rounded-md bg-white/70 dark:bg-gray-900/40 px-3 py-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Aging em atenção (60–90 dias)</p>
+                  {agingErro ? (
+                    <p className="font-semibold text-gray-600 dark:text-gray-300 italic">{rotuloIndisponivel()}</p>
+                  ) : (
+                    <p className="font-semibold text-orange-700 dark:text-orange-300">
+                      {fmt(valorAgingAtencao ?? 0)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Metas — Mensal antes de Anual; anual em largura total sem mês */}
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Metas</h2>
@@ -786,13 +1142,26 @@ export default function Dashboard() {
                     </p>
                     <div className="flex items-end gap-3 flex-wrap">
                       <div>
-                        <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Meta (R$)</label>
+                        <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Meta líquida (R$)</label>
                         <input
                           type="number"
                           className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-40"
                           value={valorMeta}
                           onChange={(e) => setValorMeta(e.target.value)}
                           placeholder="0,00"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Alíquota do período (%)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          max={99.99}
+                          className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-28"
+                          value={valorAliquota}
+                          onChange={(e) => setValorAliquota(e.target.value)}
+                          placeholder="18,5"
                         />
                       </div>
                       <button onClick={salvarMeta} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Salvar</button>
@@ -810,31 +1179,44 @@ export default function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setEditandoMeta(true)}
-                        title="Editar meta"
-                        aria-label="Editar meta do mês"
+                        title="Editar configuração do período"
+                        aria-label="Editar configuração do período"
                         className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
                       >
                         <PencilIcon />
                       </button>
                     )}
-                    {metaMensalValida ? (
-                      <div className="mt-auto flex items-center gap-2">
-                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                          {fmt(meta?.realizado ?? 0)}
-                        </span>
-                        <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
-                          <div
-                            className={`h-full ${corBarra} transition-all flex items-center justify-end pr-2`}
-                            style={{ width: `${pct}%` }}
-                          >
-                            {pct >= 18 && (
-                              <span className="text-xs font-bold text-white">{meta.percentual}%</span>
-                            )}
+                    {metaMensalValida && metaExibida != null ? (
+                      <div className="mt-auto space-y-2">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Meta ({rotuloVisao(visaoReceita)})
+                          {meta.aliquota_periodo != null && (
+                            <> · Alíquota {fmtAliquota(meta.aliquota_periodo)}</>
+                          )}
+                          {' · '}
+                          aba {abaReceita === 'caixa' ? 'Por Caixa' : 'Por Competência'}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                            {fmt(realizadoMeta)}
+                          </span>
+                          <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
+                            <div
+                              className={`h-full ${corBarra} transition-all flex items-center justify-end pr-2`}
+                              style={{ width: `${pct}%` }}
+                            >
+                              {pct >= 18 && (
+                                <span className="text-xs font-bold text-white">{pctMetaMensalDisplay}%</span>
+                              )}
+                            </div>
                           </div>
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                            {fmt(metaExibida)}
+                          </span>
                         </div>
-                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                          {fmt(meta.valor_meta)}
-                        </span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {fmt(realizadoMeta)} {rotuloBarraMensal}
+                        </p>
                       </div>
                     ) : papel === 'admin' ? (
                       <button
@@ -842,10 +1224,12 @@ export default function Dashboard() {
                         onClick={() => setEditandoMeta(true)}
                         className="mt-auto w-full py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
                       >
-                        Criar meta
+                        Configurar meta e alíquota
                       </button>
                     ) : (
-                      <p className="mt-auto text-sm text-gray-400 dark:text-gray-500 text-center py-2">Sem meta cadastrada</p>
+                      <p className="mt-auto text-sm text-gray-400 dark:text-gray-500 text-center py-2">
+                        Configure meta e alíquota
+                      </p>
                     )}
                   </>
                 )}
@@ -893,23 +1277,31 @@ export default function Dashboard() {
                       </button>
                     )}
                     {metaAnualValida ? (
-                      <div className="mt-auto flex items-center gap-2">
-                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                          {fmt(totalAnualRealizado)}
-                        </span>
-                        <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
-                          <div
-                            className={`h-full ${corBarraAnual} transition-all flex items-center justify-end pr-2`}
-                            style={{ width: `${pctAnual}%` }}
-                          >
-                            {pctAnual >= 18 && (
-                              <span className="text-xs font-bold text-white">{pctAnualDisplay}%</span>
-                            )}
+                      <div className="mt-auto space-y-2">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Meta anual · aba {abaReceita === 'caixa' ? 'Por Caixa' : 'Por Competência'}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                            {fmt(totalAnualRealizado)}
+                          </span>
+                          <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
+                            <div
+                              className={`h-full ${corBarraAnual} transition-all flex items-center justify-end pr-2`}
+                              style={{ width: `${pctAnual}%` }}
+                            >
+                              {pctAnual >= 18 && (
+                                <span className="text-xs font-bold text-white">{pctAnualDisplay}%</span>
+                              )}
+                            </div>
                           </div>
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                            {fmt(metaAnual.valor_meta)}
+                          </span>
                         </div>
-                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
-                          {fmt(metaAnual.valor_meta)}
-                        </span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {fmt(totalAnualRealizado)} {rotuloBarraAnual}
+                        </p>
                       </div>
                     ) : papel === 'admin' ? (
                       <button
@@ -930,56 +1322,267 @@ export default function Dashboard() {
 
           {/* Receita */}
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Receita</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Receita Bruta</h3>
-                <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
-                  {fmt(resumo.faturamento_bruto_pago)}
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Receita</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{rotuloVisao(visaoReceita)}</p>
+            </div>
+
+            {/* Abas Por Caixa / Por Competência */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 space-y-4">
+              <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 dark:border-gray-700 pb-3">
+                <button
+                  type="button"
+                  onClick={() => setAbaReceita('caixa')}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+                    abaReceita === 'caixa'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  Por Caixa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAbaReceita('competencia')}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+                    abaReceita === 'competencia'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  Por Competência
+                </button>
+                <p className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+                  {mes != null
+                    ? `${MESES_NOME[mes - 1]}/${ano}`
+                    : String(ano)}
+                  {' · '}
+                  {abaReceita === 'caixa' ? 'quanto entrou no caixa' : 'quanto fechamos'}
                 </p>
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Valor total</p>
-                {rotuloRecorteKpi && (
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-                )}
               </div>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Impostos</h3>
-                <p className="text-3xl font-bold text-gray-700 dark:text-gray-200 mt-2">
-                  {fmt(impostosCard.valor)}
+
+              {abaReceita === 'caixa' ? (
+                receitaCaixaErro ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">{receitaCaixaErro}</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {([
+                      { key: 'recebido' as const, dados: receitaCaixa.recebido, label: LABELS_CAIXA.recebido, absoluto: false },
+                      { key: 'impostos' as const, dados: null, label: LABELS_CAIXA.impostos, absoluto: true },
+                      { key: 'a_receber' as const, dados: receitaCaixa.a_receber, label: LABELS_CAIXA.a_receber, absoluto: false },
+                      { key: 'a_faturar' as const, dados: receitaCaixa.a_faturar, label: LABELS_CAIXA.a_faturar, absoluto: false },
+                    ]).map((item) => {
+                      const valor = item.absoluto
+                        ? receitaCaixa.impostos_recolhidos
+                        : valorPorVisao(item.dados!.valor_liquido, item.dados!.valor_bruto, visaoReceita);
+                      const contagem = item.absoluto ? null : item.dados!.contagem;
+                      return (
+                        <div
+                          key={item.key}
+                          className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                              {item.label.rotulo}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${item.label.badgeClass}`}
+                            >
+                              {item.label.badge}
+                            </span>
+                          </div>
+                          <p className={`text-xl font-bold mt-2 ${item.label.valorClass}`}>
+                            {fmt(valor)}
+                          </p>
+                          {contagem != null && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {contagem} registro{contagem === 1 ? '' : 's'}
+                            </p>
+                          )}
+                          {item.absoluto && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              Não alterna com Bruto/Líquido
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : pipelineErro ? (
+                <p className="text-sm text-red-600 dark:text-red-400">{pipelineErro}</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {([
+                    { key: 'total_fechado' as const, dados: competencia.total_fechado, label: LABELS_COMPETENCIA.total_fechado },
+                    { key: 'ja_recebido' as const, dados: competencia.ja_recebido, label: LABELS_COMPETENCIA.ja_recebido },
+                    { key: 'a_receber' as const, dados: competencia.a_receber, label: LABELS_COMPETENCIA.a_receber },
+                    { key: 'a_faturar' as const, dados: competencia.a_faturar, label: LABELS_COMPETENCIA.a_faturar },
+                  ]).map((item) => {
+                    const valor = valorPorVisao(item.dados.valor_liquido, item.dados.valor_bruto, visaoReceita);
+                    return (
+                      <div
+                        key={item.key}
+                        className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                            {item.label.rotulo}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${item.label.badgeClass}`}
+                          >
+                            {item.label.badge}
+                          </span>
+                        </div>
+                        <p className={`text-xl font-bold mt-2 ${item.label.valorClass}`}>
+                          {fmt(valor)}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {item.dados.contagem} registro{item.dados.contagem === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Pipeline de Receita */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 space-y-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-gray-800 dark:text-gray-100 text-base font-semibold">
+                  Pipeline de Receita
+                </h3>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">
+                  {mes != null
+                    ? `Fechado no mês — ${MESES_NOME[mes - 1]}/${ano}`
+                    : `Fechado no período — ${ano}`}
+                  {' · '}
+                  {rotuloVisao(visaoReceita)}
                 </p>
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                  Alíquota: {fmtAliquota(impostosCard.aliquota)}
-                </p>
-                {rotuloRecorteKpi && (
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-                )}
               </div>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Receita Líquida</h3>
-                <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">
-                  {fmt(resumo.faturamento_liquido_pago)}
-                </p>
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">{resumo.quantidade_pagas} NFs pagas</p>
-                {rotuloRecorteKpi && (
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-                )}
-              </div>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Receita Pendente</h3>
-                <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-2">
-                  {fmt(resumo.faturamento_bruto_pendente ?? 0)}
-                </p>
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                  {resumo.quantidade_pendentes ?? 0} NFs pendentes
-                </p>
-                {rotuloRecorteKpi && (
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-                )}
-              </div>
+              {pipelineErro ? (
+                <p className="text-sm text-red-600 dark:text-red-400">{pipelineErro}</p>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/40">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                        {mes != null ? 'Fechado no mês' : 'Fechado no período'}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {fmtPipelinePct(pipelineFechadoPct ?? 100)}
+                      </span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+                      {fmt(pipelineFechadoValor)}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {pipeline.fechado.contagem} registro{pipeline.fechado.contagem === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {PIPELINE_ESTAGIOS.map((est) => {
+                      const dados = pipeline[est.key];
+                      const valorEst = valorPorVisao(dados.valor_liquido, dados.valor_bruto, visaoReceita);
+                      const pctEst = pctPorVisao(
+                        dados.percentual_liquido,
+                        dados.percentual_bruto,
+                        visaoReceita,
+                      );
+                      return (
+                        <div
+                          key={est.key}
+                          className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                              {est.rotulo}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${est.badgeClass}`}
+                            >
+                              {est.badge}
+                            </span>
+                          </div>
+                          <p className={`text-xl font-bold mt-2 ${est.valorClass}`}>
+                            {fmt(valorEst)}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {dados.contagem} · {fmtPipelinePct(pctEst)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
-          {/* Despesa | Resultado */}
+          {/* Aging de Recebíveis — estoque global (independente do mês/ano) */}
+          <section className="space-y-3">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-gray-800 dark:text-gray-100 text-base font-semibold">
+                    Aging de Recebíveis
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Estoque total em aberto · independente do período
+                    {aging.referencia ? ` · ref. ${aging.referencia}` : ''}
+                    {' · '}
+                    {rotuloVisao(visaoReceita)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    Total em aberto
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {fmt(valorAging(aging.total_aberto, visaoReceita))}
+                  </p>
+                </div>
+              </div>
+              {agingErro ? (
+                <p className="text-sm text-red-600 dark:text-red-400">{agingErro}</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {AGING_BUCKETS.map((b) => {
+                    const dados = aging[b.key];
+                    const valor = valorAging(dados, visaoReceita);
+                    const pct = pctAging(dados, visaoReceita);
+                    return (
+                      <div
+                        key={b.key}
+                        className={`rounded-lg border p-4 ${b.borderClass}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                            {b.rotulo}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${b.badgeClass}`}
+                          >
+                            {b.acao}
+                          </span>
+                        </div>
+                        <p className={`text-xl font-bold mt-2 ${b.valorClass}`}>
+                          {fmt(valor)}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {fmtAgingPct(pct)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Despesa | Resultado (Seção 07) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
             <section className="space-y-3 lg:col-span-2">
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Despesa</h2>
@@ -989,9 +1592,9 @@ export default function Dashboard() {
                   <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-2">
                     {fmt(despesasTotais.fixas)}
                   </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Pagas no recorte</p>
-                  {rotuloRecorteKpi && (
-                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Pagas no período (data de pagamento)</p>
+                  {rotuloDespesaResultado && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
                   )}
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
@@ -999,9 +1602,9 @@ export default function Dashboard() {
                   <p className="text-2xl font-bold text-red-500 dark:text-red-300 mt-2">
                     {fmt(despesasTotais.variaveis)}
                   </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Pagas no recorte</p>
-                  {rotuloRecorteKpi && (
-                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Pagas no período (data de pagamento)</p>
+                  {rotuloDespesaResultado && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
                   )}
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
@@ -1009,26 +1612,40 @@ export default function Dashboard() {
                   <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-2">
                     {fmt(despesasTotais.pendentes)}
                   </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Não pagas no recorte</p>
-                  {rotuloRecorteKpi && (
-                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Vencimento no período sem pagamento</p>
+                  {rotuloDespesaResultado && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
                   )}
                 </div>
               </div>
             </section>
             <section className="space-y-3">
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Resultado</h2>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-                <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Lucro</h3>
-                <p className={`text-3xl font-bold mt-2 ${lucro.valor >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {fmt(lucro.valor)}
-                </p>
-                <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                  {fmtLucroPct(lucro.pct)} sobre Receita Líquida
-                </p>
-                {rotuloRecorteKpi && (
-                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloRecorteKpi}</p>
-                )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                  <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Resultado Competência</h3>
+                  <p className={`text-2xl font-bold mt-2 ${resultadoCompetencia.valor >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {fmt(resultadoCompetencia.valor)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                    {fmtResultadoPct(resultadoCompetencia.pct)}
+                  </p>
+                  {rotuloDespesaResultado && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
+                  )}
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                  <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Resultado Caixa</h3>
+                  <p className={`text-2xl font-bold mt-2 ${resultadoCaixa.valor >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {fmt(resultadoCaixa.valor)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                    {fmtResultadoPct(resultadoCaixa.pct)}
+                  </p>
+                  {rotuloDespesaResultado && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
+                  )}
+                </div>
               </div>
             </section>
           </div>

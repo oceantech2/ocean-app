@@ -290,6 +290,7 @@ class MetaFinanceira(Base):
     mes = Column(Integer, nullable=False)
     ano = Column(Integer, nullable=False)
     valor_meta = Column(Float, nullable=False)   # meta de faturamento líquido do mês
+    aliquota_periodo = Column(Float, nullable=True)  # alíquota efetiva do mês (%); só meses 1–12
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
