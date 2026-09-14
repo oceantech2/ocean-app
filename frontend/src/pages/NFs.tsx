@@ -2,17 +2,19 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { nfsService, contasCorrentesService, impostosService, bonusService, colaboradoresService } from '../services/api';
 import { mensagemErro, detalheObjeto } from '../utils/erros';
-import { ContaCorrente, NF, Bonus, ComissaoLinhaForm, Colaborador } from '../types';
+import { ContaCorrente, NF, Bonus, ComissaoLinhaForm, BonusLinhaForm, Colaborador } from '../types';
 import { caixaInicialForm, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
 import { aplicarCalculoFiscal, calcularImpostoLiquido, codigoSlot1, validarAliquota } from '../utils/nfValores';
 import { anosCompetencia, mapaAliquotas, textoTooltipAliquota } from '../utils/aliquotaMes';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import Pagination from '../components/Pagination';
 import ComissoesLinhasForm from '../components/ComissoesLinhasForm';
+import BonusLinhasForm from '../components/BonusLinhasForm';
 import { exportarCSV } from '../utils/export';
 import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import Modal from '../components/Modal';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const OPCOES_PAGINA = [15, 25, 50, 100];
@@ -77,10 +79,46 @@ function bonusToLinha(b: Bonus): ComissaoLinhaForm {
     mes: b.mes,
     ano: b.ano,
     atividades: b.atividades?.length ? b.atividades : (b.etapa ? [b.etapa] : []),
-    percentual: b.percentual,
+    percentual: b.percentual ?? 0,
     liberado: b.liberado,
     pago: b.pago,
   };
+}
+
+function bonusToBonusLinha(b: Bonus): BonusLinhaForm {
+  return {
+    id: b.id,
+    colaborador_id: b.colaborador_id,
+    mes: b.mes,
+    ano: b.ano,
+    valor: b.valor_bonus,
+    liberado: b.liberado,
+    pago: b.pago,
+  };
+}
+
+function validarBonus(linhas: BonusLinhaForm[]): string | null {
+  for (let i = 0; i < linhas.length; i++) {
+    const l = linhas[i];
+    const vazio = !l.colaborador_id && !l.valor;
+    if (vazio) continue;
+    if (!l.colaborador_id || !(l.valor > 0)) {
+      return `Bônus linha ${i + 1}: preencha fornecedor e valor maior que zero`;
+    }
+  }
+  return null;
+}
+
+function bonusPayload(linhas: BonusLinhaForm[]) {
+  return linhas
+    .filter((l) => l.colaborador_id && l.valor > 0)
+    .map((l) => ({
+      id: l.id,
+      colaborador_id: l.colaborador_id,
+      mes: l.mes,
+      ano: l.ano,
+      valor: l.valor,
+    }));
 }
 
 function validarComissoes(linhas: ComissaoLinhaForm[]): string | null {
@@ -178,6 +216,7 @@ export default function NFs() {
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
   const [comissoesLinhas, setComissoesLinhas] = useState<ComissaoLinhaForm[]>([]);
+  const [bonusLinhas, setBonusLinhas] = useState<BonusLinhaForm[]>([]);
   const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
   const [dataPagamentoForm, setDataPagamentoForm] = useState('');
   const [caixaReceberForm, setCaixaReceberForm] = useState('');
@@ -299,6 +338,7 @@ export default function NFs() {
     setConflitoNfId(null);
     setArquivoNfForm(null);
     setComissoesLinhas([]);
+    setBonusLinhas([]);
     if (searchParams.has('edit')) {
       const next = new URLSearchParams(searchParams);
       next.delete('edit');
@@ -306,12 +346,17 @@ export default function NFs() {
     }
   };
 
-  const carregarComissoesNf = async (nfId: number) => {
+  const carregarLinhasNf = async (nfId: number) => {
     try {
-      const res = await bonusService.listar(0, 100, undefined, undefined, undefined, nfId);
-      setComissoesLinhas((res.data as Bonus[]).map(bonusToLinha));
+      const [comissoesRes, bonusRes] = await Promise.all([
+        bonusService.listar(0, 100, undefined, undefined, undefined, nfId, 'comissao'),
+        bonusService.listar(0, 100, undefined, undefined, undefined, nfId, 'bonus'),
+      ]);
+      setComissoesLinhas((comissoesRes.data as Bonus[]).map(bonusToLinha));
+      setBonusLinhas((bonusRes.data as Bonus[]).map(bonusToBonusLinha));
     } catch {
       setComissoesLinhas([]);
+      setBonusLinhas([]);
     }
   };
 
@@ -320,6 +365,7 @@ export default function NFs() {
     setConflitoNfId(null);
     setEditando(nf);
     setComissoesLinhas([]);
+    setBonusLinhas([]);
     const caixaForm = nf.caixa && nf.caixa !== 'investimento' && contasCorrentes.some((c) => c.ativo && c.codigo === nf.caixa)
       ? nf.caixa
       : codigoSlot1(contasCorrentes);
@@ -338,7 +384,7 @@ export default function NFs() {
     });
     setModalAberto(true);
     setArquivoNfForm(null);
-    carregarComissoesNf(nf.id);
+    carregarLinhasNf(nf.id);
   };
 
   const abrirCriar = () => {
@@ -347,6 +393,7 @@ export default function NFs() {
     setConflitoNfId(null);
     setArquivoNfForm(null);
     setComissoesLinhas([]);
+    setBonusLinhas([]);
     setForm({ ...FORM_INICIAL, caixa: codigoSlot1(contasCorrentes) });
     setModalAberto(true);
   };
@@ -426,7 +473,22 @@ export default function NFs() {
     }
   };
 
-  const salvar = async () => {
+  const aplicarFormPosMaisUmReceber = () => {
+    setCriando(true);
+    setEditando(null);
+    setArquivoNfForm(null);
+    setConflitoNfId(null);
+    setForm((prev) => ({
+      ...prev,
+      pagamento_estado: 'pendente',
+      data_pagamento: '',
+      numero: '',
+      data_emissao: '',
+    }));
+    // comissoesLinhas / bonusLinhas: mantém o estado do form (cópia já usada no create)
+  };
+
+  const salvar = async (continuar = false) => {
     const numeroTrim = form.numero.trim();
     if (numeroTrim && !form.data_emissao) {
       toast.error(MSG_NF_EXIGE_EMISSAO);
@@ -437,12 +499,18 @@ export default function NFs() {
       toast.error(erroComissao);
       return;
     }
+    const erroBonus = validarBonus(bonusLinhas);
+    if (erroBonus) {
+      toast.error(erroBonus);
+      return;
+    }
     const erroAliquota = validarAliquota(form.aliquota_imposto);
     if (erroAliquota) {
       toast.error(erroAliquota);
       return;
     }
     const comissoes = comissoesPayload(comissoesLinhas);
+    const bonus = bonusPayload(bonusLinhas);
     if (criando) {
       if (!form.razao_social.trim() || !form.valor_bruto) {
         toast.error('Preencha empresa, método de pagamento e valor bruto');
@@ -474,31 +542,33 @@ export default function NFs() {
           data_pagamento: recebido ? form.data_pagamento : null,
           caixa: form.caixa || codigoSlot1(contasCorrentes),
           comissoes,
+          bonus,
         });
         const novaId = res.data?.id;
+        let anexoOk = true;
         if (arquivoNfForm && novaId) {
           const motivo = motivoArquivoNf(arquivoNfForm);
           if (motivo) {
+            anexoOk = false;
             toast.error(`${motivo}. A conta foi criada sem o arquivo.`);
           } else {
             try {
               await nfsService.uploadAnexo(novaId, arquivoNfForm);
             } catch (err: any) {
+              anexoOk = false;
               toast.error(mensagemErro(err, 'Conta criada, mas a nota fiscal não foi anexada'));
-              setModalAberto(false);
-              setCriando(false);
-              setArquivoNfForm(null);
-              setComissoesLinhas([]);
-              carregarNFs();
-              return;
             }
           }
         }
-        toast.success('Conta a receber criada!');
-        fecharModal();
+        if (anexoOk) toast.success('Conta a receber criada!');
         carregarNFs();
         triggerNotifRefresh();
         triggerCalendarioRefresh();
+        if (continuar) {
+          aplicarFormPosMaisUmReceber();
+        } else {
+          fecharModal();
+        }
       } catch (e: any) {
         if (!tratarConflitoNumero(e)) toast.error(mensagemErro(e, 'Erro ao criar'));
       } finally { setSalvando(false); }
@@ -537,6 +607,7 @@ export default function NFs() {
         });
       }
       dados.comissoes = comissoes;
+      dados.bonus = bonus;
       await nfsService.atualizar(editando.id, dados);
       if (arquivoNfForm) {
         const motivo = motivoArquivoNf(arquivoNfForm);
@@ -550,6 +621,7 @@ export default function NFs() {
             setModalAberto(false);
             setArquivoNfForm(null);
             setComissoesLinhas([]);
+    setBonusLinhas([]);
             carregarNFs();
             return;
           }
@@ -949,7 +1021,7 @@ export default function NFs() {
                     </td>
                     <td className={`px-2 py-2.5 sticky right-0 z-[1] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)] ${stickyBg(nf.status)}`}>
                       {papel === 'admin' && (
-                        <div className="flex gap-1 justify-end flex-wrap">
+                        <div className="flex gap-1 items-center justify-end flex-nowrap">
                           <ActionButton
                             variant="fluxo"
                             context="row"
@@ -997,13 +1069,13 @@ export default function NFs() {
         const maggoEditavel = papel === 'admin';
         const oceanEditavel = papel === 'admin';
         return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[min(90vh,720px)] flex flex-col overflow-hidden"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="shrink-0 px-6 py-4 border-b dark:border-gray-700">
+        <Modal
+          maxWidth="max-w-2xl"
+          headerClassName="px-6 py-4 border-b dark:border-gray-700"
+          bodyClassName="px-6 py-4 overscroll-contain"
+          footerClassName="px-6 py-4 border-t dark:border-gray-700 flex justify-end gap-3 bg-white dark:bg-gray-800 text-sm"
+          header={(
+            <>
               <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">
                 {criando ? 'Nova conta a receber' : 'Editar Conta a Receber'}
               </h2>
@@ -1015,8 +1087,31 @@ export default function NFs() {
                     : ' — dados Maggo e Ocean editáveis no Ocean (correção não atualiza a Maggo)'}
                 </p>
               )}
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-4">
+            </>
+          )}
+          footer={(
+            <>
+              <button onClick={fecharModal} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              {papel === 'admin' && criando && (
+                <button
+                  type="button"
+                  onClick={() => salvar(true)}
+                  disabled={salvando}
+                  title="Salvar e cadastrar mais um"
+                  aria-label="Salvar e cadastrar mais um"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                >
+                  +1
+                </button>
+              )}
+              {papel === 'admin' && (
+                <button onClick={() => salvar(false)} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {salvando ? 'Salvando...' : 'Salvar'}
+                </button>
+              )}
+            </>
+          )}
+        >
               <div className="grid grid-cols-2 gap-4">
               <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Dados Maggo</p>
               <div>
@@ -1274,6 +1369,12 @@ export default function NFs() {
                 fornecedores={fornecedores}
                 readOnly={papel !== 'admin'}
               />
+              <BonusLinhasForm
+                linhas={bonusLinhas}
+                onChange={setBonusLinhas}
+                fornecedores={fornecedores}
+                readOnly={papel !== 'admin'}
+              />
               {conflitoNfId && (
                 <div className="mt-4">
                   <button
@@ -1285,28 +1386,30 @@ export default function NFs() {
                   </button>
                 </div>
               )}
-            </div>
-            <div className="shrink-0 px-6 py-4 border-t dark:border-gray-700 flex justify-end gap-3 bg-white dark:bg-gray-800 text-sm">
-              <button onClick={fecharModal} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
-              {papel === 'admin' && (
-                <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                  {salvando ? 'Salvando...' : 'Salvar'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        </Modal>
         );
       })()}
 
       {pagarModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm mx-4">
-            <div className="p-6 border-b dark:border-gray-700">
+        <Modal
+          maxWidth="max-w-sm"
+          bodyClassName="p-6 space-y-4"
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm"
+          header={(
+            <>
               <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Marcar como recebido</h2>
               <p className="text-sm text-gray-500 mt-1">{pagarModal.posicao || '—'} — {pagarModal.razao_social}</p>
-            </div>
-            <div className="p-6 space-y-4">
+            </>
+          )}
+          footer={(
+            <>
+              <button onClick={() => setPagarModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={confirmarPagamento} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                Confirmar recebimento
+              </button>
+            </>
+          )}
+        >
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento *</label>
                 <input
@@ -1328,28 +1431,25 @@ export default function NFs() {
                   ))}
                 </select>
               </div>
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
-              <button onClick={() => setPagarModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
-              <button onClick={confirmarPagamento} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                Confirmar recebimento
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {dialogImportConflito && importPendente && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
-            <div className="p-6 border-b dark:border-gray-700">
+        <Modal
+          maxWidth="max-w-md"
+          bodyClassName="p-0"
+          footerClassName="p-6 flex flex-wrap justify-end gap-3 text-sm"
+          header={(
+            <>
               <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Números já cadastrados (Manual)</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                 Alguns números deste arquivo já existem em lançamentos Manual. Deseja rejeitar essas linhas ou atualizar as contas existentes?
                 Linhas cujo número já existe em Maggo serão sempre rejeitadas (conflito de origem).
               </p>
-            </div>
-            <div className="p-6 flex flex-wrap justify-end gap-3 text-sm">
+            </>
+          )}
+          footer={(
+            <>
               <button
                 type="button"
                 className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
@@ -1373,9 +1473,11 @@ export default function NFs() {
               >
                 Atualizar
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          )}
+        >
+          {null}
+        </Modal>
       )}
     </div>
   );

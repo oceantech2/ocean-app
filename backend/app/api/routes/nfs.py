@@ -19,6 +19,7 @@ from app.services.caixas import codigo_padrao, codigo_slot1, exigir_conta_corren
 from app.services.nf_valores import calcular_imposto_liquido
 from app.services import anexo_nf
 from app.services.comissoes_sync import sincronizar
+from app.services.bonus_sync import sincronizar_bonus
 
 router = APIRouter()
 
@@ -607,6 +608,7 @@ def criar_nf(
         db.add(db_nf)
         db.flush()
         sincronizar(db, db_nf, nf.comissoes, current_user)
+        sincronizar_bonus(db, db_nf, nf.bonus, current_user)
         registrar_auditoria(db, current_user, "criar", "NF", db_nf.id, f"NF {numero or '(sem número)'} criada (manual)")
         db.commit()
         db.refresh(db_nf)
@@ -634,7 +636,10 @@ def atualizar_nf(
     comissoes_payload = (
         nf_update.comissoes if "comissoes" in nf_update.model_fields_set else None
     )
-    dados_atualizacao = nf_update.model_dump(exclude_unset=True, exclude={"comissoes"})
+    bonus_payload = (
+        nf_update.bonus if "bonus" in nf_update.model_fields_set else None
+    )
+    dados_atualizacao = nf_update.model_dump(exclude_unset=True, exclude={"comissoes", "bonus"})
     caixa_pedido = dados_atualizacao.pop("caixa", None)
     # Cliente pode enviar imposto/líquido; fonte de verdade é bruto + alíquota
     dados_atualizacao.pop("valor_imposto", None)
@@ -685,6 +690,7 @@ def atualizar_nf(
 
     try:
         sincronizar(db, db_nf, comissoes_payload, current_user)
+        sincronizar_bonus(db, db_nf, bonus_payload, current_user)
         registrar_auditoria(db, current_user, "editar", "NF", db_nf.id, f"NF {db_nf.numero or '(sem número)'} — campos: {', '.join(dados_atualizacao.keys())}")
         db.commit()
         db.refresh(db_nf)

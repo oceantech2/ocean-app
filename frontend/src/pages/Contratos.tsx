@@ -1,10 +1,10 @@
 const ATALHOS = [
   {
-    rotulo: 'Contratos ativos',
+    rotulo: 'Contratos Clientes',
     url: 'https://drive.google.com/drive/u/2/folders/1pJGZNasVVx2pGdk0-mu6GA0L4x59gj9H',
   },
   {
-    rotulo: 'Contratos arquivados',
+    rotulo: 'Contratos Internos',
     url: 'https://drive.google.com/drive/u/2/folders/1t8HPQgoqgyG1wWy7CjJbDoEJoayi_PJ-',
   },
 ] as const;

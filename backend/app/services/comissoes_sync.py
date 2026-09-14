@@ -96,7 +96,7 @@ def sincronizar(
 
     linhas = [_como_linha(l) for l in linhas]
 
-    existentes = db.query(Bonus).filter(Bonus.nf_id == nf.id).all()
+    existentes = db.query(Bonus).filter(Bonus.nf_id == nf.id, Bonus.tipo == "comissao").all()
     por_id = {b.id: b for b in existentes}
     ids_payload = {l.id for l in linhas if l.id}
 
@@ -107,7 +107,8 @@ def sincronizar(
             if not bonus:
                 raise HTTPException(status_code=422, detail=f"Comissão {linha.id} não encontrada nesta conta")
             if bonus.liberado:
-                raise HTTPException(status_code=422, detail="Comissão liberada não pode ser alterada")
+                # Eco do formulário da conta: linha travada permanece; demais campos da NF podem gravar.
+                continue
             percentual_igual = float(bonus.percentual) == float(linha.percentual)
             atividades_gravadas = _parse_atividades(bonus.atividades)
             if not atividades_gravadas and bonus.etapa:
@@ -126,6 +127,7 @@ def sincronizar(
                 colaborador_id=linha.colaborador_id,
                 mes=linha.mes,
                 ano=linha.ano,
+                tipo="comissao",
                 etapa=linha.atividades[0],
                 atividades=_atividades_json(linha.atividades),
                 percentual=linha.percentual,
@@ -161,6 +163,7 @@ def serializar_bonus(bonus: Bonus, nf: Optional[NF] = None) -> dict:
         "id": bonus.id,
         "colaborador_id": bonus.colaborador_id,
         "nf_id": bonus.nf_id,
+        "tipo": bonus.tipo or "comissao",
         "mes": bonus.mes,
         "ano": bonus.ano,
         "etapa": bonus.etapa,

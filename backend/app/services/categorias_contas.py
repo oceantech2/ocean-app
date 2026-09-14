@@ -32,11 +32,13 @@ SUB_BENEFICIOS = "beneficios"
 
 SUBCATEGORIAS_RH = {
     SUB_SALARIO: "Salário",
-    SUB_BONUS: "Bônus & Comissão",
+    SUB_BONUS: "Bônus",
     SUB_COMISSAO: "Comissão",
     SUB_RETIRADA: "Retirada Sócios",
     SUB_BENEFICIOS: "Benefícios",
 }
+
+NOMES_FABRICA_ANTIGOS_BONUS = frozenset({"Comissões", "Bônus & Comissão"})
 
 # Labels legados (exibição de pendentes)
 LABELS_LEGADO = {
@@ -65,6 +67,7 @@ _IMPORT_SUB_ALIASES = {
     **{v.lower(): k for k, v in SUBCATEGORIAS_RH.items()},
     "retirada sócios": SUB_RETIRADA,
     "retirada socios": SUB_RETIRADA,
+    "bônus": SUB_BONUS,
     "comissões": SUB_BONUS,
     "comissoes": SUB_BONUS,
     "bônus & comissão": SUB_BONUS,
@@ -195,12 +198,15 @@ def validar_classificacao(
 
     if cat == CATEGORIA_RH:
         validos = _codigos_sub_rh_validos(db)
-        if not sub or sub not in validos:
-            raise ValueError(
-                "Recursos Humanos exige uma subcategoria válida "
-                "(ex.: salário, bônus & comissão, comissão, retirada sócios ou benefícios)"
-            )
-        return cat, sub
+        resolvida = resolver_import_subcategoria(subcategoria, db) if subcategoria else None
+        if resolvida and resolvida in validos:
+            return cat, resolvida
+        if sub and sub in validos:
+            return cat, sub
+        raise ValueError(
+            "Recursos Humanos exige uma subcategoria válida "
+            "(ex.: salário, bônus, comissão, retirada sócios ou benefícios)"
+        )
 
     if sub:
         raise ValueError(f"Categoria {CATEGORIAS[cat]} não possui subcategoria")
@@ -507,7 +513,7 @@ def seed_subcategorias_rh(db: "Session") -> None:
     for codigo, nome in SUBCATEGORIAS_RH.items():
         if codigo in existentes:
             row = existentes[codigo]
-            if row.sistema and codigo == SUB_BONUS and row.nome == "Comissões":
+            if row.sistema and codigo == SUB_BONUS and row.nome in NOMES_FABRICA_ANTIGOS_BONUS:
                 row.nome = nome
             continue
         db.add(

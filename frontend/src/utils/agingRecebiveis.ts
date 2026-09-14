@@ -1,4 +1,4 @@
-/** Aging de Recebíveis — Dashboard (estoque global). */
+/** Previsão de Recebíveis — Dashboard (estoque global). */
 
 import { pctPorVisao, valorPorVisao, type VisaoReceita } from './metaPeriodo';
 

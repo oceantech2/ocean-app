@@ -180,8 +180,17 @@ def _migrar():
         except Exception:
             conn.rollback()
 
-    # Seed estrutural (subcategorias RH, conta corrente, paginas_visibilidade)
-    # NÃO roda no startup — usar `python scripts/seed_estrutura.py` (FR-011 / feature 055).
+    # Rótulo de fábrica bonus → Bônus (idempotente). Demais seeds estruturais
+    # (conta corrente, visibilidade) só em scripts/seed_estrutura.py (feature 055).
+    db_seed = SessionLocal()
+    try:
+        from app.services.categorias_contas import seed_subcategorias_rh
+        seed_subcategorias_rh(db_seed)
+        db_seed.commit()
+    except Exception:
+        db_seed.rollback()
+    finally:
+        db_seed.close()
 
     # Migração centro_custo → categoria / subcategoria / categoria_pendente (one-shot)
     with engine.connect() as conn:
@@ -356,7 +365,11 @@ def _migrar():
             conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS pago BOOLEAN NOT NULL DEFAULT FALSE"))
             conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS data_liberacao DATE"))
             conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS data_pagamento DATE"))
+            conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'comissao'"))
+            conn.execute(text("ALTER TABLE bonus ALTER COLUMN percentual DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE bonus ALTER COLUMN etapa DROP NOT NULL"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bonus_nf_id ON bonus (nf_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bonus_tipo ON bonus (tipo)"))
             conn.execute(text(
                 """
                 UPDATE bonus SET atividades = to_json(ARRAY[etapa])::text
@@ -419,6 +432,7 @@ app.add_middleware(
 # Incluir rotas
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(colaboradores.router, prefix="/api/colaboradores", tags=["Colaboradores"])
+app.include_router(colaboradores.router, prefix="/api/fornecedores", tags=["Fornecedores"])
 app.include_router(nfs.router, prefix="/api/nfs", tags=["NFs"])
 app.include_router(contas.router, prefix="/api/contas", tags=["Contas"])
 app.include_router(bonus.router, prefix="/api/bonus", tags=["Comissões"])

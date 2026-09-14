@@ -6,6 +6,7 @@ import { useAuthStore } from '../store';
 import Pagination from '../components/Pagination';
 import ImportCSV from '../components/ImportCSV';
 import DocumentosModal from '../components/DocumentosModal';
+import Modal from '../components/Modal';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
@@ -459,7 +460,7 @@ export default function Fornecedores() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-1 justify-end flex-wrap">
+                      <div className="flex gap-1 items-center justify-end flex-nowrap">
                         {col.elegivel_equipe && (
                           <>
                             <ActionButton variant="docs" context="row" label="Docs" onClick={() => setDocsColaborador(col)} />
@@ -495,148 +496,149 @@ export default function Fornecedores() {
       </div>
 
       {modalAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">
-                {editando ? 'Editar Fornecedor' : 'Novo Fornecedor'}
-              </h2>
-            </div>
-            <div className="p-6 grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nome *</label>
-                <input className={INPUT} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Documento *</label>
-                <select
-                  className={INPUT}
-                  value={form.tipo_documento}
-                  onChange={(e) => setForm({ ...form, tipo_documento: e.target.value as 'cpf' | 'cnpj', documento: '', razao_social: '' })}
-                >
-                  <option value="cpf">CPF</option>
-                  <option value="cnpj">CNPJ</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">{form.tipo_documento === 'cnpj' ? 'CNPJ *' : 'CPF *'}</label>
-                <input
-                  className={INPUT}
-                  value={form.documento}
-                  onChange={(e) => setForm({ ...form, documento: formatarDoc(form.tipo_documento, e.target.value) })}
-                  placeholder={form.tipo_documento === 'cnpj' ? '12.ABC.345/01DE-35' : '000.000.000-00'}
-                  autoCapitalize={form.tipo_documento === 'cnpj' ? 'characters' : 'off'}
-                />
-              </div>
-              {form.tipo_documento === 'cnpj' && (
-                <div className="col-span-2">
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Razão Social *</label>
-                  <input className={INPUT} value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} />
-                </div>
-              )}
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tipo *</label>
-                <select className={INPUT} value={form.tipo_fornecedor} onChange={(e) => setForm({ ...form, tipo_fornecedor: e.target.value as 'fixo' | 'spot' })}>
-                  <option value="fixo">Fixo</option>
-                  <option value="spot">Spot</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Telefone</label>
-                <input className={INPUT} value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Email</label>
-                <input className={INPUT} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-              </div>
-              {form.tipo_documento === 'cnpj' && (
-                <>
-                  <div className="col-span-2 border-t dark:border-gray-700 pt-4 mt-2">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pessoa física do CNPJ</p>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nome *</label>
-                    <input className={INPUT} value={form.pf_nome} onChange={(e) => setForm({ ...form, pf_nome: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CPF</label>
-                    <input className={INPUT} value={form.pf_cpf} onChange={(e) => setForm({ ...form, pf_cpf: formatarCPF(e.target.value) })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Nascimento</label>
-                    <input type="date" className={INPUT} value={form.pf_data_nascimento} onChange={(e) => setForm({ ...form, pf_data_nascimento: e.target.value })} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Endereço *</label>
-                    <input className={INPUT} value={form.pf_endereco} onChange={(e) => setForm({ ...form, pf_endereco: e.target.value })} />
-                  </div>
-                </>
-              )}
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário</label>
-                <input type="number" step="0.01" min="0" className={INPUT} value={form.salario} onChange={(e) => setForm({ ...form, salario: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de início</label>
-                <input type="date" className={INPUT} value={form.data_admissao} onChange={(e) => setForm({ ...form, data_admissao: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de término</label>
-                <input type="date" className={INPUT} value={form.data_desligamento} onChange={(e) => setForm({ ...form, data_desligamento: e.target.value })} />
-              </div>
-              {ehLegadoForm && form.tipo_documento === 'cpf' && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Nascimento *</label>
-                  <input type="date" className={INPUT} value={form.data_nascimento} onChange={(e) => setForm({ ...form, data_nascimento: e.target.value })} />
-                </div>
-              )}
-              {ehLegadoForm && (
-                <>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cargo *</label>
-                    <input className={INPUT} value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Endereço</label>
-                    <input className={INPUT} value={form.endereco_completo} onChange={(e) => setForm({ ...form, endereco_completo: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CEP</label>
-                    <input className={INPUT} value={form.cep} onChange={(e) => setForm({ ...form, cep: e.target.value })} placeholder="00000-000" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Benefícios</label>
-                    <textarea rows={3} className={INPUT + ' resize-none'} value={form.beneficio} onChange={(e) => setForm({ ...form, beneficio: e.target.value })} placeholder="Ex: Plano de saúde Bradesco, Vale refeição R$ 600..." />
-                  </div>
-                </>
-              )}
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Observação</label>
-                <textarea rows={3} className={INPUT + ' resize-none'} value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} placeholder="Anotações internas..." />
-              </div>
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
+        <Modal
+          maxWidth="max-w-lg"
+          titulo={editando ? 'Editar Fornecedor' : 'Novo Fornecedor'}
+          bodyClassName="p-6 grid grid-cols-2 gap-4"
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm"
+          footer={(
+            <>
               <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>
-            </div>
+            </>
+          )}
+        >
+          <div className="col-span-2">
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nome *</label>
+            <input className={INPUT} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
           </div>
-        </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Documento *</label>
+            <select
+              className={INPUT}
+              value={form.tipo_documento}
+              onChange={(e) => setForm({ ...form, tipo_documento: e.target.value as 'cpf' | 'cnpj', documento: '', razao_social: '' })}
+            >
+              <option value="cpf">CPF</option>
+              <option value="cnpj">CNPJ</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">{form.tipo_documento === 'cnpj' ? 'CNPJ *' : 'CPF *'}</label>
+            <input
+              className={INPUT}
+              value={form.documento}
+              onChange={(e) => setForm({ ...form, documento: formatarDoc(form.tipo_documento, e.target.value) })}
+              placeholder={form.tipo_documento === 'cnpj' ? '12.ABC.345/01DE-35' : '000.000.000-00'}
+              autoCapitalize={form.tipo_documento === 'cnpj' ? 'characters' : 'off'}
+            />
+          </div>
+          {form.tipo_documento === 'cnpj' && (
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Razão Social *</label>
+              <input className={INPUT} value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} />
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tipo *</label>
+            <select className={INPUT} value={form.tipo_fornecedor} onChange={(e) => setForm({ ...form, tipo_fornecedor: e.target.value as 'fixo' | 'spot' })}>
+              <option value="fixo">Fixo</option>
+              <option value="spot">Spot</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Telefone</label>
+            <input className={INPUT} value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Email</label>
+            <input className={INPUT} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </div>
+          {form.tipo_documento === 'cnpj' && (
+            <>
+              <div className="col-span-2 border-t dark:border-gray-700 pt-4 mt-2">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pessoa física do CNPJ</p>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Nome *</label>
+                <input className={INPUT} value={form.pf_nome} onChange={(e) => setForm({ ...form, pf_nome: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CPF</label>
+                <input className={INPUT} value={form.pf_cpf} onChange={(e) => setForm({ ...form, pf_cpf: formatarCPF(e.target.value) })} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Nascimento</label>
+                <input type="date" className={INPUT} value={form.pf_data_nascimento} onChange={(e) => setForm({ ...form, pf_data_nascimento: e.target.value })} />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Endereço *</label>
+                <input className={INPUT} value={form.pf_endereco} onChange={(e) => setForm({ ...form, pf_endereco: e.target.value })} />
+              </div>
+            </>
+          )}
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário</label>
+            <input type="number" step="0.01" min="0" className={INPUT} value={form.salario} onChange={(e) => setForm({ ...form, salario: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de início</label>
+            <input type="date" className={INPUT} value={form.data_admissao} onChange={(e) => setForm({ ...form, data_admissao: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de término</label>
+            <input type="date" className={INPUT} value={form.data_desligamento} onChange={(e) => setForm({ ...form, data_desligamento: e.target.value })} />
+          </div>
+          {ehLegadoForm && form.tipo_documento === 'cpf' && (
+            <div>
+              <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Nascimento *</label>
+              <input type="date" className={INPUT} value={form.data_nascimento} onChange={(e) => setForm({ ...form, data_nascimento: e.target.value })} />
+            </div>
+          )}
+          {ehLegadoForm && (
+            <>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cargo *</label>
+                <input className={INPUT} value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Endereço</label>
+                <input className={INPUT} value={form.endereco_completo} onChange={(e) => setForm({ ...form, endereco_completo: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">CEP</label>
+                <input className={INPUT} value={form.cep} onChange={(e) => setForm({ ...form, cep: e.target.value })} placeholder="00000-000" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Benefícios</label>
+                <textarea rows={3} className={INPUT + ' resize-none'} value={form.beneficio} onChange={(e) => setForm({ ...form, beneficio: e.target.value })} placeholder="Ex: Plano de saúde Bradesco, Vale refeição R$ 600..." />
+              </div>
+            </>
+          )}
+          <div className="col-span-2">
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Observação</label>
+            <textarea rows={3} className={INPUT + ' resize-none'} value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} placeholder="Anotações internas..." />
+          </div>
+        </Modal>
       )}
 
       {obsAberta && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setObsAberta(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="p-4 border-b dark:border-gray-700 flex items-center justify-between">
+        <Modal
+          maxWidth="max-w-sm"
+          onBackdropClick={() => setObsAberta(null)}
+          headerClassName="p-4 border-b dark:border-gray-700 flex items-center justify-between"
+          bodyClassName="p-4"
+          header={(
+            <>
               <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-sm">Observação — {obsAberta.nome}</h3>
               <button onClick={() => setObsAberta(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none">&times;</button>
-            </div>
-            <div className="p-4">
-              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{obsAberta.observacao}</p>
-            </div>
-          </div>
-        </div>
+            </>
+          )}
+        >
+          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{obsAberta.observacao}</p>
+        </Modal>
       )}
 
       {docsColaborador && (
@@ -648,75 +650,79 @@ export default function Fornecedores() {
       )}
 
       {historicoColab && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b dark:border-gray-700 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Histórico de Cargo/Salário</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{historicoColab.nome}</p>
-              </div>
-              <button onClick={() => setHistoricoColab(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
-            </div>
-            {papel === 'admin' && (
-              <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-3">Novo registro</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cargo</label>
-                    <input className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.cargo} onChange={(e) => setHistoricoForm({ ...historicoForm, cargo: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário</label>
-                    <input type="number" step="0.01" className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.salario} onChange={(e) => setHistoricoForm({ ...historicoForm, salario: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Início *</label>
-                    <input type="date" className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.data_inicio} onChange={(e) => setHistoricoForm({ ...historicoForm, data_inicio: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Fim</label>
-                    <input type="date" className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.data_fim} onChange={(e) => setHistoricoForm({ ...historicoForm, data_fim: e.target.value })} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Observação</label>
-                    <input className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.observacao} onChange={(e) => setHistoricoForm({ ...historicoForm, observacao: e.target.value })} placeholder="Ex: Promoção, reajuste anual..." />
-                  </div>
+        <Modal
+          maxWidth="max-w-2xl"
+          headerClassName="p-0"
+          bodyClassName="p-4"
+          header={(
+            <>
+              <div className="p-6 border-b dark:border-gray-700 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Histórico de Cargo/Salário</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{historicoColab.nome}</p>
                 </div>
-                <div className="mt-3 flex justify-end">
-                  <button onClick={salvarHistorico} disabled={salvandoHistorico} className="px-4 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm disabled:opacity-50">
-                    {salvandoHistorico ? 'Salvando...' : '+ Adicionar'}
-                  </button>
-                </div>
+                <button onClick={() => setHistoricoColab(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
               </div>
-            )}
-            <div className="flex-1 overflow-y-auto p-4">
-              {historicoRegistros.length === 0 ? (
-                <p className="text-center text-gray-400 dark:text-gray-500 py-8">Nenhum registro de histórico</p>
-              ) : (
-                <div className="space-y-2">
-                  {historicoRegistros.map((r) => (
-                    <div key={r.id} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                      <div className="w-2 h-2 rounded-full bg-purple-400 mt-1.5 shrink-0"></div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm text-gray-800 dark:text-gray-200">{r.cargo}</span>
-                          <span className="text-xs text-green-700 dark:text-green-400 font-medium">{(r.salario as number).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                        </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {r.data_inicio}{r.data_fim ? ` → ${r.data_fim}` : ' → atual'}
-                        </p>
-                        {r.observacao && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">{r.observacao}</p>}
-                      </div>
-                      {papel === 'admin' && (
-                        <button onClick={() => deletarHistorico(r.id)} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
-                      )}
+              {papel === 'admin' && (
+                <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-3">Novo registro</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cargo</label>
+                      <input className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.cargo} onChange={(e) => setHistoricoForm({ ...historicoForm, cargo: e.target.value })} />
                     </div>
-                  ))}
+                    <div>
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário</label>
+                      <input type="number" step="0.01" className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.salario} onChange={(e) => setHistoricoForm({ ...historicoForm, salario: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Início *</label>
+                      <input type="date" className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.data_inicio} onChange={(e) => setHistoricoForm({ ...historicoForm, data_inicio: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Fim</label>
+                      <input type="date" className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.data_fim} onChange={(e) => setHistoricoForm({ ...historicoForm, data_fim: e.target.value })} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Observação</label>
+                      <input className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1.5 text-sm" value={historicoForm.observacao} onChange={(e) => setHistoricoForm({ ...historicoForm, observacao: e.target.value })} placeholder="Ex: Promoção, reajuste anual..." />
+                    </div>
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <button onClick={salvarHistorico} disabled={salvandoHistorico} className="px-4 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm disabled:opacity-50">
+                      {salvandoHistorico ? 'Salvando...' : '+ Adicionar'}
+                    </button>
+                  </div>
                 </div>
               )}
+            </>
+          )}
+        >
+          {historicoRegistros.length === 0 ? (
+            <p className="text-center text-gray-400 dark:text-gray-500 py-8">Nenhum registro de histórico</p>
+          ) : (
+            <div className="space-y-2">
+              {historicoRegistros.map((r) => (
+                <div key={r.id} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <div className="w-2 h-2 rounded-full bg-purple-400 mt-1.5 shrink-0"></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm text-gray-800 dark:text-gray-200">{r.cargo}</span>
+                      <span className="text-xs text-green-700 dark:text-green-400 font-medium">{(r.salario as number).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {r.data_inicio}{r.data_fim ? ` → ${r.data_fim}` : ' → atual'}
+                    </p>
+                    {r.observacao && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">{r.observacao}</p>}
+                  </div>
+                  {papel === 'admin' && (
+                    <button onClick={() => deletarHistorico(r.id)} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
+                  )}
+                </div>
+              ))}
             </div>
-          </div>
-        </div>
+          )}
+        </Modal>
       )}
     </div>
   );

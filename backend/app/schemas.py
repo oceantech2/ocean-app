@@ -143,6 +143,24 @@ class ComissaoLinhaInput(BaseModel):
                 raise ValueError(f"Atividade inválida: {a}")
         return list(dict.fromkeys(v))
 
+class BonusLinhaInput(BaseModel):
+    id: Optional[int] = None
+    colaborador_id: int
+    mes: int = Field(..., ge=1, le=12)
+    ano: int
+    valor: float = Field(..., gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def rejeitar_campos_comissao(cls, data):
+        if isinstance(data, dict):
+            if data.get("percentual") is not None:
+                raise ValueError("Linha de bônus não aceita percentual")
+            atividades = data.get("atividades")
+            if atividades:
+                raise ValueError("Linha de bônus não aceita atividades")
+        return data
+
 class NFCreate(NFBase):
     status: Optional[str] = None
     data_pagamento: Optional[date] = None
@@ -151,6 +169,7 @@ class NFCreate(NFBase):
     colaborador_conducao_id: Optional[int] = None
     colaborador_placement_id: Optional[int] = None
     comissoes: Optional[List[ComissaoLinhaInput]] = None
+    bonus: Optional[List[BonusLinhaInput]] = None
 
     @field_validator("data_pagamento", mode="before")
     @classmethod
@@ -203,6 +222,7 @@ class NFUpdate(BaseModel):
     arquivada: Optional[bool] = None
     caixa: Optional[str] = None
     comissoes: Optional[List[ComissaoLinhaInput]] = None
+    bonus: Optional[List[BonusLinhaInput]] = None
 
     @field_validator("numero", mode="before")
     @classmethod
@@ -266,8 +286,11 @@ class BonusUpdate(BaseModel):
     numero_nf: Optional[str] = None
 
 class BonusResponse(BonusBase):
+    etapa: Optional[str] = None
+    percentual: Optional[float] = None
     id: int
     nf_id: Optional[int] = None
+    tipo: str = "comissao"
     atividades: List[str] = []
     liberado: bool = False
     pago: bool = False
@@ -447,6 +470,17 @@ class ContaPagarResponse(ContaPagarBase):
     class Config:
         from_attributes = True
 
+
+class ContasDatasLoteRequest(BaseModel):
+    ids: List[int] = Field(..., min_length=1)
+    data_vencimento: Optional[date] = None
+    data_pagamento: Optional[date] = None
+
+
+class ContasDatasLoteResponse(BaseModel):
+    processados: int
+    ignorados: int
+
 # ==================== DH ====================
 class DHBase(BaseModel):
     empresa: str
@@ -618,7 +652,7 @@ class ReceitaCaixaResponse(BaseModel):
     a_faturar: ReceitaCaixaTotais
 
 
-# ==================== AGING DE RECEBÍVEIS (Dashboard) ====================
+# ==================== PREVISÃO DE RECEBÍVEIS (Dashboard) ====================
 class AgingTotais(BaseModel):
     valor_liquido: float = 0.0
     valor_bruto: float = 0.0

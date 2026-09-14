@@ -5,6 +5,7 @@ import { useNotificacoes } from '../hooks/useNotificacoes';
 import { getNavIcon, ChevronLeftIcon, ChevronRightIcon } from './navIcons';
 import { PAGINAS_MENU, paginaVisivelGlobal } from '../utils/paginasCatalogo';
 import DevToolsSlot from '../dev/DevToolsSlot';
+import Modal from './Modal';
 
 interface LayoutProps {
   children: ReactNode;
@@ -213,16 +214,15 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Modal de busca */}
       {buscaAberta && (
-        <div
-          className="fixed inset-0 bg-black/40 dark:bg-black/60 z-50 flex items-start justify-center pt-24"
-          onClick={() => setBuscaAberta(false)}
-        >
-          <div
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <Modal
+          maxWidth="max-w-md"
+          onBackdropClick={() => setBuscaAberta(false)}
+          backdropClassName="bg-black/40 dark:bg-black/60"
+          headerClassName="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-700"
+          bodyClassName="py-1"
+          header={
+            <>
+              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
@@ -234,8 +234,10 @@ export default function Layout({ children }: LayoutProps) {
                 className="flex-1 bg-transparent outline-none text-sm text-gray-800 dark:text-gray-100 placeholder-gray-400"
               />
               <kbd className="text-xs text-gray-400 border border-gray-200 dark:border-gray-600 rounded px-1.5">Esc</kbd>
-            </div>
-            <ul className="py-1 max-h-64 overflow-y-auto">
+            </>
+          }
+        >
+            <ul>
               {resultados.map((item) => {
                 const count = getNotifCount(item.notifKey);
                 return (
@@ -259,8 +261,7 @@ export default function Layout({ children }: LayoutProps) {
                 <li className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500">Nenhum resultado</li>
               )}
             </ul>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Body */}

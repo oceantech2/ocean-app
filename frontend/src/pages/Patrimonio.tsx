@@ -3,6 +3,7 @@ import { patrimonioService, colaboradoresService } from '../services/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import Modal from '../components/Modal';
 import { mensagemErro } from '../utils/erros';
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -280,7 +281,7 @@ export default function Patrimonio() {
                     </td>
                     <td className="px-4 py-3">
                       {papel === 'admin' && (
-                        <div className="flex gap-1 justify-end flex-wrap">
+                        <div className="flex gap-1 items-center justify-end flex-nowrap">
                           <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditar(item)} />
                           <ActionButton variant="excluir" context="row" label="Excluir" onClick={() => deletar(item)} />
                         </div>
@@ -296,12 +297,19 @@ export default function Patrimonio() {
 
       {/* Modal */}
       {modalAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{editando ? 'Editar item' : 'Novo item de patrimônio'}</h2>
+        <Modal
+          maxWidth="max-w-2xl"
+          titulo={editando ? 'Editar item' : 'Novo item de patrimônio'}
+          bodyClassName="p-6 grid grid-cols-2 gap-4"
+          footer={
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {salvando ? 'Salvando...' : 'Salvar'}
+              </button>
             </div>
-            <div className="p-6 grid grid-cols-2 gap-4">
+          }
+        >
               <div className="col-span-2">
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Descrição *</label>
                 <input type="text" className={INPUT} value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} placeholder="Ex: Notebook Dell Latitude 5420" />
@@ -349,15 +357,7 @@ export default function Patrimonio() {
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Observação</label>
                 <textarea rows={3} className={INPUT} value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} placeholder="Condição, localização, etc." />
               </div>
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
-              <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
-              <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {salvando ? 'Salvando...' : 'Salvar'}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

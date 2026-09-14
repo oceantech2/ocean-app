@@ -143,6 +143,32 @@ export const colaboradoresService = {
   },
 };
 
+/** Alias da coleção unificada — Férias e demais telas novas usam /fornecedores. */
+export const fornecedoresService = {
+  listar: (skip = 0, limit = 100, ativo?: boolean, opts?: { tipo?: 'colaborador' | 'fornecedor'; elegivel_equipe?: boolean }) =>
+    api.get('/fornecedores', {
+      params: {
+        skip,
+        limit,
+        ativo,
+        tipo: opts?.tipo,
+        elegivel_equipe: opts?.elegivel_equipe,
+      },
+    }),
+
+  obter: (id: number) =>
+    api.get(`/fornecedores/${id}`),
+
+  criar: (dados: any) =>
+    api.post('/fornecedores', dados),
+
+  atualizar: (id: number, dados: any) =>
+    api.put(`/fornecedores/${id}`, dados),
+
+  deletar: (id: number) =>
+    api.delete(`/fornecedores/${id}`),
+};
+
 // NFs
 function normalizarPayloadNf(dados: Record<string, unknown>) {
   const out = { ...dados };
@@ -282,6 +308,15 @@ export const contasService = {
   atualizar: (id: number, dados: ContaPagarUpdatePayload) =>
     api.put(`/contas/${id}`, dados),
 
+  editarDatasLote: (
+    ids: number[],
+    datas: { data_vencimento?: string; data_pagamento?: string },
+  ) =>
+    api.post<{ processados: number; ignorados: number }>('/contas/acoes/editar-datas', {
+      ids,
+      ...datas,
+    }),
+
   deletar: (id: number) =>
     api.delete(`/contas/${id}`),
 
@@ -326,8 +361,8 @@ export const contasService = {
 
 // Bônus / Comissões
 export const bonusService = {
-  listar: (skip = 0, limit = 100, colaborador_id?: number, mes?: number, ano?: number, nf_id?: number) =>
-    api.get('/bonus', { params: { skip, limit, colaborador_id, mes, ano, nf_id } }),
+  listar: (skip = 0, limit = 100, colaborador_id?: number, mes?: number, ano?: number, nf_id?: number, tipo?: 'comissao' | 'bonus') =>
+    api.get('/bonus', { params: { skip, limit, colaborador_id, mes, ano, nf_id, tipo: tipo || 'comissao' } }),
 
   obter: (id: number) =>
     api.get(`/bonus/${id}`),

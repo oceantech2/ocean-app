@@ -1,6 +1,4 @@
-/** Labels, badges e cores do Pipeline de Receita (Dashboard). */
-
-export type StatusCiclo = 'a_faturar' | 'faturado_ag_pagamento' | 'recebido';
+/** Totais de competência do período (API pipeline-receita) — base de Por Competência / meta / Resultado. */
 
 export type PipelineEstagioTotais = {
   valor_liquido: number;
@@ -70,41 +68,4 @@ export function normalizePipelineReceita(data: any): PipelineReceita {
     faturado_ag_pagamento: normalizeEstagio(data.faturado_ag_pagamento),
     recebido: normalizeEstagio(data.recebido),
   };
-}
-
-export const PIPELINE_ESTAGIOS: Array<{
-  key: StatusCiclo;
-  rotulo: string;
-  badge: string;
-  /** classes Tailwind para badge */
-  badgeClass: string;
-  /** classes para valor */
-  valorClass: string;
-}> = [
-  {
-    key: 'a_faturar',
-    rotulo: 'A Faturar',
-    badge: 'sem NF',
-    badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-    valorClass: 'text-amber-700 dark:text-amber-300',
-  },
-  {
-    key: 'faturado_ag_pagamento',
-    rotulo: 'Faturado · Ag. Pagamento',
-    badge: 'NF emitida',
-    badgeClass: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-    valorClass: 'text-blue-700 dark:text-blue-300',
-  },
-  {
-    key: 'recebido',
-    rotulo: 'Recebido',
-    badge: 'pago',
-    badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-    valorClass: 'text-emerald-700 dark:text-emerald-300',
-  },
-];
-
-export function fmtPipelinePct(pct: number | null | undefined): string {
-  if (pct == null || !Number.isFinite(pct)) return '—';
-  return `${pct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 }

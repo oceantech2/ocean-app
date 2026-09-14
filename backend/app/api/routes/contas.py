@@ -17,6 +17,8 @@ from app.schemas import (
     ContaPagarCreate,
     ContaPagarResponse,
     ContaPagarUpdate,
+    ContasDatasLoteRequest,
+    ContasDatasLoteResponse,
 )
 from app.api.routes.auth import get_current_user, require_admin
 from app.services.audit import registrar_auditoria
@@ -72,6 +74,76 @@ def deletar_todas_contas(
     )
 
 
+@router.post("/acoes/editar-datas", response_model=ContasDatasLoteResponse)
+def editar_datas_lote(
+    body: ContasDatasLoteRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin),
+):
+    """Aplica data de vencimento e/ou pagamento em massa. Null/omitido = não alterar."""
+    aplicar_venc = body.data_vencimento is not None
+    aplicar_pag = body.data_pagamento is not None
+    if not aplicar_venc and not aplicar_pag:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Informe data de vencimento e/ou data de pagamento",
+        )
+
+    processados = ignorados = 0
+    for cid in body.ids:
+        conta = db.query(ContaPagar).filter(ContaPagar.id == cid).first()
+        if not conta:
+            ignorados += 1
+            continue
+
+        old_venc = conta.data_vencimento
+        old_pag = conta.data_pagamento
+        old_pago = conta.pago
+        old_caixa = conta.caixa
+
+        if aplicar_venc:
+            conta.data_vencimento = body.data_vencimento
+
+        if aplicar_pag:
+            conta.data_pagamento = body.data_pagamento
+            conta.pago = True
+            if not conta.caixa:
+                try:
+                    conta.caixa = _resolver_caixa_conta(db, None)
+                except HTTPException:
+                    conta.data_vencimento = old_venc
+                    conta.data_pagamento = old_pag
+                    conta.pago = old_pago
+                    conta.caixa = old_caixa
+                    ignorados += 1
+                    continue
+            if not conta.caixa:
+                conta.data_vencimento = old_venc
+                conta.data_pagamento = old_pag
+                conta.pago = old_pago
+                conta.caixa = old_caixa
+                ignorados += 1
+                continue
+
+        campos = []
+        if aplicar_venc:
+            campos.append("data_vencimento")
+        if aplicar_pag:
+            campos.append("data_pagamento")
+        registrar_auditoria(
+            db,
+            current_user,
+            "editar",
+            "ContaPagar",
+            conta.id,
+            f"{conta.descricao} — lote datas: {', '.join(campos)}",
+        )
+        processados += 1
+
+    db.commit()
+    return ContasDatasLoteResponse(processados=processados, ignorados=ignorados)
+
+
 @router.post("/importar-xlsx")
 def importar_contas_xlsx(
     file: UploadFile = File(...),
@@ -90,8 +162,10 @@ def importar_contas_xlsx(
         try:
             db.begin_nested()
             resolvida = cat_svc.resolver_import_categoria(r.get("categoria"), db) or r.get("categoria")
+            sub_bruta = r.get("subcategoria")
+            sub_resolvida = cat_svc.resolver_import_subcategoria(sub_bruta, db) or sub_bruta
             cat, sub = cat_svc.validar_classificacao(
-                resolvida, r.get("subcategoria"), db=db
+                resolvida, sub_resolvida, db=db
             )
             padrao = codigo_padrao(db)
             nova = ContaPagar(

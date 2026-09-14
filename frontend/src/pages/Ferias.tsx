@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { feriasService, colaboradoresService } from '../services/api';
+import { feriasService, fornecedoresService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
 import {
   agruparResumos,
@@ -7,7 +7,10 @@ import {
   intervaloInvertido,
   pendenciasUnicas,
   saldoDisponivelForm,
+  sugerirAnoAquisitivo,
+  temDireitoAdquirido,
   temSobreposicaoComOutros,
+  totalFolhaFixo,
 } from '../utils/feriasCalculo';
 import { Ferias, Colaborador } from '../types';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
@@ -16,6 +19,7 @@ import ImportCSV from '../components/ImportCSV';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import Modal from '../components/Modal';
 
 const ITENS_POR_PAGINA = 15;
 const FORM_INICIAL = {
@@ -26,6 +30,22 @@ const FORM_INICIAL = {
   data_inicio: '',
   data_fim: '',
 };
+
+function formatBRL(n: number) {
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function rotuloSalario(valor?: number | null) {
+  if (valor == null) return '—';
+  return formatBRL(valor);
+}
+
+function rotuloPeriodo(inicio?: string | null, fim?: string | null) {
+  if (inicio && fim) return `${inicio} → ${fim}`;
+  if (inicio) return inicio;
+  if (fim) return fim;
+  return '-';
+}
 
 function corSaldo(n: number) {
   if (n > 0) return 'text-blue-700 dark:text-blue-400';
@@ -39,7 +59,7 @@ export default function FeriasPage() {
   const triggerNotifRefresh = useNotifStore((s) => s.triggerNotifRefresh);
 
   const [ferias, setFerias] = useState<Ferias[]>([]);
-  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagina, setPagina] = useState(0);
 
@@ -49,17 +69,29 @@ export default function FeriasPage() {
   const [form, setForm] = useState({ ...FORM_INICIAL });
   const [salvando, setSalvando] = useState(false);
 
-  const nomeColaborador = (id: number) =>
-    colaboradores.find((c) => c.id === id)?.nome ?? `ID ${id}`;
+  const nomeFornecedor = (id: number) =>
+    fornecedores.find((c) => c.id === id)?.nome ?? `ID ${id}`;
 
-  useEffect(() => { carregarColaboradores(); }, []);
+  const fornecedorForm = useMemo(
+    () => fornecedores.find((c) => c.id === parseInt(form.colaborador_id, 10)),
+    [fornecedores, form.colaborador_id],
+  );
+
+  const totalFolha = useMemo(
+    () => totalFolhaFixo(fornecedores, feriasColaboradorId === '' ? undefined : Number(feriasColaboradorId)),
+    [fornecedores, feriasColaboradorId],
+  );
+
+  useEffect(() => { carregarFornecedores(); }, []);
   useEffect(() => { carregarFerias(); setPagina(0); }, [feriasColaboradorId, feriasAno]);
 
-  const carregarColaboradores = async () => {
+  const carregarFornecedores = async () => {
     try {
-      const res = await colaboradoresService.listar(0, 200, true, { elegivel_equipe: true });
-      setColaboradores(res.data);
-    } catch {}
+      const res = await fornecedoresService.listar(0, 1000, true);
+      setFornecedores(res.data);
+    } catch {
+      toast.error('Erro ao carregar fornecedores');
+    }
   };
 
   const carregarFerias = async () => {
@@ -88,19 +120,43 @@ export default function FeriasPage() {
     });
   }, [form.colaborador_id, form.ano, form.dias_direito, ferias, editando]);
 
-  const handleColabAnoChange = (colabId: string, ano: string) => {
+  const handleFornecedorChange = (colabId: string) => {
     if (editando) return;
-    const id = parseInt(colabId);
-    const a = parseInt(ano);
-    if (!id || !a) return;
-    const existente = ferias.some((f) => f.colaborador_id === id && f.ano === a);
-    setForm((prev) => ({ ...prev, colaborador_id: colabId, ano, dias_direito: existente ? '0' : '30' }));
+    const id = parseInt(colabId, 10);
+    if (!id) {
+      setForm((prev) => ({ ...prev, colaborador_id: '' }));
+      return;
+    }
+    const f = fornecedores.find((c) => c.id === id);
+    const anoSugerido = sugerirAnoAquisitivo(f?.data_admissao);
+    const existente = ferias.some((x) => x.colaborador_id === id && x.ano === anoSugerido);
+    setForm((prev) => ({
+      ...prev,
+      colaborador_id: colabId,
+      ano: String(anoSugerido),
+      dias_direito: existente ? '0' : '30',
+    }));
+  };
+
+  const handleAnoChange = (ano: string) => {
+    if (editando) {
+      setForm((prev) => ({ ...prev, ano }));
+      return;
+    }
+    const id = parseInt(form.colaborador_id, 10);
+    const a = parseInt(ano, 10);
+    if (!id || !a) {
+      setForm((prev) => ({ ...prev, ano }));
+      return;
+    }
+    const existente = ferias.some((x) => x.colaborador_id === id && x.ano === a);
+    setForm((prev) => ({ ...prev, ano, dias_direito: existente ? '0' : '30' }));
   };
 
   const feriasComAviso = useMemo(() => pendenciasUnicas(ferias), [ferias]);
 
   const paginados = ferias.slice(pagina * ITENS_POR_PAGINA, (pagina + 1) * ITENS_POR_PAGINA);
-  const mostrarColaborador = feriasColaboradorId === '' || feriasColaboradorId === undefined;
+  const mostrarFornecedor = feriasColaboradorId === '' || feriasColaboradorId === undefined;
 
   const abrirCriar = () => {
     setEditando(null);
@@ -149,6 +205,16 @@ export default function FeriasPage() {
     if (datasInvertidas) {
       toast.error('A data fim não pode ser anterior à data início');
       return;
+    }
+
+    if (!editando) {
+      const f = fornecedores.find((c) => c.id === parseInt(form.colaborador_id, 10));
+      if (!temDireitoAdquirido(f?.data_admissao)) {
+        const ok = window.confirm(
+          'Este fornecedor ainda não completou 1 ano desde a data de entrada (ou está sem data cadastrada). Deseja registrar o período mesmo assim, com direito normal?',
+        );
+        if (!ok) return;
+      }
     }
 
     try {
@@ -203,8 +269,9 @@ export default function FeriasPage() {
 
   const exportar = () => exportarCSV(
     ferias.map((f) => ({
-      Colaborador: nomeColaborador(f.colaborador_id),
+      Fornecedor: nomeFornecedor(f.colaborador_id),
       Ano: f.ano,
+      Salário: rotuloSalario(fornecedores.find((c) => c.id === f.colaborador_id)?.salario),
       'Dias Tirados': f.dias_tirados,
       'Data Início': f.data_inicio || '',
       'Data Fim': f.data_fim || '',
@@ -215,7 +282,8 @@ export default function FeriasPage() {
 
   const INPUT = 'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm';
   const cabecalhos = [
-    ...(mostrarColaborador ? ['Colaborador'] : []),
+    ...(mostrarFornecedor ? ['Fornecedor'] : []),
+    'Salário',
     'Ano',
     'Tirados',
     'Período',
@@ -230,7 +298,7 @@ export default function FeriasPage() {
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">
             Férias{' '}
             <span className="text-gray-500 dark:text-gray-400 font-normal text-base">
-              — Controle de férias por colaborador
+              — Controle de férias por fornecedor
             </span>
           </h1>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -251,24 +319,29 @@ export default function FeriasPage() {
         </div>
       </div>
 
+      <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg px-4 py-3">
+        <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Total da Folha</p>
+        <p className="text-lg font-semibold text-emerald-800 dark:text-emerald-300 tabular-nums">{formatBRL(totalFolha)}</p>
+      </div>
+
       {feriasComAviso.length > 0 && (
         <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded-lg p-4">
           <p className="text-orange-800 dark:text-orange-400 font-medium text-sm">
-            ⚠ {feriasComAviso.length} colaborador(es) com período de férias pendente de aprovação — verifique antes de 31 de janeiro.
+            ⚠ {feriasComAviso.length} fornecedor(es) com período de férias pendente de aprovação — verifique antes de 31 de janeiro.
           </p>
         </div>
       )}
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
         <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Colaborador</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Fornecedor</label>
           <select
             className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
             value={feriasColaboradorId}
             onChange={(e) => setFeriasFilters(e.target.value === '' ? '' : parseInt(e.target.value), feriasAno)}
           >
             <option value="">Todos</option>
-            {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            {fornecedores.map((c) => <option key={c.id} value={c.id}>{c.nome || `ID ${c.id}`}</option>)}
           </select>
         </div>
         <div>
@@ -288,7 +361,7 @@ export default function FeriasPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {resumos.map((r) => (
               <div key={`${r.colaborador_id}:${r.ano}`} className="border border-gray-100 dark:border-gray-700 rounded-lg px-3 py-2 text-sm">
-                <p className="font-medium text-gray-800 dark:text-gray-200 truncate">{nomeColaborador(r.colaborador_id)}</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 truncate">{nomeFornecedor(r.colaborador_id)}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Direito {r.direito_anual}d · Tirados {r.total_tirado}d ·{' '}
                   <span className={`font-medium ${corSaldo(r.saldo_anual)}`}>Saldo {r.saldo_anual}d</span>
@@ -315,7 +388,7 @@ export default function FeriasPage() {
                   {cabecalhos.map((h) => (
                     <th
                       key={h || 'acoes'}
-                      className={`px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Tirados' ? 'text-right' : 'text-left'}`}
+                      className={`px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Tirados' || h === 'Salário' ? 'text-right' : 'text-left'}`}
                     >
                       {h}
                     </th>
@@ -325,13 +398,16 @@ export default function FeriasPage() {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {paginados.map((f) => (
                   <tr key={f.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    {mostrarColaborador && (
-                      <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{nomeColaborador(f.colaborador_id)}</td>
+                    {mostrarFornecedor && (
+                      <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{nomeFornecedor(f.colaborador_id)}</td>
                     )}
+                    <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300 tabular-nums">
+                      {rotuloSalario(fornecedores.find((c) => c.id === f.colaborador_id)?.salario)}
+                    </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{f.ano}</td>
                     <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{f.dias_tirados}d</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
-                      {f.data_inicio && f.data_fim ? `${f.data_inicio} → ${f.data_fim}` : '-'}
+                      {rotuloPeriodo(f.data_inicio, f.data_fim)}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${f.aprovado ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400'}`}>
@@ -340,7 +416,7 @@ export default function FeriasPage() {
                     </td>
                     <td className="px-4 py-3">
                       {papel === 'admin' && (
-                        <div className="flex gap-1 justify-end flex-wrap">
+                        <div className="flex gap-1 items-center justify-end flex-nowrap">
                           {!f.aprovado && (
                             <ActionButton variant="fluxo" context="row" label="Aprovar" onClick={() => aprovar(f)} />
                           )}
@@ -362,25 +438,51 @@ export default function FeriasPage() {
       </div>
 
       {modalAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
-            <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">
-                {editando ? 'Editar Período de Férias' : 'Novo Período de Férias'}
-              </h2>
+        <Modal
+          maxWidth="max-w-md"
+          titulo={editando ? 'Editar Período de Férias' : 'Novo Período de Férias'}
+          bodyClassName="p-6 space-y-4"
+          footer={
+            <div className="flex justify-end gap-3 text-sm">
+              <button
+                onClick={() => setModalAberto(false)}
+                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvar}
+                disabled={salvando || datasInvertidas}
+                className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {salvando ? 'Salvando...' : 'Salvar'}
+              </button>
             </div>
-            <div className="p-6 space-y-4">
+          }
+        >
               {!editando && (
                 <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Colaborador *</label>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Fornecedor *</label>
                   <select
                     className={INPUT}
                     value={form.colaborador_id}
-                    onChange={(e) => handleColabAnoChange(e.target.value, form.ano)}
+                    onChange={(e) => handleFornecedorChange(e.target.value)}
                   >
                     <option value="">Selecione...</option>
-                    {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                    {fornecedores.map((c) => <option key={c.id} value={c.id}>{c.nome || `ID ${c.id}`}</option>)}
                   </select>
+                </div>
+              )}
+
+              {form.colaborador_id && (
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário</label>
+                  <input
+                    className={`${INPUT} bg-gray-50 dark:bg-gray-700/60`}
+                    value={rotuloSalario(fornecedorForm?.salario)}
+                    readOnly
+                    tabIndex={-1}
+                  />
                 </div>
               )}
 
@@ -391,11 +493,7 @@ export default function FeriasPage() {
                     type="number"
                     className={INPUT}
                     value={form.ano}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (editando) setForm((prev) => ({ ...prev, ano: v }));
-                      else handleColabAnoChange(form.colaborador_id, v);
-                    }}
+                    onChange={(e) => handleAnoChange(e.target.value)}
                   />
                 </div>
                 <div>
@@ -488,39 +586,22 @@ export default function FeriasPage() {
 
               {sobrepoe && (
                 <div className="text-xs rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-400">
-                  ⚠ Este intervalo se sobrepõe a outro período do mesmo colaborador neste ano. É possível salvar; o saldo soma os dias de cada parcela.
+                  ⚠ Este intervalo se sobrepõe a outro período do mesmo fornecedor neste ano. É possível salvar; o saldo soma os dias de cada parcela.
                 </div>
               )}
-            </div>
-
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
-              <button
-                onClick={() => setModalAberto(false)}
-                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={salvar}
-                disabled={salvando || datasInvertidas}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {salvando ? 'Salvando...' : 'Salvar'}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {importAberto && (
         <ImportCSV
           titulo="Férias"
-          colunas={['colaborador_id', 'ano', 'dias_direito', 'dias_tirados']}
-          exemplo={{ colaborador_id: '1', ano: '2026', dias_direito: '30', dias_tirados: '0' }}
+          colunas={['fornecedor_id', 'ano', 'dias_direito', 'dias_tirados']}
+          exemplo={{ fornecedor_id: '1', ano: '2026', dias_direito: '30', dias_tirados: '0' }}
           mapear={(l) => {
-            if (!l.colaborador_id || !l.ano) throw new Error('colaborador_id e ano são obrigatórios');
+            const fid = l.fornecedor_id || l.colaborador_id;
+            if (!fid || !l.ano) throw new Error('fornecedor_id e ano são obrigatórios');
             return {
-              colaborador_id: parseInt(l.colaborador_id),
+              colaborador_id: parseInt(fid),
               ano: parseInt(l.ano),
               dias_direito: parseInt(l.dias_direito || '30'),
               dias_tirados: parseInt(l.dias_tirados || '0'),

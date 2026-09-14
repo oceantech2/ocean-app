@@ -37,11 +37,15 @@ def listar_bonus(
     mes: int = Query(None),
     ano: int = Query(None),
     nf_id: int = Query(None),
+    tipo: str = Query("comissao"),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    """Listar comissões com filtros"""
+    """Listar comissões ou bônus com filtros"""
+    if tipo not in ("comissao", "bonus"):
+        raise HTTPException(status_code=422, detail="tipo deve ser comissao ou bonus")
     query = _query_visivel(db)
+    query = query.filter(Bonus.tipo == tipo)
 
     if colaborador_id:
         query = query.filter(Bonus.colaborador_id == colaborador_id)
@@ -118,6 +122,8 @@ def criar_bonus(
 ):
     """Criar comissão avulsa (import CSV legado)"""
     novo_bonus = Bonus(**bonus.dict())
+    if not getattr(novo_bonus, "tipo", None):
+        novo_bonus.tipo = "comissao"
     db.add(novo_bonus)
     db.flush()
     registrar_auditoria(db, current_user, "criar", "Bonus", novo_bonus.id, f"Colaborador {novo_bonus.colaborador_id} — R$ {novo_bonus.valor_bonus:,.2f}")

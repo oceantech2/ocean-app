@@ -34,13 +34,15 @@ code {
     box-shadow: none !important;
   }
 
-  /* Ocupa toda a largura da página */
+  /* Ocupa toda a largura da página; não clipa listagens com max-height na tela */
   main,
   .print-area {
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   /* Evita cortar cards/tabelas entre páginas */

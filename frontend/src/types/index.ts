@@ -61,11 +61,12 @@ export interface Bonus {
   id: number;
   colaborador_id: number;
   nf_id?: number | null;
+  tipo?: 'comissao' | 'bonus';
   mes: number;
   ano: number;
-  etapa: string;
+  etapa?: string | null;
   atividades?: string[];
-  percentual: number;
+  percentual?: number | null;
   valor_bonus: number;
   liberado?: boolean;
   pago?: boolean;
@@ -94,6 +95,24 @@ export interface ComissaoLinhaInput {
   ano: number;
   atividades: string[];
   percentual: number;
+}
+
+export interface BonusLinhaForm {
+  id?: number;
+  colaborador_id: number;
+  mes: number;
+  ano: number;
+  valor: number;
+  liberado?: boolean;
+  pago?: boolean;
+}
+
+export interface BonusLinhaInput {
+  id?: number;
+  colaborador_id: number;
+  mes: number;
+  ano: number;
+  valor: number;
 }
 
 // Usuário do App
@@ -174,6 +193,16 @@ export interface ContaPagar {
   fornecedor_ativo?: boolean | null;
   tipo_despesa?: 'fixo' | 'variavel';
   criado_em?: string;
+}
+
+export interface ContasDatasLotePayload {
+  data_vencimento?: string;
+  data_pagamento?: string;
+}
+
+export interface ContasDatasLoteResponse {
+  processados: number;
+  ignorados: number;
 }
 
 export interface CategoriaOficialItem {

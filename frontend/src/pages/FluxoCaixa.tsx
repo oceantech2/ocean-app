@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import Modal from '../components/Modal';
 import type { ContaCorrente, ContaPagar, FluxoConta, NF } from '../types';
 
 const LIMITE_PAGINA = 1000;
@@ -550,22 +551,24 @@ export default function FluxoCaixa() {
                     {mov.tipo === 'entrada' ? '+' : ''}{fmt(Math.abs(mov.valor))}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {papel === 'admin' && mov.origem === 'transferencia' && mov.parId && (
-                      <ActionButton
-                        variant="excluir"
-                        context="row"
-                        label="Desfazer"
-                        onClick={() => desfazerTransferencia(mov.parId as string, mov.desc)}
-                      />
-                    )}
-                    {papel === 'admin' && mov.manual && mov.movId && (
-                      <ActionButton
-                        variant="excluir"
-                        context="row"
-                        label="Remover"
-                        onClick={() => deletarMovimento({ id: mov.movId as number, descricao: mov.desc })}
-                      />
-                    )}
+                    <div className="flex gap-1 items-center justify-end flex-nowrap">
+                      {papel === 'admin' && mov.origem === 'transferencia' && mov.parId && (
+                        <ActionButton
+                          variant="excluir"
+                          context="row"
+                          label="Desfazer"
+                          onClick={() => desfazerTransferencia(mov.parId as string, mov.desc)}
+                        />
+                      )}
+                      {papel === 'admin' && mov.manual && mov.movId && (
+                        <ActionButton
+                          variant="excluir"
+                          context="row"
+                          label="Remover"
+                          onClick={() => deletarMovimento({ id: mov.movId as number, descricao: mov.desc })}
+                        />
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -575,81 +578,20 @@ export default function FluxoCaixa() {
       </div>
 
       {transfAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
-            <div className="p-6 border-b dark:border-gray-700">
+        <Modal
+          maxWidth="max-w-md"
+          bodyClassName="p-6 space-y-4"
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end gap-3"
+          header={(
+            <>
               <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Transferência</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Saldo visível da origem: {fmt(saldoDaOrigem(transfForm.origem))}
               </p>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Origem</label>
-                <select
-                  className={SELECT + ' w-full'}
-                  value={transfForm.origem}
-                  onChange={(e) => {
-                    const origem = e.target.value;
-                    setTransfForm((atual) => ({
-                      ...atual,
-                      origem,
-                      destino: atual.destino === origem
-                        ? destinoInicialTransferencia(origem, contasCorrentes)
-                        : atual.destino,
-                    }));
-                  }}
-                >
-                  {caixasOpcoes(contasCorrentes).map((c) => (
-                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Destino</label>
-                <select
-                  className={SELECT + ' w-full'}
-                  value={transfForm.destino}
-                  onChange={(e) => setTransfForm({ ...transfForm, destino: e.target.value })}
-                >
-                  {caixasOpcoes(contasCorrentes).map((c) => (
-                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor (R$) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className={INPUT}
-                  value={transfForm.valor}
-                  onChange={(e) => setTransfForm({ ...transfForm, valor: e.target.value })}
-                  placeholder="0,00"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data *</label>
-                <input
-                  type="date"
-                  className={INPUT}
-                  value={transfForm.data_movimento}
-                  onChange={(e) => setTransfForm({ ...transfForm, data_movimento: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Observação</label>
-                <input
-                  type="text"
-                  className={INPUT}
-                  value={transfForm.observacao}
-                  onChange={(e) => setTransfForm({ ...transfForm, observacao: e.target.value })}
-                  placeholder="Opcional"
-                />
-              </div>
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+            </>
+          )}
+          footer={(
+            <>
               <button onClick={() => setTransfAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button
                 onClick={salvarTransferencia}
@@ -658,60 +600,127 @@ export default function FluxoCaixa() {
               >
                 {salvandoTransf ? 'Salvando...' : 'Confirmar'}
               </button>
-            </div>
+            </>
+          )}
+        >
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Origem</label>
+            <select
+              className={SELECT + ' w-full'}
+              value={transfForm.origem}
+              onChange={(e) => {
+                const origem = e.target.value;
+                setTransfForm((atual) => ({
+                  ...atual,
+                  origem,
+                  destino: atual.destino === origem
+                    ? destinoInicialTransferencia(origem, contasCorrentes)
+                    : atual.destino,
+                }));
+              }}
+            >
+              {caixasOpcoes(contasCorrentes).map((c) => (
+                <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+              ))}
+            </select>
           </div>
-        </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Destino</label>
+            <select
+              className={SELECT + ' w-full'}
+              value={transfForm.destino}
+              onChange={(e) => setTransfForm({ ...transfForm, destino: e.target.value })}
+            >
+              {caixasOpcoes(contasCorrentes).map((c) => (
+                <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Valor (R$) *</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className={INPUT}
+              value={transfForm.valor}
+              onChange={(e) => setTransfForm({ ...transfForm, valor: e.target.value })}
+              placeholder="0,00"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data *</label>
+            <input
+              type="date"
+              className={INPUT}
+              value={transfForm.data_movimento}
+              onChange={(e) => setTransfForm({ ...transfForm, data_movimento: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Observação</label>
+            <input
+              type="text"
+              className={INPUT}
+              value={transfForm.observacao}
+              onChange={(e) => setTransfForm({ ...transfForm, observacao: e.target.value })}
+              placeholder="Opcional"
+            />
+          </div>
+        </Modal>
       )}
 
       {gerenciarAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center">
+        <Modal
+          maxWidth="max-w-2xl"
+          bodyClassName="p-6 space-y-4"
+          headerClassName="p-6 border-b dark:border-gray-700 flex justify-between items-center"
+          header={(
+            <>
               <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Gerenciar contas correntes</h2>
               <button onClick={() => setGerenciarAberto(false)} className="text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Fechar</button>
-            </div>
-            <div className="p-6 space-y-4">
-              {contasCorrentes.map((c) => (
-                <div key={c.id} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 flex flex-wrap gap-3 justify-between items-start">
-                  <div>
-                    <p className="font-medium text-gray-800 dark:text-gray-100">
-                      {c.nome}{c.padrao ? ' · padrão' : ''}
-                    </p>
-                    <p className="text-sm text-gray-500">{c.banco}{c.agencia ? ` · ag. ${c.agencia}` : ''}{c.numero ? ` · ${c.numero}` : ''}</p>
-                  </div>
-                  {papel === 'admin' && (
-                    <div className="flex gap-2 flex-wrap">
-                      <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditarConta(c)} />
-                      {!c.padrao && (
-                        <ActionButton variant="auxiliar" context="row" label="Tornar padrão" onClick={() => tornarPadrao(c)} />
-                      )}
-                      <ActionButton variant="desativar" context="row" label="Desativar" onClick={() => desativarConta(c)} />
-                    </div>
-                  )}
-                </div>
-              ))}
+            </>
+          )}
+        >
+          {contasCorrentes.map((c) => (
+            <div key={c.id} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 flex flex-wrap gap-3 justify-between items-start">
+              <div>
+                <p className="font-medium text-gray-800 dark:text-gray-100">
+                  {c.nome}{c.padrao ? ' · padrão' : ''}
+                </p>
+                <p className="text-sm text-gray-500">{c.banco}{c.agencia ? ` · ag. ${c.agencia}` : ''}{c.numero ? ` · ${c.numero}` : ''}</p>
+              </div>
               {papel === 'admin' && (
-                <div className="border-t dark:border-gray-700 pt-4 space-y-3">
-                  <h3 className="font-medium text-gray-800 dark:text-gray-100">{contaEditando ? 'Editar conta' : 'Nova conta corrente'}</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <input className={INPUT} placeholder="Nome *" value={contaForm.nome} onChange={(e) => setContaForm({ ...contaForm, nome: e.target.value })} />
-                    <input className={INPUT} placeholder="Banco *" value={contaForm.banco} onChange={(e) => setContaForm({ ...contaForm, banco: e.target.value })} />
-                    <input className={INPUT} placeholder="Agência" value={contaForm.agencia} onChange={(e) => setContaForm({ ...contaForm, agencia: e.target.value })} />
-                    <input className={INPUT} placeholder="Número" value={contaForm.numero} onChange={(e) => setContaForm({ ...contaForm, numero: e.target.value })} />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={salvarConta} disabled={salvandoConta} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                      {salvandoConta ? 'Salvando...' : 'Salvar'}
-                    </button>
-                    {contaEditando && (
-                      <button onClick={() => { setContaEditando(null); setContaForm({ ...FORM_CONTA_VAZIO }); }} className="px-4 py-2 text-gray-600">Cancelar edição</button>
-                    )}
-                  </div>
+                <div className="flex gap-2 items-center flex-nowrap">
+                  <ActionButton variant="editar" context="row" label="Editar" onClick={() => abrirEditarConta(c)} />
+                  {!c.padrao && (
+                    <ActionButton variant="auxiliar" context="row" label="Tornar padrão" onClick={() => tornarPadrao(c)} />
+                  )}
+                  <ActionButton variant="desativar" context="row" label="Desativar" onClick={() => desativarConta(c)} />
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          ))}
+          {papel === 'admin' && (
+            <div className="border-t dark:border-gray-700 pt-4 space-y-3">
+              <h3 className="font-medium text-gray-800 dark:text-gray-100">{contaEditando ? 'Editar conta' : 'Nova conta corrente'}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input className={INPUT} placeholder="Nome *" value={contaForm.nome} onChange={(e) => setContaForm({ ...contaForm, nome: e.target.value })} />
+                <input className={INPUT} placeholder="Banco *" value={contaForm.banco} onChange={(e) => setContaForm({ ...contaForm, banco: e.target.value })} />
+                <input className={INPUT} placeholder="Agência" value={contaForm.agencia} onChange={(e) => setContaForm({ ...contaForm, agencia: e.target.value })} />
+                <input className={INPUT} placeholder="Número" value={contaForm.numero} onChange={(e) => setContaForm({ ...contaForm, numero: e.target.value })} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={salvarConta} disabled={salvandoConta} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {salvandoConta ? 'Salvando...' : 'Salvar'}
+                </button>
+                {contaEditando && (
+                  <button onClick={() => { setContaEditando(null); setContaForm({ ...FORM_CONTA_VAZIO }); }} className="px-4 py-2 text-gray-600">Cancelar edição</button>
+                )}
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   );

@@ -121,11 +121,12 @@ class Bonus(Base):
     id = Column(Integer, primary_key=True, index=True)
     colaborador_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=False)
     nf_id = Column(Integer, ForeignKey("nfs.id"), nullable=True, index=True)
+    tipo = Column(String(20), nullable=False, default="comissao", index=True)  # comissao | bonus
     mes = Column(Integer, nullable=False)  # 1-12
     ano = Column(Integer, nullable=False)
-    etapa = Column(String(50), nullable=False)  # legado; espelha 1ª atividade
+    etapa = Column(String(50), nullable=True)  # legado; espelha 1ª atividade; NULL se tipo=bonus
     atividades = Column(Text, nullable=True)  # JSON array: lead, venda, conducao, placement
-    percentual = Column(Float, nullable=False)
+    percentual = Column(Float, nullable=True)  # NULL se tipo=bonus
     valor_bonus = Column(Float, nullable=False)
     liberado = Column(Boolean, default=False, nullable=False)
     pago = Column(Boolean, default=False, nullable=False)

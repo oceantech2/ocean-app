@@ -15,10 +15,12 @@ export default function ActionButton({
   className = '',
   disabled,
   type = 'button',
+  title,
   ...rest
 }: ActionButtonProps) {
   const Icon = getActionIcon(variant);
   const classes = getActionButtonClasses(variant, context);
+  const isRow = context === 'row';
 
   return (
     <button
@@ -26,10 +28,11 @@ export default function ActionButton({
       className={`${classes}${className ? ` ${className}` : ''}`}
       disabled={disabled}
       aria-label={label}
+      title={isRow ? (title ?? label) : title}
       {...rest}
     >
       <Icon className="w-4 h-4 shrink-0" />
-      <span>{label}</span>
+      {!isRow && <span>{label}</span>}
     </button>
   );
 }

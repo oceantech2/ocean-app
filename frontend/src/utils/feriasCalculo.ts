@@ -122,6 +122,65 @@ export function temSobreposicaoComOutros(
   );
 }
 
+export type FornecedorFolha = {
+  id: number;
+  ativo?: boolean;
+  tipo_fornecedor?: string | null;
+  salario?: number | null;
+  data_admissao?: string | null;
+};
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function addYearsLocal(d: Date, years: number): Date {
+  return new Date(d.getFullYear() + years, d.getMonth(), d.getDate());
+}
+
+function dataAdmissaoLocal(dataAdmissao?: string | null): Date | null {
+  if (!dataAdmissao) return null;
+  const s = dataAdmissao.split('T')[0];
+  if (!s) return null;
+  return parseDateLocal(s);
+}
+
+/** Direito adquirido no aniversário de 1 ano (inclusivo). Sem data de entrada → false. */
+export function temDireitoAdquirido(dataAdmissao?: string | null, ref: Date = new Date()): boolean {
+  const adm = dataAdmissaoLocal(dataAdmissao);
+  if (!adm) return false;
+  return startOfDay(ref) >= addYearsLocal(adm, 1);
+}
+
+/**
+ * Ano sugerido na criação: ano civil de (admissão + 12 meses);
+ * se essa data já passou, ano corrente; sem admissão, ano corrente.
+ */
+export function sugerirAnoAquisitivo(dataAdmissao?: string | null, ref: Date = new Date()): number {
+  const corrente = ref.getFullYear();
+  const adm = dataAdmissaoLocal(dataAdmissao);
+  if (!adm) return corrente;
+  const conclusao = addYearsLocal(adm, 1);
+  if (conclusao <= startOfDay(ref)) return corrente;
+  return conclusao.getFullYear();
+}
+
+export function ehTipoFixo(tipo?: string | null): boolean {
+  return (tipo || 'fixo') === 'fixo';
+}
+
+/** Soma salários de Tipo Fixo. Filtro Spot ou id inexistente → 0. */
+export function totalFolhaFixo(lista: FornecedorFolha[], filtroId?: number | ''): number {
+  if (filtroId) {
+    const f = lista.find((c) => c.id === Number(filtroId));
+    if (!f || !ehTipoFixo(f.tipo_fornecedor)) return 0;
+    return f.salario ?? 0;
+  }
+  return lista
+    .filter((c) => ehTipoFixo(c.tipo_fornecedor))
+    .reduce((s, c) => s + (c.salario ?? 0), 0);
+}
+
 export function pendenciasUnicas(parcelas: ParcelaFerias[]): ParcelaFerias[] {
   const seen = new Set<string>();
   return parcelas.filter((p) => {

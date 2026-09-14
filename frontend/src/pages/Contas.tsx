@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { contasService, colaboradoresService, contasCorrentesService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
 import { ContaPagar, Colaborador, CatalogoCategoriasContas, ContaCorrente } from '../types';
@@ -13,6 +13,7 @@ import { caixaInicialForm, codigoPadrao, rotuloContaOrigem } from '../utils/flux
 import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import Modal from '../components/Modal';
 
 const SENTINELA_NOVA = '__nova__';
 const SENTINELA_NOVA_SUB = '__nova_sub__';
@@ -37,6 +38,31 @@ const LABELS_LEGADO: Record<string, string> = {
   reembolsos: 'Reembolsos (legado)',
   evento: 'Evento (legado)',
 };
+
+const ALIASES_SUB_BONUS = new Set([
+  'bônus',
+  'bonus',
+  'comissões',
+  'comissoes',
+  'bônus & comissão',
+  'bonus & comissao',
+  'bônus e comissão',
+  'bonus e comissao',
+]);
+
+function resolverSubcategoriaImport(
+  catalog: CatalogoCategoriasContas | null,
+  bruto: string,
+): string | null {
+  const chave = bruto.trim().toLowerCase();
+  if (!chave) return null;
+  const doCatalogo = catalog?.subcategorias_rh.find(
+    (s) => s.codigo.toLowerCase() === chave || s.nome.toLowerCase() === chave,
+  );
+  if (doCatalogo) return doCatalogo.codigo;
+  if (ALIASES_SUB_BONUS.has(chave)) return 'bonus';
+  return chave;
+}
 
 function nomeCategoriaCatalogo(
   catalog: CatalogoCategoriasContas | null,
@@ -125,7 +151,15 @@ export default function Contas() {
   const [contasMesTodos, setContasMesTodos] = useState(false);
   const [contasMes, setContasMes] = useState(() => mesAnoCorrentes().mes);
   const [contasAno, setContasAno] = useState(() => mesAnoCorrentes().ano);
+  const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
+  const [modalDatasAberto, setModalDatasAberto] = useState(false);
+  const [modalDatasPasso, setModalDatasPasso] = useState<'form' | 'confirm'>('form');
+  const [loteVencimento, setLoteVencimento] = useState('');
+  const [lotePagamento, setLotePagamento] = useState('');
+  const [processandoLote, setProcessandoLote] = useState(false);
   const alertaAnteriorRef = useRef(contasAlertaVencimento);
+  const isAdmin = papel === 'admin';
+  const selecionadosCount = selecionados.size;
 
   const carregarCatalogo = async () => {
     try {
@@ -213,6 +247,86 @@ export default function Contas() {
     buscaDescricao, dataInicio, dataFim,
   ]);
 
+  useEffect(() => {
+    setSelecionados(new Set());
+  }, [
+    contasMesTodos, contasMes, contasAno,
+    contasCategoria, contasSubcategoria, contasPago, contasAlertaVencimento,
+    buscaDescricao, dataInicio, dataFim,
+  ]);
+
+  const toggleSelecionado = (id: number) => {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleGrupo = (ids: number[]) => {
+    const todosMarcados = ids.length > 0 && ids.every((id) => selecionados.has(id));
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (todosMarcados) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const abrirModalDatas = () => {
+    if (!selecionadosCount) return;
+    setLoteVencimento('');
+    setLotePagamento('');
+    setModalDatasPasso('form');
+    setModalDatasAberto(true);
+  };
+
+  const fecharModalDatas = () => {
+    if (processandoLote) return;
+    setModalDatasAberto(false);
+    setModalDatasPasso('form');
+    setLoteVencimento('');
+    setLotePagamento('');
+  };
+
+  const avancarConfirmacaoDatas = () => {
+    if (!loteVencimento && !lotePagamento) {
+      toast.error('Informe data de vencimento e/ou data de pagamento');
+      return;
+    }
+    setModalDatasPasso('confirm');
+  };
+
+  const confirmarLoteDatas = async () => {
+    const ids = Array.from(selecionados);
+    if (!ids.length) return;
+    if (!loteVencimento && !lotePagamento) {
+      toast.error('Informe data de vencimento e/ou data de pagamento');
+      return;
+    }
+    const datas: { data_vencimento?: string; data_pagamento?: string } = {};
+    if (loteVencimento) datas.data_vencimento = loteVencimento;
+    if (lotePagamento) datas.data_pagamento = lotePagamento;
+    try {
+      setProcessandoLote(true);
+      const res = await contasService.editarDatasLote(ids, datas);
+      toast.success(`${res.data.processados} atualizada(s), ${res.data.ignorados} ignorada(s)`);
+      setSelecionados(new Set());
+      setModalDatasAberto(false);
+      setModalDatasPasso('form');
+      setLoteVencimento('');
+      setLotePagamento('');
+      await carregarContas();
+      triggerNotifRefresh();
+      triggerCalendarioRefresh();
+    } catch (e: unknown) {
+      toast.error(mensagemErro(e, 'Erro ao editar datas em massa'));
+    } finally {
+      setProcessandoLote(false);
+    }
+  };
+
   const alternarOrdenacao = (campo: string) => {
     if (sortField === campo) { setSortDir((d) => d === 'asc' ? 'desc' : 'asc'); }
     else { setSortField(campo); setSortDir('asc'); }
@@ -279,6 +393,27 @@ export default function Contas() {
 
   const contasOrdenadas = ordenar(contasFiltradas);
   const anosFiltro = anosPermitidosContasPagar(new Date().getFullYear());
+
+  const gruposMesAno = (() => {
+    const grupos: { chave: string; rotulo: string; contas: ContaPagar[] }[] = [];
+    for (const c of contasOrdenadas) {
+      const chave = chaveMesVencimento(c.data_vencimento);
+      const ultimo = grupos[grupos.length - 1];
+      if (!ultimo || ultimo.chave !== chave) {
+        grupos.push({
+          chave,
+          rotulo: chave === CHAVE_SEM_VENCIMENTO ? 'Sem vencimento' : rotuloMesAnoColuna(c.data_vencimento),
+          contas: [c],
+        });
+      } else {
+        ultimo.contas.push(c);
+      }
+    }
+    return grupos;
+  })();
+
+  const idsVisiveis = contasOrdenadas.map((c) => c.id);
+  const todosVisiveisMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionados.has(id));
 
   const abrirCriar = () => {
     setEditando(null);
@@ -435,7 +570,13 @@ export default function Contas() {
     }
   };
 
-  const salvar = async () => {
+  const aplicarFormPosMaisUmPagar = () => {
+    setEditando(null);
+    setArquivoNf(null);
+    setForm((prev) => ({ ...prev, data_pagamento: '' }));
+  };
+
+  const salvar = async (continuar = false) => {
     if (!form.descricao || !form.data_vencimento) {
       toast.error('Preencha os campos obrigatórios');
       return;
@@ -503,26 +644,36 @@ export default function Contas() {
           }
         }
         toast.success('Conta atualizada!');
+        setModalAberto(false); setArquivoNf(null); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
       } else {
         const res = await contasService.criar(dados);
         const novaId = res.data?.id;
+        let anexoOk = true;
         if (arquivoNf && novaId) {
           const motivo = motivoArquivoNf(arquivoNf);
           if (!motivo) {
             try {
               await contasService.uploadComprovante(novaId, arquivoNf);
             } catch (e: any) {
+              anexoOk = false;
               toast.error(mensagemErro(e, 'Conta criada, mas a nota fiscal não foi anexada'));
-              setModalAberto(false); setArquivoNf(null); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
-              return;
             }
           } else {
+            anexoOk = false;
             toast.error(`${motivo}. A conta foi salva sem arquivo.`);
           }
         }
-        toast.success('Conta criada!');
+        if (anexoOk) toast.success('Conta criada!');
+        carregarContas();
+        triggerNotifRefresh();
+        triggerCalendarioRefresh();
+        if (continuar) {
+          aplicarFormPosMaisUmPagar();
+        } else {
+          setModalAberto(false);
+          setArquivoNf(null);
+        }
       }
-      setModalAberto(false); setArquivoNf(null); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
     } catch (e: any) { toast.error(mensagemErro(e, 'Erro ao salvar')); }
     finally { setSalvando(false); }
   };
@@ -662,6 +813,8 @@ export default function Contas() {
     { label: 'Nota fiscal', campo: null },
     { label: '', campo: null },
   ] as const;
+
+  const colSpanTabela = COLUNAS_TABELA.length + (isAdmin ? 1 : 0);
 
   return (
     <div className="space-y-6">
@@ -841,20 +994,44 @@ export default function Contas() {
         )}
       </div>
 
+      {isAdmin && selecionadosCount > 0 && (
+        <div className="no-print flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3">
+          <span className="text-sm text-blue-800 dark:text-blue-300">{selecionadosCount} selecionada(s)</span>
+          <button
+            type="button"
+            onClick={abrirModalDatas}
+            className="text-sm px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Editar datas em massa
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
       ) : contasOrdenadas.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">Nenhuma conta encontrada</div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto print-area">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-auto max-h-[calc(100vh-22rem)] print-area">
           <table className="w-full text-sm min-w-[1100px]">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
+                {isAdmin && (
+                  <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-700 px-3 py-3 w-8 shadow-[0_1px_0_0_rgb(229_231_235)] dark:shadow-[0_1px_0_0_rgb(75_85_99)]">
+                    <input
+                      type="checkbox"
+                      checked={todosVisiveisMarcados}
+                      onChange={() => toggleGrupo(idsVisiveis)}
+                      aria-label="Selecionar todas as contas visíveis"
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                  </th>
+                )}
                 {COLUNAS_TABELA.map(({ label, campo }) => (
                   <th
                     key={label || 'acoes'}
                     onClick={campo ? () => alternarOrdenacao(campo) : undefined}
-                    className={`px-4 py-3 text-gray-500 dark:text-gray-400 font-medium text-xs whitespace-nowrap ${label === 'Valor' ? 'text-right' : 'text-left'} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
+                    className={`sticky top-0 z-10 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-gray-500 dark:text-gray-400 font-medium text-xs whitespace-nowrap shadow-[0_1px_0_0_rgb(229_231_235)] dark:shadow-[0_1px_0_0_rgb(75_85_99)] ${label === 'Valor' ? 'text-right' : 'text-left'} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
                   >
                     {label}{campo && <SortIcon campo={campo} />}
                   </th>
@@ -862,8 +1039,46 @@ export default function Contas() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {contasOrdenadas.map((conta) => (
+              {gruposMesAno.map((grupo) => {
+                const idsGrupo = grupo.contas.map((c) => c.id);
+                const grupoMarcado = idsGrupo.length > 0 && idsGrupo.every((id) => selecionados.has(id));
+                return (
+                  <Fragment key={`g-${grupo.chave}`}>
+                    <tr className="bg-gray-100/80 dark:bg-gray-700/60">
+                      {isAdmin && (
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={grupoMarcado}
+                            onChange={() => toggleGrupo(idsGrupo)}
+                            aria-label={`Selecionar todas de ${grupo.rotulo}`}
+                            className="rounded border-gray-300 dark:border-gray-600"
+                          />
+                        </td>
+                      )}
+                      <td
+                        colSpan={isAdmin ? colSpanTabela - 1 : colSpanTabela}
+                        className="px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200"
+                      >
+                        {grupo.rotulo}
+                        <span className="ml-2 font-normal text-gray-500 dark:text-gray-400">
+                          ({grupo.contas.length})
+                        </span>
+                      </td>
+                    </tr>
+                    {grupo.contas.map((conta) => (
                 <tr key={conta.id} className={`transition-colors ${conta.pago ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100/80 dark:hover:bg-green-900/20' : isVencida(conta) ? 'bg-orange-50 dark:bg-orange-900/10 hover:bg-orange-100/80 dark:hover:bg-orange-900/20' : 'bg-yellow-50 dark:bg-yellow-900/10 hover:bg-yellow-100/80 dark:hover:bg-yellow-900/20'}`}>
+                  {isAdmin && (
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selecionados.has(conta.id)}
+                        onChange={() => toggleSelecionado(conta.id)}
+                        aria-label={`Selecionar ${conta.descricao}`}
+                        className="rounded border-gray-300 dark:border-gray-600"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-gray-800 dark:text-gray-200">
                     {conta.descricao}
                     {conta.categoria_pendente && (
@@ -951,7 +1166,7 @@ export default function Contas() {
                   </td>
                   <td className="px-4 py-3 no-print">
                     {papel === 'admin' && (
-                      <div className="flex gap-1 justify-end flex-wrap">
+                      <div className="flex gap-1 items-center justify-end flex-nowrap">
                         {!conta.pago && (
                           <ActionButton variant="fluxo" context="row" label="Pagar" onClick={() => abrirPago(conta)} />
                         )}
@@ -961,7 +1176,10 @@ export default function Contas() {
                     )}
                   </td>
                 </tr>
-              ))}
+                    ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -981,12 +1199,13 @@ export default function Contas() {
             const cadastrada = catalog?.cadastradas.find((o) => o.codigo.toLowerCase() === chave || o.nome.toLowerCase() === chave);
             const cat = oficial?.codigo || cadastrada?.codigo;
             if (!cat) throw new Error(`categoria inválida: ${l.categoria}`);
-            const sub = (l.subcategoria || '').trim().toLowerCase() || null;
-            if (cat === 'recursos_humanos' && !sub) throw new Error('Recursos Humanos exige subcategoria');
+            const subRaw = (l.subcategoria || '').trim();
+            if (cat === 'recursos_humanos' && !subRaw) throw new Error('Recursos Humanos exige subcategoria');
+            const sub = cat === 'recursos_humanos' ? resolverSubcategoriaImport(catalog, subRaw) : null;
             return {
               descricao: l.descricao,
               categoria: cat,
-              subcategoria: cat === 'recursos_humanos' ? sub : null,
+              subcategoria: sub,
               valor: parseFloat(l.valor.replace(',', '.')),
               data_vencimento: l.data_vencimento,
             };
@@ -998,17 +1217,41 @@ export default function Contas() {
       )}
 
       {modalAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
-            <div className="p-6 border-b dark:border-gray-700">
+        <Modal
+          maxWidth="max-w-md"
+          bodyClassName="p-6 space-y-4"
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm"
+          header={(
+            <>
               <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{editando ? 'Editar conta a pagar' : 'Nova conta a pagar'}</h2>
               {editando?.categoria_pendente && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                   Esta conta está pendente de reclassificação (legado: {editando.categoria}). Escolha uma categoria válida para limpar o aviso.
                 </p>
               )}
-            </div>
-            <div className="p-6 space-y-4">
+            </>
+          )}
+          footer={(
+            <>
+              <button onClick={() => { setModalAberto(false); setArquivoNf(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              {!editando && (
+                <button
+                  type="button"
+                  onClick={() => salvar(true)}
+                  disabled={salvando}
+                  title="Salvar e cadastrar mais um"
+                  aria-label="Salvar e cadastrar mais um"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                >
+                  +1
+                </button>
+              )}
+              <button onClick={() => salvar(false)} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {salvando ? 'Salvando...' : 'Salvar'}
+              </button>
+            </>
+          )}
+        >
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Descrição *</label>
                 <input className={INPUT} value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
@@ -1249,25 +1492,27 @@ export default function Contas() {
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Selecionado: {arquivoNf.name}</p>
                 )}
               </div>
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
-              <button onClick={() => { setModalAberto(false); setArquivoNf(null); }} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
-              <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {salvando ? 'Salvando...' : 'Salvar'}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {pagoModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm mx-4">
-            <div className="p-6 border-b dark:border-gray-700">
+        <Modal
+          maxWidth="max-w-sm"
+          bodyClassName="p-6 space-y-4"
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm"
+          header={(
+            <>
               <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Marcar como paga</h2>
               <p className="text-sm text-gray-500 mt-1">{pagoModal.descricao}</p>
-            </div>
-            <div className="p-6 space-y-4">
+            </>
+          )}
+          footer={(
+            <>
+              <button onClick={() => setPagoModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={confirmarPago} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Confirmar pagamento</button>
+            </>
+          )}
+        >
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento *</label>
                 <input type="date" className={INPUT} value={dataPagoForm} onChange={(e) => setDataPagoForm(e.target.value)} />
@@ -1280,13 +1525,99 @@ export default function Contas() {
                   ))}
                 </select>
               </div>
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
-              <button onClick={() => setPagoModal(null)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
-              <button onClick={confirmarPago} className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Confirmar pagamento</button>
-            </div>
-          </div>
-        </div>
+        </Modal>
+      )}
+
+      {modalDatasAberto && (
+        <Modal
+          maxWidth="max-w-md"
+          bodyClassName={modalDatasPasso === 'form' ? 'p-6 space-y-4' : 'p-6 space-y-2 text-sm text-gray-700 dark:text-gray-200'}
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm"
+          header={(
+            <>
+              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">
+                {modalDatasPasso === 'form' ? 'Editar datas em massa' : 'Confirmar alteração'}
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">{selecionadosCount} conta(s) selecionada(s)</p>
+            </>
+          )}
+          footer={(
+            <>
+              {modalDatasPasso === 'confirm' && (
+                <button
+                  type="button"
+                  disabled={processandoLote}
+                  onClick={() => setModalDatasPasso('form')}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  Voltar
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={processandoLote}
+                onClick={fecharModalDatas}
+                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              >
+                Cancelar
+              </button>
+              {modalDatasPasso === 'form' ? (
+                <button
+                  type="button"
+                  onClick={avancarConfirmacaoDatas}
+                  className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Continuar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={processandoLote}
+                  onClick={confirmarLoteDatas}
+                  className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {processandoLote ? 'Aplicando...' : 'Confirmar'}
+                </button>
+              )}
+            </>
+          )}
+        >
+            {modalDatasPasso === 'form' ? (
+              <>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Deixe em branco o campo que não quiser alterar. Não é possível limpar datas neste lote.
+                </p>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de vencimento</label>
+                  <input
+                    type="date"
+                    className={INPUT}
+                    value={loteVencimento}
+                    onChange={(e) => setLoteVencimento(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de pagamento</label>
+                  <input
+                    type="date"
+                    className={INPUT}
+                    value={lotePagamento}
+                    onChange={(e) => setLotePagamento(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <p>
+                  Aplicar a <strong>{selecionadosCount}</strong> conta(s):
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  {loteVencimento && <li>Vencimento → {loteVencimento}</li>}
+                  {lotePagamento && <li>Pagamento → {lotePagamento} (marca como paga)</li>}
+                </ul>
+              </>
+            )}
+        </Modal>
       )}
     </div>
   );

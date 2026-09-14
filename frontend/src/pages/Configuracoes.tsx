@@ -4,6 +4,7 @@ import { mensagemErro } from '../utils/erros';
 import { UsuarioApp } from '../types';
 import { useAuthStore } from '../store';
 import { PAGINAS_PERMISSOES, PAGINAS_VISIBILIDADE_UI, paginaVisivelGlobal } from '../utils/paginasCatalogo';
+import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
 
 const MENUS = PAGINAS_PERMISSOES.map((p) => ({ key: p.key, label: p.label }));
@@ -272,74 +273,74 @@ export default function ConfiguracoesPage() {
       </div>
 
       {modalAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{editando ? 'Editar Usuário' : 'Novo Usuário'}</h2>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Login / Usuário *</label>
-                <input className={INPUT} value={form.usuario} onChange={(e) => setForm({ ...form, usuario: e.target.value })} disabled={!!editando} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Senha {editando ? '(deixe em branco para não alterar)' : '*'}</label>
-                <input type="password" className={INPUT} value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Papel *</label>
-                <select className={INPUT} value={form.papel} onChange={(e) => setForm({ ...form, papel: e.target.value })}>
-                  <option value="visualizador">Visualizador</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-
-              {form.papel !== 'admin' && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-2">Acesso aos menus</label>
-                  <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
-                    {MENUS.map((m, i) => {
-                      const ocultaGlobal = !paginaVisivelGlobal(paginasVisibilidadeStore, m.key);
-                      return (
-                        <div
-                          key={m.key}
-                          className={`flex items-center justify-between px-4 py-2.5 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-700' : ''} ${ocultaGlobal ? 'opacity-60' : ''}`}
-                        >
-                          <div>
-                            <span className="text-sm text-gray-700 dark:text-gray-300">{m.label}</span>
-                            {ocultaGlobal && (
-                              <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">Oculta no sistema</span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            disabled={ocultaGlobal}
-                            onClick={() => togglePermissao(m.key)}
-                            className={`w-10 h-5 rounded-full transition-colors relative ${ocultaGlobal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${form.permissoes[m.key] ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
-                          >
-                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.permissoes[m.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {form.papel === 'admin' && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-400">
-                  Administradores têm acesso total a todos os menus.
-                </div>
-              )}
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3">
+        <Modal
+          maxWidth="max-w-lg"
+          titulo={editando ? 'Editar Usuário' : 'Novo Usuário'}
+          bodyClassName="p-6 space-y-4"
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end gap-3"
+          footer={(
+            <>
               <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
               <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>
-            </div>
+            </>
+          )}
+        >
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Login / Usuário *</label>
+            <input className={INPUT} value={form.usuario} onChange={(e) => setForm({ ...form, usuario: e.target.value })} disabled={!!editando} />
           </div>
-        </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Senha {editando ? '(deixe em branco para não alterar)' : '*'}</label>
+            <input type="password" className={INPUT} value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Papel *</label>
+            <select className={INPUT} value={form.papel} onChange={(e) => setForm({ ...form, papel: e.target.value })}>
+              <option value="visualizador">Visualizador</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          {form.papel !== 'admin' && (
+            <div>
+              <label className="text-xs text-gray-500 dark:text-gray-400 block mb-2">Acesso aos menus</label>
+              <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+                {MENUS.map((m, i) => {
+                  const ocultaGlobal = !paginaVisivelGlobal(paginasVisibilidadeStore, m.key);
+                  return (
+                    <div
+                      key={m.key}
+                      className={`flex items-center justify-between px-4 py-2.5 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-700' : ''} ${ocultaGlobal ? 'opacity-60' : ''}`}
+                    >
+                      <div>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{m.label}</span>
+                        {ocultaGlobal && (
+                          <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">Oculta no sistema</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={ocultaGlobal}
+                        onClick={() => togglePermissao(m.key)}
+                        className={`w-10 h-5 rounded-full transition-colors relative ${ocultaGlobal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${form.permissoes[m.key] ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.permissoes[m.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {form.papel === 'admin' && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-400">
+              Administradores têm acesso total a todos os menus.
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   );

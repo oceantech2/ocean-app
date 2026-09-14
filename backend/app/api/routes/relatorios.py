@@ -240,7 +240,7 @@ def aging_recebiveis(
     current_user: str = Depends(get_current_user),
 ):
     """
-    Aging de Recebíveis: estoque global de NFs emitidas sem recebimento.
+    Previsão de Recebíveis: estoque global de NFs emitidas sem recebimento.
     Sem filtro de período. Dual-base bruto/líquido. Residual só no total_aberto.
     """
     hoje = date.today()

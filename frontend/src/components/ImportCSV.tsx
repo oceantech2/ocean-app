@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { parseCSV, lerArquivoTexto } from '../utils/import';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
+import Modal from './Modal';
 
 interface ImportCSVProps {
   titulo: string;
@@ -66,14 +67,23 @@ export default function ImportCSV({ titulo, colunas, exemplo, mapear, criar, onC
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b dark:border-gray-700 flex items-center justify-between">
+    <Modal
+      maxWidth="max-w-lg"
+      header={
+        <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Importar {titulo} (CSV)</h2>
           <button onClick={onFechar} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl">×</button>
         </div>
-
-        <div className="p-6 space-y-4">
+      }
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <div className="flex justify-end">
+          <button onClick={onFechar} className="px-5 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
+            Fechar
+          </button>
+        </div>
+      }
+    >
           <div className="text-sm text-gray-600 dark:text-gray-400">
             <p className="mb-2">O arquivo deve conter um cabeçalho com as colunas:</p>
             <code className="block bg-gray-100 dark:bg-gray-700 dark:text-gray-200 rounded p-2 text-xs">
@@ -115,14 +125,6 @@ export default function ImportCSV({ titulo, colunas, exemplo, mapear, criar, onC
               )}
             </div>
           )}
-        </div>
-
-        <div className="p-6 border-t dark:border-gray-700 flex justify-end">
-          <button onClick={onFechar} className="px-5 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

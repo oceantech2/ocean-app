@@ -46,7 +46,7 @@ export const ROW_ACTION_ORDER: ActionVariant[] = [
   'excluir',
 ];
 
-const ROW_BASE = 'inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition disabled:opacity-50 disabled:cursor-not-allowed';
+const ROW_BASE = 'inline-flex items-center justify-center gap-0 text-xs p-1.5 rounded transition disabled:opacity-50 disabled:cursor-not-allowed';
 
 const ROW_VARIANTS: Record<ActionVariant, string> = {
   importar: ROW_BASE,

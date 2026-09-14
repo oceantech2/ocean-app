@@ -8,6 +8,7 @@ import { exportarCSV } from '../utils/export';
 import ImportCSV from '../components/ImportCSV';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import Modal from '../components/Modal';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ITENS_POR_PAGINA = 15;
@@ -304,7 +305,9 @@ export default function DHPage() {
                       </td>
                       <td className="px-4 py-3">
                         {papel === 'admin' && (
-                          <ActionButton variant="excluir" context="row" label="Excluir" onClick={() => deletar(dh)} />
+                          <div className="flex gap-1 items-center flex-nowrap">
+                            <ActionButton variant="excluir" context="row" label="Excluir" onClick={() => deletar(dh)} />
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -319,12 +322,19 @@ export default function DHPage() {
 
       {/* Modal */}
       {modalAberto && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4">
-            <div className="p-6 border-b dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Novo DH</h2>
+        <Modal
+          maxWidth="max-w-lg"
+          titulo="Novo DH"
+          bodyClassName="p-6 space-y-4"
+          footer={
+            <div className="flex justify-end gap-3 text-sm">
+              <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+              <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {salvando ? 'Salvando...' : 'Criar DH'}
+              </button>
             </div>
-            <div className="p-6 space-y-4">
+          }
+        >
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Empresa *</label>
                 <input className={INPUT} value={form.empresa} onChange={(e) => setForm({ ...form, empresa: e.target.value })} />
@@ -349,32 +359,22 @@ export default function DHPage() {
                   <p className="text-sm text-blue-800 dark:text-blue-300 font-mono">{assuntoPreview}</p>
                 </div>
               )}
-            </div>
-            <div className="p-6 border-t dark:border-gray-700 flex justify-end gap-3 text-sm">
-              <button onClick={() => setModalAberto(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
-              <button onClick={salvar} disabled={salvando} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {salvando ? 'Salvando...' : 'Criar DH'}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {importAberto && (
         <ImportCSV
-          titulo="Importar DH via CSV"
-          colunas={['empresa', 'posicao', 'tipo', 'mes', 'ano', 'colaborador_preencheu']}
-          onImportar={async (linhas) => {
-            for (const l of linhas) {
-              await dhService.criar({
-                empresa: l.empresa,
-                posicao: l.posicao,
-                tipo_fechamento: mapTipoImport(l.tipo || l.tipo_fechamento || ''),
-                colaborador_preencheu: l.colaborador_preencheu || '',
-              });
-            }
-            carregarDHs();
-          }}
+          titulo="DH"
+          colunas={['empresa', 'posicao', 'tipo', 'colaborador_preencheu']}
+          exemplo={{ empresa: 'Acme', posicao: 'Dev', tipo: 'retainer', colaborador_preencheu: 'Ana' }}
+          mapear={(l) => ({
+            empresa: l.empresa,
+            posicao: l.posicao,
+            tipo_fechamento: mapTipoImport(l.tipo || l.tipo_fechamento || ''),
+            colaborador_preencheu: l.colaborador_preencheu || '',
+          })}
+          criar={(payload) => dhService.criar(payload)}
+          onConcluido={carregarDHs}
           onFechar={() => setImportAberto(false)}
         />
       )}

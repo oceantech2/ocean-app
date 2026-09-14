@@ -13,9 +13,7 @@ import {
 } from '../utils/dashboardDespesas';
 import { saldoCorrenteDashboard } from '../utils/dashboardSaldo';
 import {
-  PIPELINE_ESTAGIOS,
   PIPELINE_VAZIO,
-  fmtPipelinePct,
   normalizePipelineReceita,
   type PipelineReceita,
 } from '../utils/pipelineReceita';
@@ -55,7 +53,6 @@ import {
 } from '../utils/alertaFluxoCaixa';
 import {
   metaBruta,
-  pctPorVisao,
   rotuloVisao,
   valorPorVisao,
   type VisaoReceita,
@@ -559,7 +556,7 @@ export default function Dashboard() {
       const pipelinePromise = relatoriosService
         .pipelineReceita(ano, mes)
         .catch(() => {
-          setPipelineErro('Não foi possível carregar o Pipeline de Receita');
+          setPipelineErro('Não foi possível carregar a Receita Por Competência');
           return { data: null };
         });
 
@@ -571,7 +568,7 @@ export default function Dashboard() {
         });
 
       const agingPromise = relatoriosService.agingRecebiveis().catch(() => {
-        setAgingErro('Não foi possível carregar o Aging de Recebíveis');
+        setAgingErro('Não foi possível carregar a Previsão de Recebíveis');
         return { data: null };
       });
 
@@ -872,11 +869,8 @@ export default function Dashboard() {
   const rotuloCustoAnoVazio = `Sem despesas por categoria para ${ano}`;
 
   const despesasTotaisResultado = despesasTotais.fixas + despesasTotais.variaveis;
-  const receitaComp = valorPorVisao(
-    pipeline.fechado.valor_liquido,
-    pipeline.fechado.valor_bruto,
-    visaoReceita,
-  );
+  // Resultado Competência: sempre base líquida (não segue o toggle Bruto/Líquido)
+  const receitaComp = Number(pipeline.fechado.valor_liquido) || 0;
   const receitaCaixaValor = valorPorVisao(
     receitaCaixa.recebido.valor_liquido,
     receitaCaixa.recebido.valor_bruto,
@@ -896,17 +890,6 @@ export default function Dashboard() {
 
   const pct = metaMensalValida ? Math.min(pctMetaMensal, 100) : 0;
   const corBarra = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : 'bg-orange-500';
-
-  const pipelineFechadoValor = valorPorVisao(
-    pipeline.fechado.valor_liquido,
-    pipeline.fechado.valor_bruto,
-    visaoReceita,
-  );
-  const pipelineFechadoPct = pctPorVisao(
-    pipeline.fechado.percentual_liquido,
-    pipeline.fechado.percentual_bruto,
-    visaoReceita,
-  );
 
   const competencia = metricasCompetencia(pipeline);
   const pctNaoRecebida = pipelineErro
@@ -1115,7 +1098,7 @@ export default function Dashboard() {
                   )}
                 </div>
                 <div className="rounded-md bg-white/70 dark:bg-gray-900/40 px-3 py-2">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Aging em atenção (60–90 dias)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Previsão em atenção (60–90 dias)</p>
                   {agingErro ? (
                     <p className="font-semibold text-gray-600 dark:text-gray-300 italic">{rotuloIndisponivel()}</p>
                   ) : (
@@ -1447,87 +1430,15 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-
-            {/* Pipeline de Receita */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 space-y-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-gray-800 dark:text-gray-100 text-base font-semibold">
-                  Pipeline de Receita
-                </h3>
-                <p className="text-gray-500 dark:text-gray-400 text-xs">
-                  {mes != null
-                    ? `Fechado no mês — ${MESES_NOME[mes - 1]}/${ano}`
-                    : `Fechado no período — ${ano}`}
-                  {' · '}
-                  {rotuloVisao(visaoReceita)}
-                </p>
-              </div>
-              {pipelineErro ? (
-                <p className="text-sm text-red-600 dark:text-red-400">{pipelineErro}</p>
-              ) : (
-                <>
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/40">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                        {mes != null ? 'Fechado no mês' : 'Fechado no período'}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {fmtPipelinePct(pipelineFechadoPct ?? 100)}
-                      </span>
-                    </div>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-                      {fmt(pipelineFechadoValor)}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {pipeline.fechado.contagem} registro{pipeline.fechado.contagem === 1 ? '' : 's'}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {PIPELINE_ESTAGIOS.map((est) => {
-                      const dados = pipeline[est.key];
-                      const valorEst = valorPorVisao(dados.valor_liquido, dados.valor_bruto, visaoReceita);
-                      const pctEst = pctPorVisao(
-                        dados.percentual_liquido,
-                        dados.percentual_bruto,
-                        visaoReceita,
-                      );
-                      return (
-                        <div
-                          key={est.key}
-                          className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                              {est.rotulo}
-                            </span>
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${est.badgeClass}`}
-                            >
-                              {est.badge}
-                            </span>
-                          </div>
-                          <p className={`text-xl font-bold mt-2 ${est.valorClass}`}>
-                            {fmt(valorEst)}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {dados.contagem} · {fmtPipelinePct(pctEst)}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
           </section>
 
-          {/* Aging de Recebíveis — estoque global (independente do mês/ano) */}
+          {/* Previsão de Recebíveis — estoque global (independente do mês/ano) */}
           <section className="space-y-3">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="text-gray-800 dark:text-gray-100 text-base font-semibold">
-                    Aging de Recebíveis
+                    Previsão de Recebíveis
                   </h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     Estoque total em aberto · independente do período
@@ -1629,6 +1540,9 @@ export default function Dashboard() {
                   </p>
                   <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
                     {fmtResultadoPct(resultadoCompetencia.pct)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+                    base líquida
                   </p>
                   {rotuloDespesaResultado && (
                     <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
