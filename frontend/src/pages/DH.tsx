@@ -9,6 +9,7 @@ import ImportCSV from '../components/ImportCSV';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ITENS_POR_PAGINA = 15;
@@ -255,7 +256,7 @@ export default function DHPage() {
       )}
 
       {/* Tabela */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md ${TABLE_SCROLL_CONTAINER_CLASS}`}>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
         ) : dhs.length === 0 ? (
@@ -263,10 +264,10 @@ export default function DHPage() {
         ) : (
           <>
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+              <thead className="border-b border-gray-200 dark:border-gray-600">
                 <tr>
                   {['Assunto', 'Tipo', 'Preenchido por', 'Data', 'Enviado', ''].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-gray-600 dark:text-gray-300 font-medium">{h}</th>
+                    <th key={h} className={`${TH_STICKY_CLASS} text-left px-4 py-3 text-gray-600 dark:text-gray-300 font-medium`}>{h}</th>
                   ))}
                 </tr>
               </thead>

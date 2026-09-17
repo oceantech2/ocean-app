@@ -406,7 +406,7 @@ class SubcategoriaRhResponse(BaseModel):
 
 class ContaPagarBase(BaseModel):
     descricao: str
-    categoria: str
+    categoria: Optional[str] = None
     subcategoria: Optional[str] = None
     valor: float = Field(..., gt=0)
     data_vencimento: Optional[date] = None
@@ -415,13 +415,13 @@ class ContaPagarCreate(ContaPagarBase):
     data_pagamento: Optional[date] = None
     fornecedor_id: Optional[int] = None
     caixa: Optional[str] = None
-    tipo_despesa: Literal["fixo", "variavel"] = "variavel"
+    tipo_despesa: Literal["fixo", "variavel", "imposto_das"] = "variavel"
 
     @field_validator("tipo_despesa")
     @classmethod
     def validar_tipo_despesa_create(cls, v: str) -> str:
-        if v not in ("fixo", "variavel"):
-            raise ValueError("Tipo deve ser Fixo ou Variável")
+        if v not in ("fixo", "variavel", "imposto_das"):
+            raise ValueError("Tipo deve ser Fixo, Variável ou Imposto / DAS")
         return v
 
 class ContaPagarUpdate(BaseModel):
@@ -434,13 +434,13 @@ class ContaPagarUpdate(BaseModel):
     pago: Optional[bool] = None
     fornecedor_id: Optional[int] = None
     caixa: Optional[str] = None
-    tipo_despesa: Optional[Literal["fixo", "variavel"]] = None
+    tipo_despesa: Optional[Literal["fixo", "variavel", "imposto_das"]] = None
 
     @field_validator("tipo_despesa")
     @classmethod
     def validar_tipo_despesa_update(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and v not in ("fixo", "variavel"):
-            raise ValueError("Tipo deve ser Fixo ou Variável")
+        if v is not None and v not in ("fixo", "variavel", "imposto_das"):
+            raise ValueError("Tipo deve ser Fixo, Variável ou Imposto / DAS")
         return v
 
 class ContaPagarResponse(ContaPagarBase):
@@ -449,7 +449,7 @@ class ContaPagarResponse(ContaPagarBase):
     pago: bool
     data_pagamento: Optional[date]
     caixa: Optional[str] = None
-    tipo_despesa: Literal["fixo", "variavel"] = "variavel"
+    tipo_despesa: Literal["fixo", "variavel", "imposto_das"] = "variavel"
     comprovante_nome: Optional[str] = None
     fornecedor_id: Optional[int] = None
     fornecedor_nome: Optional[str] = None

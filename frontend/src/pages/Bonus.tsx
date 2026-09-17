@@ -11,6 +11,7 @@ import ImportCSV from '../components/ImportCSV';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ITENS_POR_PAGINA = 20;
@@ -377,13 +378,13 @@ export default function BonusPage() {
                       <div className="text-xs text-amber-700 dark:text-amber-400">Liberado: {fmt(liberadoTotal)}</div>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className={TABLE_SCROLL_CONTAINER_CLASS}>
                     <table className="w-full text-sm min-w-[900px]">
-                      <thead className="bg-gray-50/50 dark:bg-gray-700/50">
+                      <thead className="border-b border-gray-200 dark:border-gray-600">
                         <tr>
-                          {isAdmin && <th className="px-3 py-2 w-8" />}
+                          {isAdmin && <th className={`${TH_STICKY_CLASS} px-3 py-2 w-8`} />}
                           {colunas.map((h) => (
-                            <th key={h || 'acoes'} className={`px-3 py-2 text-gray-500 dark:text-gray-400 font-medium ${h === 'Percentual' || h === 'Valor' || h === 'Liberado' ? 'text-right' : 'text-left'}`}>{h}</th>
+                            <th key={h || 'acoes'} className={`${TH_STICKY_CLASS} px-3 py-2 text-gray-500 dark:text-gray-400 font-medium ${h === 'Percentual' || h === 'Valor' || h === 'Liberado' ? 'text-right' : 'text-left'}`}>{h}</th>
                           ))}
                         </tr>
                       </thead>

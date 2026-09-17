@@ -75,7 +75,7 @@ export function saldoCorrenteDashboard(
   for (const c of contasPagas) {
     if (!elegivelPagar(c)) continue;
     if (fluxoDePagar(c.caixa, padrao) !== conta) continue;
-    if (naturezaDespesa(c.categoria) === 'excluida') continue;
+    if (naturezaDespesa(c.categoria, c.tipo_despesa) === 'excluida') continue;
     const dt = parseDataIso(c.data_pagamento);
     if (!dt || !noRecortePagamento(dt, recorte)) continue;
     despesas += Number(c.valor) || 0;

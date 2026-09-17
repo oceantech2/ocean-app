@@ -1,25 +1,29 @@
-/** Agregações de despesa/impostos do Dashboard (features 040, 047, 059). */
+/** Agregações de despesa/impostos do Dashboard (features 040, 047, 059, 074). */
 
 export type NaturezaDespesa = 'fixa' | 'variavel' | 'excluida';
 
 export function categoriaEhImpostos(categoria: string | null | undefined): boolean {
   const c = String(categoria || '').trim().toLowerCase();
-  return c === 'impostos';
+  return c === 'impostos' || c === 'imposto';
+}
+
+export function tipoEhImpostoDas(tipo: string | null | undefined): boolean {
+  return String(tipo || '').trim().toLowerCase() === 'imposto_das';
 }
 
 /**
  * Helper legado (ex.: saldo): só distingue exclusão de impostos.
  * Cards canônicos de Despesa (059) usam `tipo_despesa`, não esta classificação.
  */
-export function naturezaDespesa(categoria: string | null | undefined): NaturezaDespesa {
-  if (categoriaEhImpostos(categoria)) return 'excluida';
+export function naturezaDespesa(categoria: string | null | undefined, tipo?: string | null): NaturezaDespesa {
+  if (tipoEhImpostoDas(tipo) || categoriaEhImpostos(categoria)) return 'excluida';
   return 'variavel';
 }
 
 export type ContaParaDespesa = {
   categoria?: string | null;
   valor?: number | null;
-  tipo_despesa?: 'fixo' | 'variavel' | null;
+  tipo_despesa?: 'fixo' | 'variavel' | 'imposto_das' | null;
   data_pagamento?: string | null;
   data_vencimento?: string | null;
   /** Ignorado nos cards canônicos Seção 07 (059). */
@@ -68,7 +72,7 @@ export function totaisDespesa(
   let pendentes = 0;
 
   for (const c of contas) {
-    if (categoriaEhImpostos(c.categoria)) continue;
+    if (tipoEhImpostoDas(c.tipo_despesa) || categoriaEhImpostos(c.categoria)) continue;
     const valor = Number(c.valor) || 0;
     if (valor === 0) continue;
 

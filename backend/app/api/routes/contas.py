@@ -29,11 +29,16 @@ from app.services import anexo_nf
 
 router = APIRouter()
 
-TIPOS_DESPESA = frozenset({"fixo", "variavel"})
+TIPOS_DESPESA = frozenset({"fixo", "variavel", "imposto_das"})
 
 
 def _rotulo_tipo_despesa(tipo: str | None) -> str:
-    return "Fixo" if tipo == "fixo" else "Variável"
+    t = (tipo or "").strip().lower()
+    if t == "fixo":
+        return "Fixo"
+    if t == "imposto_das":
+        return "Imposto / DAS"
+    return "Variável"
 
 
 def _validar_tipo_despesa(tipo: str | None) -> str:
@@ -41,9 +46,57 @@ def _validar_tipo_despesa(tipo: str | None) -> str:
     if t not in TIPOS_DESPESA:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Tipo deve ser Fixo ou Variável",
+            detail="Tipo deve ser Fixo, Variável ou Imposto / DAS",
         )
     return t
+
+
+def _resolver_tipo_import(raw: str | None) -> str:
+    if raw is None or str(raw).strip() == "":
+        return "variavel"
+    t = str(raw).strip().lower().replace(" ", "_").replace("/", "_")
+    aliases = {
+        "fixo": "fixo",
+        "variavel": "variavel",
+        "variável": "variavel",
+        "imposto_das": "imposto_das",
+        "imposto__das": "imposto_das",
+        "imposto": "imposto_das",
+        "impostos": "imposto_das",
+        "das": "imposto_das",
+    }
+    # rótulos com espaços/barra
+    label = str(raw).strip().casefold()
+    if label in {"imposto / das", "imposto/das", "imposto das"}:
+        return "imposto_das"
+    if t in aliases:
+        return aliases[t]
+    if t in TIPOS_DESPESA:
+        return t
+    raise ValueError("Tipo deve ser Fixo, Variável ou Imposto / DAS")
+
+
+def _validar_categoria_para_tipo(
+    db: Session,
+    tipo: str,
+    categoria: str | None,
+    subcategoria: str | None,
+) -> tuple[str | None, str | None]:
+    if cat_svc.eh_categoria_impostos_rejeitada(categoria):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Categoria Impostos não é mais válida; use o Tipo Imposto / DAS",
+        )
+    try:
+        if tipo == "imposto_das":
+            return cat_svc.validar_classificacao(
+                categoria, subcategoria, permitir_vazia=True, db=db
+            )
+        return cat_svc.validar_classificacao(categoria, subcategoria, db=db)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
 
 
 def _resolver_caixa_conta(db: Session, caixa_in: str | None) -> str:
@@ -161,11 +214,24 @@ def importar_contas_xlsx(
     for r in registros:
         try:
             db.begin_nested()
-            resolvida = cat_svc.resolver_import_categoria(r.get("categoria"), db) or r.get("categoria")
+            tipo = _resolver_tipo_import(r.get("tipo") or r.get("tipo_despesa"))
+            cat_bruta = r.get("categoria")
+            if cat_svc.eh_categoria_impostos_rejeitada(cat_bruta):
+                raise ValueError(
+                    "Categoria Impostos não é mais válida; use o Tipo Imposto / DAS"
+                )
+            resolvida = cat_svc.resolver_import_categoria(cat_bruta, db) or cat_bruta
+            if cat_svc.eh_categoria_impostos_rejeitada(resolvida):
+                raise ValueError(
+                    "Categoria Impostos não é mais válida; use o Tipo Imposto / DAS"
+                )
             sub_bruta = r.get("subcategoria")
             sub_resolvida = cat_svc.resolver_import_subcategoria(sub_bruta, db) or sub_bruta
             cat, sub = cat_svc.validar_classificacao(
-                resolvida, sub_resolvida, db=db
+                resolvida,
+                sub_resolvida,
+                permitir_vazia=(tipo == "imposto_das"),
+                db=db,
             )
             padrao = codigo_padrao(db)
             nova = ContaPagar(
@@ -178,7 +244,7 @@ def importar_contas_xlsx(
                 data_pagamento=r.get("data_pagamento"),
                 pago=r.get("pago", False),
                 caixa=exigir_conta_corrente(db, padrao),
-                tipo_despesa="variavel",
+                tipo_despesa=tipo,
             )
             db.add(nova)
             db.flush()
@@ -513,10 +579,8 @@ def criar_conta(
     current_user: str = Depends(require_admin),
 ):
     """Criar uma nova conta a pagar"""
-    try:
-        cat, sub = cat_svc.validar_classificacao(conta.categoria, conta.subcategoria, db=db)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    tipo = _validar_tipo_despesa(conta.tipo_despesa)
+    cat, sub = _validar_categoria_para_tipo(db, tipo, conta.categoria, conta.subcategoria)
 
     if conta.valor is None or conta.valor <= 0:
         raise HTTPException(
@@ -528,7 +592,7 @@ def criar_conta(
     dados["categoria"] = cat
     dados["subcategoria"] = sub
     dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"))
-    dados["tipo_despesa"] = _validar_tipo_despesa(dados.get("tipo_despesa"))
+    dados["tipo_despesa"] = tipo
     caixa_in = dados.pop("caixa", None)
     dados["caixa"] = _resolver_caixa_conta(db, caixa_in)
     data_pag = dados.get("data_pagamento")
@@ -566,30 +630,30 @@ def atualizar_conta(
     if "fornecedor_id" in dados:
         dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"), db_conta)
 
-    if "categoria" in dados:
-        try:
-            cat, sub = cat_svc.validar_classificacao(
-                dados.get("categoria"),
-                dados.get("subcategoria") if "subcategoria" in dados else db_conta.subcategoria,
-                db=db,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    tipo_final = (
+        _validar_tipo_despesa(dados["tipo_despesa"])
+        if "tipo_despesa" in dados
+        else _validar_tipo_despesa(getattr(db_conta, "tipo_despesa", None))
+    )
+    if "tipo_despesa" in dados:
+        dados["tipo_despesa"] = tipo_final
+
+    precisa_reclassificar = (
+        "categoria" in dados
+        or "subcategoria" in dados
+        or "tipo_despesa" in dados
+    )
+    if precisa_reclassificar:
+        cat_in = dados["categoria"] if "categoria" in dados else db_conta.categoria
+        sub_in = dados["subcategoria"] if "subcategoria" in dados else db_conta.subcategoria
+        # limpar categoria explicitamente (string vazia / None) quando Imposto / DAS
+        if "categoria" in dados and (dados.get("categoria") is None or str(dados.get("categoria") or "").strip() == ""):
+            cat_in = None
+            sub_in = None
+        cat, sub = _validar_categoria_para_tipo(db, tipo_final, cat_in, sub_in)
         dados["categoria"] = cat
         dados["subcategoria"] = sub
         dados["categoria_pendente"] = False
-    elif "subcategoria" in dados and not db_conta.categoria_pendente:
-        try:
-            cat, sub = cat_svc.validar_classificacao(
-                db_conta.categoria, dados.get("subcategoria"), db=db
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-        dados["categoria"] = cat
-        dados["subcategoria"] = sub
-
-    if "tipo_despesa" in dados:
-        dados["tipo_despesa"] = _validar_tipo_despesa(dados.get("tipo_despesa"))
 
     for campo, valor in dados.items():
         setattr(db_conta, campo, valor)

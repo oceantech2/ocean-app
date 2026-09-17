@@ -16,6 +16,7 @@ import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
 import type { ContaCorrente, ContaPagar, FluxoConta, NF } from '../types';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const LIMITE_PAGINA = 1000;
 const HOJE = new Date().toISOString().split('T')[0];
@@ -453,7 +454,7 @@ export default function FluxoCaixa() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
         <div className="p-4 border-b dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Registros de Saldo — {rotuloAtivo}</h2>
         </div>
@@ -462,8 +463,9 @@ export default function FluxoCaixa() {
         ) : saldos.length === 0 ? (
           <div className="p-8 text-center text-gray-400 dark:text-gray-500">Nenhum saldo registrado para {rotuloAtivo} em {ano}</div>
         ) : (
+          <div className={TABLE_SCROLL_CONTAINER_CLASS}>
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
                 {[
                   { label: 'Mês/Ano', campo: 'mes' },
@@ -473,7 +475,7 @@ export default function FluxoCaixa() {
                   <th
                     key={label}
                     onClick={() => sortSaldos.alternar(campo)}
-                    className={`px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${label === 'Saldo' ? 'text-right' : 'text-left'} cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400`}
+                    className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${label === 'Saldo' ? 'text-right' : 'text-left'} cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400`}
                   >
                     {label}<sortSaldos.Icon campo={campo} />
                   </th>
@@ -490,10 +492,11 @@ export default function FluxoCaixa() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
         <div className="p-4 border-b dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">
             Movimentos — {rotuloAtivo} {mes !== '' ? `${MESES_NOME[Number(mes) - 1]}/` : ''}{ano}
@@ -511,8 +514,9 @@ export default function FluxoCaixa() {
             Nenhum movimento em {rotuloAtivo} neste período
           </div>
         ) : (
+          <div className={TABLE_SCROLL_CONTAINER_CLASS}>
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
                 {[
                   { label: 'Data', campo: 'data' },
@@ -526,7 +530,7 @@ export default function FluxoCaixa() {
                   <th
                     key={label}
                     onClick={campo ? () => sortMovimentos.alternar(campo) : undefined}
-                    className={`px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''} ${label === 'Valor' ? 'text-right' : 'text-left'}`}
+                    className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''} ${label === 'Valor' ? 'text-right' : 'text-left'}`}
                   >
                     {label}{campo && <sortMovimentos.Icon campo={campo} />}
                   </th>
@@ -574,6 +578,7 @@ export default function FluxoCaixa() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

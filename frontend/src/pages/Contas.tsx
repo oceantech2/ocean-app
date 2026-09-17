@@ -14,6 +14,7 @@ import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const SENTINELA_NOVA = '__nova__';
 const SENTINELA_NOVA_SUB = '__nova_sub__';
@@ -33,7 +34,7 @@ const LABELS_LEGADO: Record<string, string> = {
   salario: 'Salário (legado)',
   bonus: 'Comissões (legado)',
   retirada_lucro: 'Retirada de Lucro (legado)',
-  impostos: 'Impostos',
+  impostos: 'Impostos (legado)',
   imposto: 'Imposto (legado)',
   reembolsos: 'Reembolsos (legado)',
   evento: 'Evento (legado)',
@@ -66,10 +67,11 @@ function resolverSubcategoriaImport(
 
 function nomeCategoriaCatalogo(
   catalog: CatalogoCategoriasContas | null,
-  cat: string,
+  cat: string | null | undefined,
   sub?: string | null,
   pendente?: boolean,
 ) {
+  if (!cat) return '—';
   if (pendente) return LABELS_LEGADO[cat] ?? cat;
   const oficial = catalog?.oficiais.find((o) => o.codigo === cat);
   const cadastrada = catalog?.cadastradas.find((o) => o.codigo === cat);
@@ -85,6 +87,9 @@ function validarNomeCategoriaLocal(nomeBruto: string): string | null {
   const nome = nomeBruto.trim();
   if (!nome) return 'Nome é obrigatório';
   if (nome.length > 20) return 'Nome deve ter no máximo 20 caracteres';
+  if (['impostos', 'imposto'].includes(nome.toLowerCase())) {
+    return 'Categoria Impostos não é mais válida; use o Tipo Imposto / DAS';
+  }
   for (const ch of nome) {
     if (ch === '_' || !/^[\p{L}\p{N} \-/&]$/u.test(ch)) {
       return 'Use apenas letras, números, espaços, hífen, barra e &';
@@ -102,11 +107,21 @@ const FORM_INICIAL = {
   data_pagamento: '',
   fornecedor_id: '',
   caixa: '',
-  tipo_despesa: 'variavel' as 'fixo' | 'variavel',
+  tipo_despesa: 'variavel' as 'fixo' | 'variavel' | 'imposto_das',
 };
 
 function labelTipoDespesa(tipo?: string | null) {
-  return tipo === 'fixo' ? 'Fixo' : 'Variável';
+  const t = String(tipo || '').trim().toLowerCase();
+  if (t === 'fixo') return 'Fixo';
+  if (t === 'imposto_das') return 'Imposto / DAS';
+  return 'Variável';
+}
+
+function ordemTipoDespesa(tipo?: string | null) {
+  const t = String(tipo || '').trim().toLowerCase();
+  if (t === 'fixo') return 0;
+  if (t === 'imposto_das') return 2;
+  return 1;
 }
 
 export default function Contas() {
@@ -339,7 +354,7 @@ export default function Contas() {
     if (campo === 'categoria') return categoriaLabel(c);
     if (campo === 'mes_ano') return chaveMesVencimento(c.data_vencimento);
     if (campo === 'caixa') return rotuloContaOrigem(c.caixa, contasCorrentes);
-    if (campo === 'tipo_despesa') return c.tipo_despesa === 'fixo' ? 0 : 1;
+    if (campo === 'tipo_despesa') return ordemTipoDespesa(c.tipo_despesa);
     if (campo === 'criado_em') return c.criado_em || '';
     const raw = (c as unknown as Record<string, string | number | null | undefined>)[campo];
     return raw ?? '';
@@ -430,14 +445,16 @@ export default function Contas() {
     setNovaNome('');
     setForm({
       descricao: c.descricao,
-      categoria: c.categoria_pendente ? 'adm_financeiro' : (c.categoria || 'adm_financeiro'),
+      categoria: c.categoria_pendente ? 'adm_financeiro' : (c.categoria || ''),
       subcategoria: c.categoria_pendente ? '' : (c.subcategoria || ''),
       valor: numberParaMoedaInput(c.valor),
       data_vencimento: c.data_vencimento ?? '',
       data_pagamento: c.data_pagamento || '',
       fornecedor_id: c.fornecedor_id ? String(c.fornecedor_id) : '',
       caixa: caixaInicialForm(c.caixa, contasCorrentes),
-      tipo_despesa: c.tipo_despesa === 'fixo' ? 'fixo' : 'variavel',
+      tipo_despesa: (c.tipo_despesa === 'fixo' || c.tipo_despesa === 'imposto_das')
+        ? c.tipo_despesa
+        : 'variavel',
     });
     setModalAberto(true);
   };
@@ -589,12 +606,17 @@ export default function Contas() {
       toast.error('Selecione uma categoria');
       return;
     }
-    if (form.categoria === 'recursos_humanos' && !form.subcategoria) {
-      toast.error('Recursos Humanos exige uma subcategoria');
+    if (!form.tipo_despesa) {
+      toast.error('Selecione o Tipo (Fixo, Variável ou Imposto / DAS)');
       return;
     }
-    if (!form.tipo_despesa) {
-      toast.error('Selecione o Tipo (Fixo ou Variável)');
+    const ehImpostoDas = form.tipo_despesa === 'imposto_das';
+    if (!ehImpostoDas && !form.categoria) {
+      toast.error('Selecione uma categoria');
+      return;
+    }
+    if (form.categoria === 'recursos_humanos' && !form.subcategoria) {
+      toast.error('Recursos Humanos exige uma subcategoria');
       return;
     }
     const valorNum = parseMoedaInput(form.valor);
@@ -606,7 +628,7 @@ export default function Contas() {
       setSalvando(true);
       const dados: {
         descricao: string;
-        categoria: string;
+        categoria: string | null;
         subcategoria: string | null;
         valor: number;
         data_vencimento: string;
@@ -614,10 +636,10 @@ export default function Contas() {
         fornecedor_id: number | null;
         pago?: boolean;
         caixa: string;
-        tipo_despesa: 'fixo' | 'variavel';
+        tipo_despesa: 'fixo' | 'variavel' | 'imposto_das';
       } = {
         descricao: form.descricao,
-        categoria: form.categoria,
+        categoria: form.categoria || null,
         subcategoria: form.categoria === 'recursos_humanos' ? form.subcategoria : null,
         valor: valorNum,
         data_vencimento: form.data_vencimento,
@@ -895,8 +917,12 @@ export default function Contas() {
             onChange={(e) => setContasFilters(e.target.value, contasPago, e.target.value === 'recursos_humanos' ? contasSubcategoria : '')}
           >
             <option value="">Todas</option>
-            {(catalog?.oficiais || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
-            {(catalog?.cadastradas || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
+            {(catalog?.oficiais || []).filter((c) => c.codigo !== 'impostos' && c.codigo !== 'imposto').map((c) => (
+              <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+            ))}
+            {(catalog?.cadastradas || []).filter((c) => c.codigo !== 'impostos' && c.codigo !== 'imposto').map((c) => (
+              <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+            ))}
           </select>
         </div>
         {contasCategoria === 'recursos_humanos' && (
@@ -1012,12 +1038,12 @@ export default function Contas() {
       ) : contasOrdenadas.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">Nenhuma conta encontrada</div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-auto max-h-[calc(100vh-22rem)] print-area">
+        <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md ${TABLE_SCROLL_CONTAINER_CLASS} print-area`}>
           <table className="w-full text-sm min-w-[1100px]">
             <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
                 {isAdmin && (
-                  <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-700 px-3 py-3 w-8 shadow-[0_1px_0_0_rgb(229_231_235)] dark:shadow-[0_1px_0_0_rgb(75_85_99)]">
+                  <th className={`${TH_STICKY_CLASS} px-3 py-3 w-8`}>
                     <input
                       type="checkbox"
                       checked={todosVisiveisMarcados}
@@ -1031,7 +1057,7 @@ export default function Contas() {
                   <th
                     key={label || 'acoes'}
                     onClick={campo ? () => alternarOrdenacao(campo) : undefined}
-                    className={`sticky top-0 z-10 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-gray-500 dark:text-gray-400 font-medium text-xs whitespace-nowrap shadow-[0_1px_0_0_rgb(229_231_235)] dark:shadow-[0_1px_0_0_rgb(75_85_99)] ${label === 'Valor' ? 'text-right' : 'text-left'} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
+                    className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-500 dark:text-gray-400 font-medium text-xs whitespace-nowrap ${label === 'Valor' ? 'text-right' : 'text-left'} ${campo ? 'cursor-pointer select-none hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
                   >
                     {label}{campo && <SortIcon campo={campo} />}
                   </th>
@@ -1188,17 +1214,47 @@ export default function Contas() {
       {importAberto && (
         <ImportCSV
           titulo="Contas a Pagar"
-          colunas={['descricao', 'categoria', 'subcategoria', 'valor', 'data_vencimento']}
-          exemplo={{ descricao: 'Aluguel', categoria: 'adm_financeiro', subcategoria: '', valor: '5000', data_vencimento: '2026-07-10' }}
+          colunas={['descricao', 'categoria', 'subcategoria', 'valor', 'data_vencimento', 'tipo']}
+          exemplo={{ descricao: 'DAS', categoria: '', subcategoria: '', valor: '5000', data_vencimento: '2026-07-10', tipo: 'imposto_das' }}
           mapear={(l) => {
             if (!l.descricao || !l.valor || !l.data_vencimento) throw new Error('descricao, valor e data_vencimento são obrigatórios');
-            if (!l.categoria) throw new Error('categoria é obrigatória (taxonomia nova)');
-            const bruto = l.categoria.trim();
+            const tipoRaw = (l.tipo || l.tipo_despesa || 'variavel').trim().toLowerCase();
+            const tipoAlias: Record<string, 'fixo' | 'variavel' | 'imposto_das'> = {
+              fixo: 'fixo',
+              variavel: 'variavel',
+              variável: 'variavel',
+              imposto_das: 'imposto_das',
+              'imposto / das': 'imposto_das',
+              'imposto/das': 'imposto_das',
+              imposto: 'imposto_das',
+              impostos: 'imposto_das',
+              das: 'imposto_das',
+            };
+            const tipo = tipoAlias[tipoRaw] || (['fixo', 'variavel', 'imposto_das'].includes(tipoRaw) ? tipoRaw as 'fixo' | 'variavel' | 'imposto_das' : null);
+            if (!tipo) throw new Error('tipo inválido (use Fixo, Variável ou Imposto / DAS)');
+            const bruto = (l.categoria || '').trim();
             const chave = bruto.toLowerCase();
+            if (chave === 'impostos' || chave === 'imposto') {
+              throw new Error('categoria Impostos não é mais válida; use tipo Imposto / DAS');
+            }
+            if (!bruto) {
+              if (tipo !== 'imposto_das') throw new Error('categoria é obrigatória (exceto Tipo Imposto / DAS)');
+              return {
+                descricao: l.descricao,
+                categoria: null,
+                subcategoria: null,
+                valor: parseFloat(l.valor.replace(',', '.')),
+                data_vencimento: l.data_vencimento,
+                tipo_despesa: tipo,
+              };
+            }
             const oficial = catalog?.oficiais.find((o) => o.codigo === chave || o.nome.toLowerCase() === chave);
             const cadastrada = catalog?.cadastradas.find((o) => o.codigo.toLowerCase() === chave || o.nome.toLowerCase() === chave);
             const cat = oficial?.codigo || cadastrada?.codigo;
             if (!cat) throw new Error(`categoria inválida: ${l.categoria}`);
+            if (cat === 'impostos' || cat === 'imposto') {
+              throw new Error('categoria Impostos não é mais válida; use tipo Imposto / DAS');
+            }
             const subRaw = (l.subcategoria || '').trim();
             if (cat === 'recursos_humanos' && !subRaw) throw new Error('Recursos Humanos exige subcategoria');
             const sub = cat === 'recursos_humanos' ? resolverSubcategoriaImport(catalog, subRaw) : null;
@@ -1208,6 +1264,7 @@ export default function Contas() {
               subcategoria: sub,
               valor: parseFloat(l.valor.replace(',', '.')),
               data_vencimento: l.data_vencimento,
+              tipo_despesa: tipo,
             };
           }}
           criar={(payload) => contasService.criar(payload)}
@@ -1274,7 +1331,9 @@ export default function Contas() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Categorias *</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">
+                  Categorias{form.tipo_despesa === 'imposto_das' ? '' : ' *'}
+                </label>
                 <select
                   className={INPUT}
                   value={form.categoria}
@@ -1296,8 +1355,15 @@ export default function Contas() {
                   }}
                   disabled={papel !== 'admin' && !editando}
                 >
-                  {(catalog?.oficiais || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
-                  {(catalog?.cadastradas || []).map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
+                  {form.tipo_despesa === 'imposto_das' && (
+                    <option value="">Sem categoria</option>
+                  )}
+                  {(catalog?.oficiais || []).filter((c) => c.codigo !== 'impostos' && c.codigo !== 'imposto').map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
+                  {(catalog?.cadastradas || []).filter((c) => c.codigo !== 'impostos' && c.codigo !== 'imposto').map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nome}</option>
+                  ))}
                   {papel === 'admin' && <option value={SENTINELA_NOVA}>Nova categoria…</option>}
                 </select>
                 {papel === 'admin' && cadastradaSelecionada && !novaAberto && editCatId == null && (
@@ -1410,11 +1476,19 @@ export default function Contas() {
                 <select
                   className={INPUT}
                   value={form.tipo_despesa}
-                  onChange={(e) => setForm({ ...form, tipo_despesa: e.target.value as 'fixo' | 'variavel' })}
+                  onChange={(e) => {
+                    const tipo = e.target.value as 'fixo' | 'variavel' | 'imposto_das';
+                    setForm({
+                      ...form,
+                      tipo_despesa: tipo,
+                      categoria: tipo === 'imposto_das' ? form.categoria : (form.categoria || 'adm_financeiro'),
+                    });
+                  }}
                   disabled={papel !== 'admin'}
                 >
-                  <option value="variavel">Variável</option>
                   <option value="fixo">Fixo</option>
+                  <option value="variavel">Variável</option>
+                  <option value="imposto_das">Imposto / DAS</option>
                 </select>
               </div>
               <div>

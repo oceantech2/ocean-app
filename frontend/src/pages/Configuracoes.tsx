@@ -6,6 +6,7 @@ import { useAuthStore } from '../store';
 import { PAGINAS_PERMISSOES, PAGINAS_VISIBILIDADE_UI, paginaVisivelGlobal } from '../utils/paginasCatalogo';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const MENUS = PAGINAS_PERMISSOES.map((p) => ({ key: p.key, label: p.label }));
 
@@ -209,17 +210,17 @@ export default function ConfiguracoesPage() {
         )}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md ${TABLE_SCROLL_CONTAINER_CLASS}`}>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
         ) : usuarios.length === 0 ? (
           <div className="p-8 text-center text-gray-400 dark:text-gray-500">Nenhum usuário cadastrado</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
                 {['Usuário', 'Papel', 'Permissões de Menu', 'Status', ''].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 text-gray-600 dark:text-gray-300 font-medium">{h}</th>
+                  <th key={h} className={`${TH_STICKY_CLASS} text-left px-4 py-3 text-gray-600 dark:text-gray-300 font-medium`}>{h}</th>
                 ))}
               </tr>
             </thead>

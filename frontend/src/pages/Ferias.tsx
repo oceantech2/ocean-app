@@ -20,6 +20,7 @@ import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const ITENS_POR_PAGINA = 15;
 const FORM_INICIAL = {
@@ -372,7 +373,7 @@ export default function FeriasPage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md ${TABLE_SCROLL_CONTAINER_CLASS}`}>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             <div className="animate-spin inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full mr-2" />
@@ -383,12 +384,12 @@ export default function FeriasPage() {
         ) : (
           <>
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+              <thead className="border-b border-gray-200 dark:border-gray-600">
                 <tr>
                   {cabecalhos.map((h) => (
                     <th
                       key={h || 'acoes'}
-                      className={`px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Tirados' || h === 'Salário' ? 'text-right' : 'text-left'}`}
+                      className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Tirados' || h === 'Salário' ? 'text-right' : 'text-left'}`}
                     >
                       {h}
                     </th>

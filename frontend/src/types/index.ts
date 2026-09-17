@@ -179,7 +179,7 @@ export interface MovimentoFluxo {
 export interface ContaPagar {
   id: number;
   descricao: string;
-  categoria: string;
+  categoria: string | null;
   subcategoria?: string | null;
   categoria_pendente?: boolean;
   valor: number;
@@ -191,7 +191,7 @@ export interface ContaPagar {
   fornecedor_id?: number | null;
   fornecedor_nome?: string | null;
   fornecedor_ativo?: boolean | null;
-  tipo_despesa?: 'fixo' | 'variavel';
+  tipo_despesa?: 'fixo' | 'variavel' | 'imposto_das';
   criado_em?: string;
 }
 

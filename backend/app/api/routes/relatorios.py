@@ -11,7 +11,8 @@ from app.schemas import (
     AgingRecebiveisResponse,
     ProximoRecebimentoResponse,
 )
-from app.services.categorias_contas import CATEGORIA_IMPOSTOS, label_categoria
+from app.services.categorias_contas import label_categoria
+from sqlalchemy import or_
 from app.api.routes.auth import get_current_user
 
 router = APIRouter()
@@ -607,8 +608,9 @@ def dre_mensal(
     current_user: str = Depends(get_current_user),
 ):
     """
-    DRE mensal do ano: receita bruta e impostos (NFs pagas por emissão),
-    despesa (contas por vencimento, exceto impostos), lucro derivado. Sempre 12 meses.
+    DRE mensal do ano: receita bruta (NFs pagas por emissão),
+    impostos (Contas a Pagar tipo Imposto / DAS por vencimento),
+    despesa (contas por vencimento, exceto Imposto / DAS), lucro derivado. Sempre 12 meses.
     """
     dados = []
     for mes in range(1, 13):
@@ -619,15 +621,15 @@ def dre_mensal(
             extract("month", NF.data_emissao) == mes,
         ).scalar() or 0.0
 
-        impostos = db.query(func.sum(NF.valor_imposto)).filter(
-            NF.status == StatusNF.PAGA,
-            NF.excluida_em.is_(None),
-            extract("year", NF.data_emissao) == ano,
-            extract("month", NF.data_emissao) == mes,
+        impostos = db.query(func.sum(ContaPagar.valor)).filter(
+            ContaPagar.tipo_despesa == "imposto_das",
+            ContaPagar.data_vencimento.isnot(None),
+            extract("year", ContaPagar.data_vencimento) == ano,
+            extract("month", ContaPagar.data_vencimento) == mes,
         ).scalar() or 0.0
 
         despesa = db.query(func.sum(ContaPagar.valor)).filter(
-            ContaPagar.categoria != CATEGORIA_IMPOSTOS,
+            ContaPagar.tipo_despesa != "imposto_das",
             ContaPagar.data_vencimento.isnot(None),
             extract("year", ContaPagar.data_vencimento) == ano,
             extract("month", ContaPagar.data_vencimento) == mes,
@@ -676,6 +678,8 @@ def custo_por_categoria(
         )
         .filter(
             ContaPagar.data_vencimento.isnot(None),
+            ContaPagar.tipo_despesa != "imposto_das",
+            or_(ContaPagar.categoria.is_(None), ContaPagar.categoria != "impostos"),
             extract("year", ContaPagar.data_vencimento) == ano,
             extract("month", ContaPagar.data_vencimento) >= mes_de,
             extract("month", ContaPagar.data_vencimento) <= mes_ate,
@@ -689,7 +693,11 @@ def custo_por_categoria(
         valor = float(soma or 0.0)
         if valor <= 0:
             continue
+        if not categoria and not pendente:
+            continue  # sem fatia operacional vazia
         key = "pendente" if pendente else str(categoria)
+        if key in ("impostos", "imposto"):
+            continue
         agregados[key] = agregados.get(key, 0.0) + valor
 
     categorias = []

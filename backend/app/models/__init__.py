@@ -162,7 +162,7 @@ class ContaPagar(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     descricao = Column(String(255), nullable=False)
-    categoria = Column(String(64), nullable=False, index=True)
+    categoria = Column(String(64), nullable=True, index=True)
     subcategoria = Column(String(64), nullable=True)
     categoria_pendente = Column(Boolean, default=False, nullable=False)
     valor = Column(Float, nullable=False)
@@ -170,7 +170,7 @@ class ContaPagar(Base):
     data_pagamento = Column(Date, nullable=True)
     pago = Column(Boolean, default=False, index=True)
     caixa = Column(String(64), nullable=True)  # codigo conta corrente | null
-    tipo_despesa = Column(String(10), nullable=False, default="variavel")
+    tipo_despesa = Column(String(20), nullable=False, default="variavel")
     comprovante_path = Column(Text, nullable=True)
     comprovante_nome = Column(String(255), nullable=True)
     fornecedor_id = Column(Integer, ForeignKey("colaboradores.id"), nullable=True, index=True)

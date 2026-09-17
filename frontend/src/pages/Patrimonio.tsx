@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
 import { mensagemErro } from '../utils/erros';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -219,7 +220,7 @@ export default function Patrimonio() {
       </div>
 
       {/* Tabela */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
         <div className="p-4 border-b dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Itens de Patrimônio ({filtrado.length})</h2>
         </div>
@@ -234,17 +235,18 @@ export default function Patrimonio() {
             {papel === 'admin' && <div className="mt-2"><button onClick={abrirCriar} className="text-blue-600 hover:underline text-sm">+ Adicionar primeiro item</button></div>}
           </div>
         ) : (
+          <div className={TABLE_SCROLL_CONTAINER_CLASS}>
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
-                <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium">Descrição</th>
-                <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium">Tipo</th>
-                <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium">Marca / Modelo</th>
-                <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium">Nº Série</th>
-                <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium">Colaborador</th>
-                <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-300 font-medium">Valor</th>
-                <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium">Status</th>
-                <th className="px-4 py-3" />
+                <th className={`${TH_STICKY_CLASS} px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium`}>Descrição</th>
+                <th className={`${TH_STICKY_CLASS} px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium`}>Tipo</th>
+                <th className={`${TH_STICKY_CLASS} px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium`}>Marca / Modelo</th>
+                <th className={`${TH_STICKY_CLASS} px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium`}>Nº Série</th>
+                <th className={`${TH_STICKY_CLASS} px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium`}>Colaborador</th>
+                <th className={`${TH_STICKY_CLASS} px-4 py-3 text-right text-gray-600 dark:text-gray-300 font-medium`}>Valor</th>
+                <th className={`${TH_STICKY_CLASS} px-4 py-3 text-left text-gray-600 dark:text-gray-300 font-medium`}>Status</th>
+                <th className={`${TH_STICKY_CLASS} px-4 py-3`} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -292,6 +294,7 @@ export default function Patrimonio() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

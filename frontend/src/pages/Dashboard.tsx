@@ -1683,16 +1683,6 @@ export default function Dashboard() {
                         isAnimationActive={false}
                       />
                       <Bar
-                        dataKey="despesa"
-                        name="Despesa"
-                        stackId="composicao"
-                        fill="#EF4444"
-                        hide={!mostrarDespesa}
-                        isAnimationActive={false}
-                      >
-                        <LabelList dataKey="despesa_pct" content={DrePctLabel} />
-                      </Bar>
-                      <Bar
                         dataKey="impostos"
                         name="Impostos"
                         stackId="composicao"
@@ -1701,6 +1691,16 @@ export default function Dashboard() {
                         isAnimationActive={false}
                       >
                         <LabelList dataKey="impostos_pct" content={DrePctLabel} />
+                      </Bar>
+                      <Bar
+                        dataKey="despesa"
+                        name="Despesa"
+                        stackId="composicao"
+                        fill="#EF4444"
+                        hide={!mostrarDespesa}
+                        isAnimationActive={false}
+                      >
+                        <LabelList dataKey="despesa_pct" content={DrePctLabel} />
                       </Bar>
                       <Bar
                         dataKey="lucro_empilhado"

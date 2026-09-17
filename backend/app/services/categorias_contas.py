@@ -12,7 +12,9 @@ CATEGORIA_MARKETING = "marketing"
 CATEGORIA_COMERCIAL = "comercial"
 CATEGORIA_RH = "recursos_humanos"
 CATEGORIA_TECNOLOGIA = "tecnologia"
+# Código legado — não faz mais parte de CATEGORIAS (virou tipo_despesa=imposto_das)
 CATEGORIA_IMPOSTOS = "impostos"
+CATEGORIAS_IMPOSTO_REJEITADAS = frozenset({"impostos", "imposto"})
 
 CATEGORIAS = {
     CATEGORIA_ADM: "Adm/Financeiro",
@@ -21,7 +23,6 @@ CATEGORIAS = {
     CATEGORIA_COMERCIAL: "Comercial",
     CATEGORIA_RH: "Recursos Humanos",
     CATEGORIA_TECNOLOGIA: "Tecnologia",
-    CATEGORIA_IMPOSTOS: "Impostos",
 }
 
 SUB_SALARIO = "salario"
@@ -84,11 +85,13 @@ def normalizar_codigo(valor: Optional[str]) -> str:
 
 
 def label_categoria(
-    codigo: str,
+    codigo: Optional[str],
     pendente: bool = False,
     subcategoria: Optional[str] = None,
     db: Optional["Session"] = None,
 ) -> str:
+    if not codigo and not pendente:
+        return "—"
     c = normalizar_codigo(codigo)
     if pendente:
         return LABELS_LEGADO.get(c, codigo or "Pendente")
@@ -98,7 +101,7 @@ def label_categoria(
         if cad:
             base = cad.nome
     if base is None:
-        base = codigo
+        base = codigo or "—"
     if c == CATEGORIA_RH and subcategoria:
         sub_code = normalizar_codigo(subcategoria)
         sub = SUBCATEGORIAS_RH.get(sub_code, subcategoria)
@@ -118,8 +121,9 @@ def mapear_legado(valor_antigo: Optional[str]) -> tuple[str, Optional[str], bool
         "salario": (CATEGORIA_RH, SUB_SALARIO, False),
         "bonus": (CATEGORIA_RH, SUB_BONUS, False),
         "retirada_lucro": (CATEGORIA_RH, SUB_RETIRADA, False),
-        "impostos": (CATEGORIA_IMPOSTOS, None, False),
-        "imposto": (CATEGORIA_IMPOSTOS, None, False),
+        # impostos/imposto: migrados para tipo_despesa; mapear legado só para leitura histórica
+        "impostos": (CATEGORIA_IMPOSTOS, None, True),
+        "imposto": (CATEGORIA_IMPOSTOS, None, True),
     }
     if v in mapa:
         return mapa[v]
@@ -168,19 +172,35 @@ def _codigos_sub_rh_validos(db: Optional["Session"]) -> set[str]:
     return codes
 
 
+def eh_categoria_impostos_rejeitada(categoria: Optional[str]) -> bool:
+    cat = normalizar_codigo(categoria)
+    if cat in CATEGORIAS_IMPOSTO_REJEITADAS:
+        return True
+    nome = (categoria or "").strip().casefold()
+    return nome in {"impostos", "imposto", "imposto / das"}
+
+
 def validar_classificacao(
     categoria: Optional[str],
     subcategoria: Optional[str] = None,
     *,
     permitir_pendente: bool = False,
+    permitir_vazia: bool = False,
     db: Optional["Session"] = None,
-) -> tuple[str, Optional[str]]:
+) -> tuple[Optional[str], Optional[str]]:
     """Valida e normaliza. Levanta ValueError se inválido."""
     cat = normalizar_codigo(categoria)
     sub = normalizar_codigo(subcategoria) if subcategoria else None
 
     if not cat:
+        if permitir_vazia:
+            return None, None
         raise ValueError("Categoria é obrigatória")
+
+    if eh_categoria_impostos_rejeitada(categoria) or cat in CATEGORIAS_IMPOSTO_REJEITADAS:
+        raise ValueError(
+            "Categoria Impostos não é mais válida; use o Tipo Imposto / DAS"
+        )
 
     if cat not in CATEGORIAS and db is not None:
         cad = _buscar_cadastrada(db, cat)
@@ -219,7 +239,8 @@ def inferir_de_descricao(descricao: str) -> tuple[str, Optional[str]]:
     if any(k in d for k in ("salário", "salario", "folha", "férias", "ferias")):
         return CATEGORIA_RH, SUB_SALARIO
     if any(k in d for k in ("imposto", "das", "irpj", "csll", "pis", "cofins", "iss")):
-        return CATEGORIA_IMPOSTOS, None
+        # Impostos virou Tipo; inferência de categoria cai em Adm/Financeiro
+        return CATEGORIA_ADM, None
     if any(k in d for k in ("bônus", "bonus", "premiação", "premiacao")):
         return CATEGORIA_RH, SUB_BONUS
     if any(k in d for k in ("comissão", "comissao")):
@@ -390,6 +411,8 @@ def validar_nome_nova(
         raise ValueError("Use apenas letras, números, espaços, hífen, barra e &")
 
     chave = nome.casefold()
+    if chave in {"impostos", "imposto"}:
+        raise ValueError("Categoria Impostos não é mais válida; use o Tipo Imposto / DAS")
     if chave in _labels_ocupados(db, excluir_cat_id=excluir_cat_id, excluir_sub_id=excluir_sub_id):
         raise ValueError("Já existe uma categoria ou subcategoria com este nome")
 

@@ -7,7 +7,6 @@ from app.models import Imposto, NF, StatusNF, ContaPagar
 from app.schemas import ImpostoCreate, ImpostoUpdate, ImpostoResponse
 from app.api.routes.auth import get_current_user
 from app.services.audit import registrar_auditoria
-from app.services.categorias_contas import CATEGORIA_IMPOSTOS
 
 router = APIRouter()
 
@@ -26,13 +25,12 @@ def impostos_de_contas(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    """Retorna valor de impostos por mês derivado de Contas a Pagar (categoria=impostos).
+    """Retorna valor de impostos por mês derivado de Contas a Pagar (tipo_despesa=imposto_das).
     Também inclui faturamento líquido das NFs pagas no mesmo período."""
     resultados = []
     for mes in range(1, 13):
         valor_imposto = db.query(func.sum(ContaPagar.valor)).filter(
-            ContaPagar.categoria == CATEGORIA_IMPOSTOS,
-            ContaPagar.categoria_pendente == False,  # noqa: E712
+            ContaPagar.tipo_despesa == "imposto_das",
             extract("year", ContaPagar.data_vencimento) == ano,
             extract("month", ContaPagar.data_vencimento) == mes,
         ).scalar() or 0.0

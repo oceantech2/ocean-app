@@ -10,6 +10,7 @@ import Modal from '../components/Modal';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const ITENS_POR_PAGINA = 15;
 
@@ -421,7 +422,7 @@ export default function Fornecedores() {
         </label>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md ${TABLE_SCROLL_CONTAINER_CLASS}`}>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
         ) : filtrados.length === 0 ? (
@@ -429,10 +430,10 @@ export default function Fornecedores() {
         ) : (
           <>
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+              <thead className="border-b border-gray-200 dark:border-gray-600">
                 <tr>
                   {['Nome', 'Tipo', 'Documento', 'Telefone', 'Email', 'Status', '', ''].map((h, i) => (
-                    <th key={i} className="px-4 py-3 text-gray-600 dark:text-gray-300 font-medium text-left">{h}</th>
+                    <th key={i} className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium text-left`}>{h}</th>
                   ))}
                 </tr>
               </thead>

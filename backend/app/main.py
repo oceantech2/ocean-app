@@ -382,6 +382,22 @@ def _migrar():
                 "ALTER TABLE contas_pagar ADD COLUMN IF NOT EXISTS tipo_despesa VARCHAR(10) NOT NULL DEFAULT 'variavel'"
             ))
             conn.execute(text(
+                "ALTER TABLE contas_pagar ALTER COLUMN tipo_despesa TYPE VARCHAR(20)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE contas_pagar ALTER COLUMN categoria DROP NOT NULL"
+            ))
+            conn.execute(text(
+                """
+                UPDATE contas_pagar
+                SET tipo_despesa = 'imposto_das',
+                    categoria = NULL,
+                    subcategoria = NULL,
+                    categoria_pendente = FALSE
+                WHERE lower(coalesce(categoria, '')) IN ('impostos', 'imposto')
+                """
+            ))
+            conn.execute(text(
                 """
                 UPDATE contas_pagar SET caixa = COALESCE(
                     (SELECT codigo FROM contas_correntes WHERE padrao IS TRUE AND ativo IS TRUE LIMIT 1),

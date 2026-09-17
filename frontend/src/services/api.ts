@@ -261,13 +261,14 @@ export const nfsService = {
 // Contas
 export type ContaPagarCreatePayload = {
   descricao: string;
-  categoria: string;
+  categoria?: string | null;
   subcategoria?: string | null;
   valor: number;
   data_vencimento?: string | null;
   data_pagamento?: string | null;
   fornecedor_id?: number | null;
   caixa?: string | null;
+  tipo_despesa?: 'fixo' | 'variavel' | 'imposto_das';
 };
 
 export type ContaPagarUpdatePayload = Partial<ContaPagarCreatePayload> & {

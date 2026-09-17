@@ -7,6 +7,7 @@ import { impostosService } from '../services/api';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
 const ANO_ATUAL = new Date().getFullYear();
 const ANOS = Array.from({ length: 10 }, (_, i) => ANO_ATUAL - 4 + i);
@@ -189,22 +190,22 @@ export default function Impostos() {
       </div>
 
       {/* Tabela */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
+      <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md ${TABLE_SCROLL_CONTAINER_CLASS}`}>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
         ) : mesesComDados.length === 0 ? (
           <div className="p-8 text-center text-gray-400 dark:text-gray-500">
             <p>Nenhum lançamento de imposto encontrado em {ano}.</p>
-            <p className="text-xs mt-2">Adicione contas a pagar com a categoria <strong>Impostos</strong> para que apareçam aqui.</p>
+            <p className="text-xs mt-2">Adicione contas a pagar com o tipo <strong>Imposto / DAS</strong> para que apareçam aqui.</p>
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+            <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
                 {['Mês', 'Faturamento (NFs)', '% Imposto', 'Valor Imposto', modoComparativo && anoComp ? `Imposto ${anoComp}` : null]
                   .filter(Boolean)
                   .map((h) => (
-                    <th key={h as string} className={`px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Mês' ? 'text-left' : 'text-right'}`}>{h}</th>
+                    <th key={h as string} className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Mês' ? 'text-left' : 'text-right'}`}>{h}</th>
                   ))}
               </tr>
             </thead>
