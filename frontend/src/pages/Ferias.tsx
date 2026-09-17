@@ -10,7 +10,6 @@ import {
   sugerirAnoAquisitivo,
   temDireitoAdquirido,
   temSobreposicaoComOutros,
-  totalFolhaFixo,
 } from '../utils/feriasCalculo';
 import { Ferias, Colaborador } from '../types';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
@@ -76,11 +75,6 @@ export default function FeriasPage() {
   const fornecedorForm = useMemo(
     () => fornecedores.find((c) => c.id === parseInt(form.colaborador_id, 10)),
     [fornecedores, form.colaborador_id],
-  );
-
-  const totalFolha = useMemo(
-    () => totalFolhaFixo(fornecedores, feriasColaboradorId === '' ? undefined : Number(feriasColaboradorId)),
-    [fornecedores, feriasColaboradorId],
   );
 
   useEffect(() => { carregarFornecedores(); }, []);
@@ -318,11 +312,6 @@ export default function FeriasPage() {
             <ActionButton variant="criar" context="header" label="Novo Período" onClick={abrirCriar} />
           )}
         </div>
-      </div>
-
-      <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg px-4 py-3">
-        <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Total da Folha</p>
-        <p className="text-lg font-semibold text-emerald-800 dark:text-emerald-300 tabular-nums">{formatBRL(totalFolha)}</p>
       </div>
 
       {feriasComAviso.length > 0 && (

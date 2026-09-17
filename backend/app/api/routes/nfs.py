@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, extract, func, cast, Date as SADate
+from sqlalchemy import and_, extract
 from sqlalchemy.exc import IntegrityError
 from typing import List, Set, Optional, Literal, Tuple
 from datetime import date, datetime
@@ -69,19 +69,15 @@ def _calcular_status_nf(data_vencimento: date | None, data_pagamento) -> StatusN
     return StatusNF.PENDENTE
 
 
-def _expr_data_ref():
-    """Data de referência da listagem: emissão, senão data ent. pgto, senão criado_em."""
-    return func.coalesce(NF.data_emissao, NF.data_ent_pgto, cast(NF.criado_em, SADate))
-
-
 def _filtrar_periodo(query, mes: int | None, ano: int | None):
-    ref = _expr_data_ref()
+    """Filtro mês/ano pela data de fechamento (data_ent_pgto) — alinhado à competência do Dashboard."""
+    ref = NF.data_ent_pgto
     if mes and ano:
         inicio = date(ano, mes, 1)
         fim = date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1)
-        return query.filter(and_(ref >= inicio, ref < fim))
+        return query.filter(and_(ref.isnot(None), ref >= inicio, ref < fim))
     if ano:
-        return query.filter(extract("year", ref) == ano)
+        return query.filter(and_(ref.isnot(None), extract("year", ref) == ano))
     return query
 
 
