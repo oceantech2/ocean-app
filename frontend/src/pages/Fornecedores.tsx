@@ -11,6 +11,7 @@ import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const ITENS_POR_PAGINA = 15;
 
@@ -330,7 +331,7 @@ export default function Fornecedores() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div className={`${PAGE_TITLE_STICKY_CLASS} rounded-lg shadow-md p-6`}>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-4 flex-wrap">
@@ -402,7 +403,7 @@ export default function Fornecedores() {
         />
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-center">
+      <div className={`${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-center`}>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Buscar</label>
           <input className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-48" placeholder="Nome ou documento..." value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(0); }} />

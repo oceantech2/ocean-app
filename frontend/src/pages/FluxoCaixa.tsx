@@ -17,6 +17,7 @@ import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
 import type { ContaCorrente, ContaPagar, FluxoConta, NF } from '../types';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_HEADER_COMBINED_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const LIMITE_PAGINA = 1000;
 const HOJE = new Date().toISOString().split('T')[0];
@@ -367,7 +368,7 @@ export default function FluxoCaixa() {
 
   return (
     <div className="space-y-6">
-      <div className="sticky top-0 z-20 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div className={`${PAGE_HEADER_COMBINED_STICKY_CLASS} rounded-lg shadow-md p-6`}>
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">
           Fluxo de Caixa <span className="text-lg font-normal text-gray-500 dark:text-gray-400">— {rotuloAtivo}</span>
         </h1>

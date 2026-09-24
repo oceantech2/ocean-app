@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ITENS_POR_PAGINA = 15;
@@ -149,7 +150,7 @@ export default function DHPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between">
+      <div className={`${PAGE_TITLE_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between`}>
         <div>
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">DH — Demonstrativo de Honorários <span className="text-gray-500 dark:text-gray-400 font-normal text-base">— {dhs.length} DH(s) no período</span></h1>
         </div>
@@ -192,7 +193,7 @@ export default function DHPage() {
       </div>
 
       {/* Filtros */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
+      <div className={`${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Mês</label>
           <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={dhMes} onChange={(e) => setDhFilters(e.target.value === '' ? '' : parseInt(e.target.value), dhAno, dhColaborador)}>

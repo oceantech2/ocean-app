@@ -6,6 +6,7 @@ import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
 import { mensagemErro } from '../utils/erros';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_HEADER_COMBINED_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -163,7 +164,7 @@ export default function Patrimonio() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
+      <div className={`${PAGE_HEADER_COMBINED_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3`}>
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Patrimônio</h1>
         <div className="flex items-center gap-3 flex-wrap">
           <input

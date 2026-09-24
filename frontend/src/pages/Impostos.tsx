@@ -8,6 +8,7 @@ import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_HEADER_COMBINED_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const ANO_ATUAL = new Date().getFullYear();
 const ANOS = Array.from({ length: 10 }, (_, i) => ANO_ATUAL - 4 + i);
@@ -71,7 +72,7 @@ export default function Impostos() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
+      <div className={`${PAGE_HEADER_COMBINED_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3`}>
         <div>
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Impostos</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">

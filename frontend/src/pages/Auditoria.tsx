@@ -4,6 +4,7 @@ import { useAuthStore } from '../store';
 import Pagination from '../components/Pagination';
 import toast from 'react-hot-toast';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const OPCOES_PAGINA = [15, 25, 50, 100];
 
@@ -84,7 +85,7 @@ export default function Auditoria() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between">
+      <div className={`${PAGE_TITLE_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between`}>
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Log de Auditoria <span className="text-gray-500 dark:text-gray-400 font-normal text-base">— Histórico de alterações no sistema — {total} registro(s)</span></h1>
         {total > 0 && (
           <button onClick={limpar} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium transition">
@@ -94,7 +95,7 @@ export default function Auditoria() {
       </div>
 
       {/* Filtros */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
+      <div className={`${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Entidade</label>
           <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={filtroEntidade} onChange={(e) => { setFiltroEntidade(e.target.value); setPagina(0); }}>

@@ -62,6 +62,7 @@ import toast from 'react-hot-toast';
 import type { ContaCorrente, ContaPagar, NF } from '../types';
 import axios from 'axios';
 import { mensagemErro } from '../utils/erros';
+import { PAGE_HEADER_COMBINED_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -934,7 +935,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between">
+      <div className={`${PAGE_HEADER_COMBINED_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between`}>
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Dashboard</h1>
           <span className="text-gray-400 dark:text-gray-500 text-lg font-light">—</span>

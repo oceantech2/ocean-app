@@ -15,6 +15,7 @@ import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const SENTINELA_NOVA = '__nova__';
 const SENTINELA_NOVA_SUB = '__nova_sub__';
@@ -847,7 +848,7 @@ export default function Contas() {
           {' · '}{contasOrdenadas.length} conta(s)
         </p>
       </div>
-      <div className="no-print bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
+      <div className={`no-print ${PAGE_TITLE_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3`}>
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">Contas a Pagar - <span className="text-lg font-normal text-gray-500 dark:text-gray-400">{contas.length} conta(s) registrada(s)</span></h1>
         <div className="flex gap-2 flex-wrap justify-end">
           {papel === 'admin' && (
@@ -908,7 +909,7 @@ export default function Contas() {
         </div>
       </div>
 
-      <div className="no-print bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
+      <div className={`no-print ${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Categorias</label>
           <select

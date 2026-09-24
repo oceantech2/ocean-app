@@ -7,6 +7,7 @@ import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_HEADER_COMBINED_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const ANO_ATUAL = new Date().getFullYear();
 const ANOS = Array.from({ length: 27 }, (_, i) => ANO_ATUAL - 2 + i);
@@ -58,7 +59,7 @@ export default function Retiradas() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between">
+      <div className={`${PAGE_HEADER_COMBINED_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between`}>
         <div>
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Retiradas (Sócios) <span className="text-gray-500 dark:text-gray-400 font-normal text-base">— Retiradas de lucro registradas em Contas a Pagar</span></h1>
         </div>

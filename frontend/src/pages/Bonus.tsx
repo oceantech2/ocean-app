@@ -12,6 +12,7 @@ import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ITENS_POR_PAGINA = 20;
@@ -241,7 +242,7 @@ export default function BonusPage() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
+      <div className={`${PAGE_TITLE_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3`}>
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">
           Bônus e Comissão — <span className="text-lg font-normal text-gray-500 dark:text-gray-400">Total: <strong className="text-green-700 dark:text-green-400">{fmt(totalAba)}</strong></span>
         </h1>
@@ -256,7 +257,7 @@ export default function BonusPage() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
+      <div className={`${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Fornecedor</label>
           <select className={SELECT} value={bonusColaboradorId} onChange={(e) => setBonusFilters(e.target.value === '' ? '' : parseInt(e.target.value), bonusAno)}>

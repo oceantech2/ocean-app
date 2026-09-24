@@ -20,6 +20,7 @@ import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
+import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const ITENS_POR_PAGINA = 15;
 const FORM_INICIAL = {
@@ -288,7 +289,7 @@ export default function FeriasPage() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between">
+      <div className={`${PAGE_TITLE_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between`}>
         <div>
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">
             Férias{' '}
@@ -322,7 +323,7 @@ export default function FeriasPage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
+      <div className={`${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Fornecedor</label>
           <select

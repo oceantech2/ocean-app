@@ -15,6 +15,7 @@ import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
+import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const OPCOES_PAGINA = [15, 25, 50, 100];
@@ -776,7 +777,7 @@ export default function NFs() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3">
+      <div className={`${PAGE_TITLE_STICKY_CLASS} rounded-lg shadow-md p-6 flex items-center justify-between flex-wrap gap-3`}>
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">
           Contas a Receber — <span className="text-lg font-normal text-gray-500 dark:text-gray-400">{nfs.length} registro(s)</span>
         </h1>
@@ -812,7 +813,7 @@ export default function NFs() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end">
+      <div className={`${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Mês</label>
           <select className={INPUT} value={nfsMes} onChange={(e) => { setNfsFilters(e.target.value === '' ? '' : parseInt(e.target.value), nfsAno, nfsSemNumero ? 'sem_nf' : nfsStatus); }} disabled={nfsSemNumero}>
