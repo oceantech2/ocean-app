@@ -21,8 +21,24 @@ function proposalHostDev(): Plugin {
   }
 }
 
+// Sem index.html no dist: a Vercel serve arquivos físicos antes dos rewrites, e um index.html
+// na raiz faria "/" abrir o ERP também em proposal.oceantalentsolutions.com.
+function erpHtmlSemIndex(): Plugin {
+  return {
+    name: 'erp-html-sem-index',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_, bundle) {
+      const html = bundle['index.html']
+      if (!html || html.type !== 'asset') return
+      delete bundle['index.html']
+      this.emitFile({ type: 'asset', fileName: 'app.html', source: html.source })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), proposalHostDev()],
+  plugins: [react(), proposalHostDev(), erpHtmlSemIndex()],
   server: {
     port: 5193,
     strictPort: true,
