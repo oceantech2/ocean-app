@@ -1,4 +1,7 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Enum, Text, Date
+from sqlalchemy import (
+    Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Enum, Text, Date,
+    Numeric, CheckConstraint, Index, text,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -349,8 +352,71 @@ class UsuarioApp(Base):
     papel = Column(String(20), default="visualizador")  # "admin" | "visualizador"
     permissoes = Column(Text, nullable=True)  # JSON: {"dashboard":true,"nfs":false,...}
     ativo = Column(Boolean, default=True)
+    acesso_erp = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    acesso_proposal = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== PROPOSAL ====================
+class Proposta(Base):
+    """Proposta comercial emitida no Proposal; imutável após gerada, exceto status e datas."""
+    __tablename__ = "propostas"
+    __table_args__ = (
+        CheckConstraint("valor > 0", name="ck_propostas_valor_positivo"),
+        CheckConstraint(
+            "status IN ('aguardando','visualizada','assinada','cancelada')",
+            name="ck_propostas_status",
+        ),
+        CheckConstraint(
+            "(imposto_ativo AND aliquota > 0 AND aliquota < 100) "
+            "OR (NOT imposto_ativo AND aliquota IS NULL)",
+            name="ck_propostas_aliquota",
+        ),
+        Index("ix_propostas_criador_emitida", "criado_por_id", "emitida_em"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    codigo = Column(String(64), unique=True, nullable=False)
+    cliente_nome = Column(String(255), nullable=False)
+    cnpj = Column(String(14), nullable=False)
+    valor = Column(Numeric(14, 2), nullable=False)
+    imposto_ativo = Column(Boolean, nullable=False, default=False)
+    aliquota = Column(Numeric(5, 2), nullable=True)
+    valor_imposto = Column(Numeric(14, 2), nullable=False, default=0)
+    total = Column(Numeric(14, 2), nullable=False)
+    emitida_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    validade = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="aguardando", index=True)
+    visualizada_em = Column(DateTime, nullable=True)
+    assinada_em = Column(DateTime, nullable=True)
+    cancelada_em = Column(DateTime, nullable=True)
+    conteudo_hash = Column(String(64), nullable=False)
+    criado_por_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="SET NULL"), nullable=True)
+    criado_por_usuario = Column(String(255), nullable=False)
+
+    assinatura = relationship(
+        "PropostaAssinatura", back_populates="proposta", uselist=False, passive_deletes=True
+    )
+
+
+class PropostaAssinatura(Base):
+    """Aceite eletrônico de uma proposta, com as evidências do signatário."""
+    __tablename__ = "propostas_assinaturas"
+
+    id = Column(Integer, primary_key=True)
+    proposta_id = Column(
+        Integer, ForeignKey("propostas.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    nome = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    aceite = Column(Boolean, nullable=False)
+    assinada_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ip = Column(String(64), nullable=False)
+    user_agent = Column(String(500), nullable=True)
+    conteudo_hash = Column(String(64), nullable=False)
+
+    proposta = relationship("Proposta", back_populates="assinatura")
 
 
 # ==================== CONFIGURAÇÃO GLOBAL DO APP ====================

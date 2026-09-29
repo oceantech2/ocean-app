@@ -122,7 +122,27 @@ export interface UsuarioApp {
   papel: string;
   permissoes?: string;
   ativo: boolean;
+  acesso_erp: boolean;
+  acesso_proposal: boolean;
   criado_em: string;
+}
+
+export interface UsuarioAppCreatePayload {
+  usuario: string;
+  senha: string;
+  papel: string;
+  permissoes?: string;
+  acesso_erp?: boolean;
+  acesso_proposal?: boolean;
+}
+
+export interface UsuarioAppUpdatePayload {
+  senha?: string;
+  papel?: string;
+  permissoes?: string;
+  ativo?: boolean;
+  acesso_erp?: boolean;
+  acesso_proposal?: boolean;
 }
 
 // Férias

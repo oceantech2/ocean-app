@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse } from '../types';
+import { LoginResponse, UsuarioAppCreatePayload, UsuarioAppUpdatePayload } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 
@@ -550,8 +550,8 @@ export const alertasService = {
 // Configurações (usuários do app)
 export const configuracoesService = {
   listar: () => api.get('/configuracoes'),
-  criar: (dados: any) => api.post('/configuracoes', dados),
-  atualizar: (id: number, dados: any) => api.put(`/configuracoes/${id}`, dados),
+  criar: (dados: UsuarioAppCreatePayload) => api.post('/configuracoes', dados),
+  atualizar: (id: number, dados: UsuarioAppUpdatePayload) => api.put(`/configuracoes/${id}`, dados),
   deletar: (id: number) => api.delete(`/configuracoes/${id}`),
   obterPaginasVisibilidade: () => api.get<{ paginas: Record<string, boolean> }>('/configuracoes/paginas-visibilidade'),
   atualizarPaginasVisibilidade: (paginas: Record<string, boolean>) =>

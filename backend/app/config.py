@@ -8,6 +8,7 @@ _DEFAULT_CORS = [
     "http://localhost:5193",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5193",
+    "http://proposal.localhost:5193",
 ]
 _DEFAULT_HOSTS = ["localhost", "127.0.0.1"]
 

@@ -1,0 +1,10 @@
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "proposal.oceantalentsolutions.com" }],
+      "destination": "/proposal.html"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

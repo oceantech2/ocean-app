@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import datetime, date
+from decimal import Decimal
 
 # ==================== COLABORADORES ====================
 class ColaboradorBase(BaseModel):
@@ -514,12 +515,16 @@ class UsuarioAppCreate(BaseModel):
     senha: str
     papel: str = "visualizador"
     permissoes: Optional[str] = None  # JSON string
+    acesso_erp: bool = True
+    acesso_proposal: bool = False
 
 class UsuarioAppUpdate(BaseModel):
     senha: Optional[str] = None
     papel: Optional[str] = None
     permissoes: Optional[str] = None
     ativo: Optional[bool] = None
+    acesso_erp: Optional[bool] = None
+    acesso_proposal: Optional[bool] = None
 
 class UsuarioAppResponse(BaseModel):
     id: int
@@ -527,10 +532,26 @@ class UsuarioAppResponse(BaseModel):
     papel: str
     permissoes: Optional[str]
     ativo: bool
+    acesso_erp: bool = True
+    acesso_proposal: bool = False
     criado_em: datetime
 
     class Config:
         from_attributes = True
+
+# ==================== PROPOSAL ====================
+class PropostaCreate(BaseModel):
+    cliente_nome: str = ""
+    cnpj: str = ""
+    valor: Optional[Decimal] = None
+    imposto_ativo: bool = False
+    aliquota: Optional[Decimal] = None
+    validade: Optional[date] = None
+
+class PropostaAssinar(BaseModel):
+    nome: str = ""
+    email: str = ""
+    aceite: bool = False
 
 class PaginasVisibilidadeResponse(BaseModel):
     paginas: dict[str, bool]

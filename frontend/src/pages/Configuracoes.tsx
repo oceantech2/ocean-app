@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { configuracoesService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
-import { UsuarioApp } from '../types';
+import { UsuarioApp, UsuarioAppUpdatePayload } from '../types';
 import { useAuthStore } from '../store';
 import { PAGINAS_PERMISSOES, PAGINAS_VISIBILIDADE_UI, paginaVisivelGlobal } from '../utils/paginasCatalogo';
 import Modal from '../components/Modal';
@@ -18,7 +18,19 @@ function parsePerms(json?: string | null): Record<string, boolean> {
   catch { return { ...PERMS_DEFAULT }; }
 }
 
-const FORM_INICIAL = { usuario: '', senha: '', papel: 'visualizador', permissoes: { ...PERMS_DEFAULT } };
+const FORM_INICIAL = {
+  usuario: '',
+  senha: '',
+  papel: 'visualizador',
+  permissoes: { ...PERMS_DEFAULT },
+  acesso_erp: true,
+  acesso_proposal: false,
+};
+
+const FERRAMENTAS = [
+  { key: 'acesso_erp', label: 'Acesso ao ERP', badge: 'ERP' },
+  { key: 'acesso_proposal', label: 'Acesso ao Proposal', badge: 'Proposal' },
+] as const;
 
 export default function ConfiguracoesPage() {
   const papel = useAuthStore((s) => s.papel);
@@ -93,6 +105,8 @@ export default function ConfiguracoesPage() {
       senha: '',
       papel: u.papel,
       permissoes: u.papel === 'admin' ? { ...PERMS_ADMIN } : parsePerms(u.permissoes),
+      acesso_erp: u.acesso_erp ?? true,
+      acesso_proposal: u.acesso_proposal ?? false,
     });
     setModalAberto(true);
   };
@@ -108,13 +122,14 @@ export default function ConfiguracoesPage() {
     try {
       setSalvando(true);
       const permissoesJson = JSON.stringify(form.papel === 'admin' ? PERMS_ADMIN : form.permissoes);
+      const acessos = { acesso_erp: form.acesso_erp, acesso_proposal: form.acesso_proposal };
       if (editando) {
-        const dados: { papel: string; permissoes: string; senha?: string } = { papel: form.papel, permissoes: permissoesJson };
+        const dados: UsuarioAppUpdatePayload = { papel: form.papel, permissoes: permissoesJson, ...acessos };
         if (form.senha) dados.senha = form.senha;
         await configuracoesService.atualizar(editando.id, dados);
         toast.success('Usuário atualizado!');
       } else {
-        await configuracoesService.criar({ usuario: form.usuario, senha: form.senha, papel: form.papel, permissoes: permissoesJson });
+        await configuracoesService.criar({ usuario: form.usuario, senha: form.senha, papel: form.papel, permissoes: permissoesJson, ...acessos });
         toast.success('Usuário criado!');
       }
       setModalAberto(false);
@@ -219,7 +234,7 @@ export default function ConfiguracoesPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 dark:border-gray-600">
               <tr>
-                {['Usuário', 'Papel', 'Permissões de Menu', 'Status', ''].map((h) => (
+                {['Usuário', 'Papel', 'Ferramentas', 'Permissões de Menu', 'Status', ''].map((h) => (
                   <th key={h} className={`${TH_STICKY_CLASS} text-left px-4 py-3 text-gray-600 dark:text-gray-300 font-medium`}>{h}</th>
                 ))}
               </tr>
@@ -237,6 +252,15 @@ export default function ConfiguracoesPage() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.papel === 'admin' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>
                         {u.papel === 'admin' ? 'Admin' : 'Visualizador'}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {FERRAMENTAS.filter((f) => u[f.key]).length === 0
+                          ? <span className="text-xs text-gray-400">Nenhuma</span>
+                          : FERRAMENTAS.filter((f) => u[f.key]).map((f) => (
+                            <span key={f.key} className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 rounded text-xs">{f.badge}</span>
+                          ))}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {u.papel === 'admin' ? (
@@ -302,6 +326,29 @@ export default function ConfiguracoesPage() {
               <option value="visualizador">Visualizador</option>
               <option value="admin">Admin</option>
             </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-2">Ferramentas</label>
+            <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+              {FERRAMENTAS.map((f, i) => (
+                <div
+                  key={f.key}
+                  className={`flex items-center justify-between px-4 py-2.5 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-700' : ''}`}
+                >
+                  <span className="text-sm text-gray-700 dark:text-gray-300">{f.label}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={form[f.key]}
+                    onClick={() => setForm((prev) => ({ ...prev, [f.key]: !prev[f.key] }))}
+                    className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer ${form[f.key] ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                  >
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form[f.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
 
           {form.papel !== 'admin' && (

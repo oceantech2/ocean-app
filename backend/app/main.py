@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import asyncio
@@ -12,6 +12,8 @@ from app.api.routes import (
 )
 from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrimonio
 from app.api.routes import arquivos_nfs, contas_correntes
+from app.api.routes.auth import require_erp
+from app.api.routes import proposal_auth, proposal_propostas, public_propostas
 
 # Criar tabelas
 Base.metadata.create_all(bind=engine)
@@ -420,6 +422,71 @@ def _migrar():
         except Exception:
             conn.rollback()
 
+    # Proposal (feature 077): acessos por ferramenta + propostas
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE usuarios_app ADD COLUMN IF NOT EXISTS acesso_erp BOOLEAN NOT NULL DEFAULT TRUE"
+            ))
+            conn.execute(text(
+                "ALTER TABLE usuarios_app ADD COLUMN IF NOT EXISTS acesso_proposal BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS propostas (
+                    id SERIAL PRIMARY KEY,
+                    codigo VARCHAR(64) NOT NULL UNIQUE,
+                    cliente_nome VARCHAR(255) NOT NULL,
+                    cnpj VARCHAR(14) NOT NULL,
+                    valor NUMERIC(14,2) NOT NULL,
+                    imposto_ativo BOOLEAN NOT NULL DEFAULT FALSE,
+                    aliquota NUMERIC(5,2),
+                    valor_imposto NUMERIC(14,2) NOT NULL DEFAULT 0,
+                    total NUMERIC(14,2) NOT NULL,
+                    emitida_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                    validade DATE NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'aguardando',
+                    visualizada_em TIMESTAMP,
+                    assinada_em TIMESTAMP,
+                    cancelada_em TIMESTAMP,
+                    conteudo_hash VARCHAR(64) NOT NULL,
+                    criado_por_id INTEGER REFERENCES usuarios_app(id) ON DELETE SET NULL,
+                    criado_por_usuario VARCHAR(255) NOT NULL,
+                    CONSTRAINT ck_propostas_valor_positivo CHECK (valor > 0),
+                    CONSTRAINT ck_propostas_status CHECK (
+                        status IN ('aguardando','visualizada','assinada','cancelada')
+                    ),
+                    CONSTRAINT ck_propostas_aliquota CHECK (
+                        (imposto_ativo AND aliquota > 0 AND aliquota < 100)
+                        OR (NOT imposto_ativo AND aliquota IS NULL)
+                    )
+                )
+                """
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_propostas_criador_emitida "
+                "ON propostas (criado_por_id, emitida_em)"
+            ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_propostas_status ON propostas (status)"))
+            conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS propostas_assinaturas (
+                    id SERIAL PRIMARY KEY,
+                    proposta_id INTEGER NOT NULL UNIQUE REFERENCES propostas(id) ON DELETE CASCADE,
+                    nome VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NOT NULL,
+                    aceite BOOLEAN NOT NULL,
+                    assinada_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                    ip VARCHAR(64) NOT NULL,
+                    user_agent VARCHAR(500),
+                    conteudo_hash VARCHAR(64) NOT NULL
+                )
+                """
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
 _migrar()
 
 # Inicializar aplicação
@@ -445,35 +512,42 @@ app.add_middleware(
     allowed_hosts=settings.allowed_hosts_list(),
 )
 
-# Incluir rotas
+# Incluir rotas — todo router do ERP (exceto auth) recusa tokens do Proposal
+ERP_DEPS = [Depends(require_erp)]
+
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
-app.include_router(colaboradores.router, prefix="/api/colaboradores", tags=["Colaboradores"])
-app.include_router(colaboradores.router, prefix="/api/fornecedores", tags=["Fornecedores"])
-app.include_router(nfs.router, prefix="/api/nfs", tags=["NFs"])
-app.include_router(contas.router, prefix="/api/contas", tags=["Contas"])
-app.include_router(bonus.router, prefix="/api/bonus", tags=["Comissões"])
-app.include_router(ferias.router, prefix="/api/ferias", tags=["Férias"])
-app.include_router(dh.router, prefix="/api/dh", tags=["DH"])
-app.include_router(relatorios.router, prefix="/api/relatorios", tags=["Relatórios"])
-app.include_router(auditoria.router, prefix="/api/auditoria", tags=["Auditoria"])
-app.include_router(metas.router, prefix="/api/metas", tags=["Metas"])
-app.include_router(documentos.router, prefix="/api/documentos", tags=["Documentos"])
-app.include_router(alertas.router, prefix="/api/alertas", tags=["Alertas"])
-app.include_router(configuracoes.router, prefix="/api/configuracoes", tags=["Configurações"])
-app.include_router(saldos.router, prefix="/api/saldos", tags=["Saldos"])
-app.include_router(impostos.router, prefix="/api/impostos", tags=["Impostos"])
-app.include_router(historico.router, prefix="/api/historico", tags=["Histórico"])
-app.include_router(fluxo_movimentos.router, prefix="/api/fluxo-movimentos", tags=["Fluxo Movimentos"])
-app.include_router(fluxo_movimentos.transferencias_router, prefix="/api/fluxo-transferencias", tags=["Fluxo Transferências"])
-app.include_router(contas_correntes.router, prefix="/api/contas-correntes", tags=["Contas correntes"])
-app.include_router(patrimonio.router, prefix="/api/patrimonio", tags=["Patrimônio"])
-app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arquivos NFs"])
+app.include_router(colaboradores.router, prefix="/api/colaboradores", tags=["Colaboradores"], dependencies=ERP_DEPS)
+app.include_router(colaboradores.router, prefix="/api/fornecedores", tags=["Fornecedores"], dependencies=ERP_DEPS)
+app.include_router(nfs.router, prefix="/api/nfs", tags=["NFs"], dependencies=ERP_DEPS)
+app.include_router(contas.router, prefix="/api/contas", tags=["Contas"], dependencies=ERP_DEPS)
+app.include_router(bonus.router, prefix="/api/bonus", tags=["Comissões"], dependencies=ERP_DEPS)
+app.include_router(ferias.router, prefix="/api/ferias", tags=["Férias"], dependencies=ERP_DEPS)
+app.include_router(dh.router, prefix="/api/dh", tags=["DH"], dependencies=ERP_DEPS)
+app.include_router(relatorios.router, prefix="/api/relatorios", tags=["Relatórios"], dependencies=ERP_DEPS)
+app.include_router(auditoria.router, prefix="/api/auditoria", tags=["Auditoria"], dependencies=ERP_DEPS)
+app.include_router(metas.router, prefix="/api/metas", tags=["Metas"], dependencies=ERP_DEPS)
+app.include_router(documentos.router, prefix="/api/documentos", tags=["Documentos"], dependencies=ERP_DEPS)
+app.include_router(alertas.router, prefix="/api/alertas", tags=["Alertas"], dependencies=ERP_DEPS)
+app.include_router(configuracoes.router, prefix="/api/configuracoes", tags=["Configurações"], dependencies=ERP_DEPS)
+app.include_router(saldos.router, prefix="/api/saldos", tags=["Saldos"], dependencies=ERP_DEPS)
+app.include_router(impostos.router, prefix="/api/impostos", tags=["Impostos"], dependencies=ERP_DEPS)
+app.include_router(historico.router, prefix="/api/historico", tags=["Histórico"], dependencies=ERP_DEPS)
+app.include_router(fluxo_movimentos.router, prefix="/api/fluxo-movimentos", tags=["Fluxo Movimentos"], dependencies=ERP_DEPS)
+app.include_router(fluxo_movimentos.transferencias_router, prefix="/api/fluxo-transferencias", tags=["Fluxo Transferências"], dependencies=ERP_DEPS)
+app.include_router(contas_correntes.router, prefix="/api/contas-correntes", tags=["Contas correntes"], dependencies=ERP_DEPS)
+app.include_router(patrimonio.router, prefix="/api/patrimonio", tags=["Patrimônio"], dependencies=ERP_DEPS)
+app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arquivos NFs"], dependencies=ERP_DEPS)
+
+# Proposal: autenticação própria (token app=proposal) e página pública sem login
+app.include_router(proposal_auth.router, prefix="/api/proposal/auth", tags=["Proposal · Auth"])
+app.include_router(proposal_propostas.router, prefix="/api/proposal/propostas", tags=["Proposal · Propostas"])
+app.include_router(public_propostas.router, prefix="/api/public/propostas", tags=["Proposal · Público"])
 
 # Wipe destrutivo: só monta rotas em DEBUG (dev local)
 if settings.DEBUG:
     from app.api.routes import dev_wipe
 
-    app.include_router(dev_wipe.router, prefix="/api/dev", tags=["Dev"])
+    app.include_router(dev_wipe.router, prefix="/api/dev", tags=["Dev"], dependencies=ERP_DEPS)
 
 @app.get("/")
 def root():

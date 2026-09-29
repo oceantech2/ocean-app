@@ -62,17 +62,41 @@ def _decode_token(token: str) -> dict:
         raise credentials_exception
 
 
+APP_ERP = "erp"
+APP_PROPOSAL = "proposal"
+_MSG_TOKEN_APP = {
+    APP_ERP: "Token não autorizado para o ERP",
+    APP_PROPOSAL: "Token não autorizado para o Proposal",
+}
+
+
+def _exigir_app(payload: dict, app: str) -> dict:
+    """Tokens emitidos antes da claim `app` existir valem só como ERP."""
+    if payload.get("app", APP_ERP) != app:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_MSG_TOKEN_APP[app])
+    return payload
+
+
+def _decode_erp(token: str) -> dict:
+    return _exigir_app(_decode_token(token), APP_ERP)
+
+
+def require_erp(token: str = Depends(oauth2_scheme)) -> str:
+    """Dependency aplicada a todos os routers do ERP: recusa tokens de outras ferramentas."""
+    return _decode_erp(token).get("sub")
+
+
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
-    return _decode_token(token).get("sub")
+    return _decode_erp(token).get("sub")
 
 
 async def get_current_papel(token: str = Depends(oauth2_scheme)) -> str:
-    return _decode_token(token).get("papel", "visualizador")
+    return _decode_erp(token).get("papel", "visualizador")
 
 
 def require_admin(token: str = Depends(oauth2_scheme)) -> str:
     """Dependency que exige papel admin."""
-    payload = _decode_token(token)
+    payload = _decode_erp(token)
     if payload.get("papel") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -83,6 +107,17 @@ def require_admin(token: str = Depends(oauth2_scheme)) -> str:
 
 def _get_auth(db: Session, usuario: str) -> Optional[UsuarioAuth]:
     return db.query(UsuarioAuth).filter(UsuarioAuth.usuario == usuario).first()
+
+
+def verificar_2fa(db: Session, usuario: str, totp_code: Optional[str]) -> Optional[UsuarioAuth]:
+    """Exige o código TOTP quando o 2FA do usuário está ativo."""
+    auth = _get_auth(db, usuario)
+    if auth and auth.twofa_ativo and auth.totp_secret:
+        if not totp_code:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="2FA_REQUIRED")
+        if not pyotp.TOTP(auth.totp_secret).verify(totp_code, valid_window=1):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código 2FA inválido")
+    return auth
 
 
 @router.post("/token")
@@ -114,17 +149,13 @@ async def login(
         papel = usuario_dev["papel"]
         permissoes = PERMISSOES_ADMIN if papel == "admin" else None
 
-    # Verificação de 2FA
-    auth = _get_auth(db, form_data.username)
-    if auth and auth.twofa_ativo and auth.totp_secret:
-        if not totp_code:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="2FA_REQUIRED")
-        totp = pyotp.TOTP(auth.totp_secret)
-        if not totp.verify(totp_code, valid_window=1):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código 2FA inválido")
+    auth = verificar_2fa(db, form_data.username, totp_code)
+
+    if usuario_db and not usuario_db.acesso_erp:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuário sem acesso ao ERP")
 
     access_token = create_access_token(
-        data={"sub": form_data.username, "papel": papel},
+        data={"sub": form_data.username, "papel": papel, "app": APP_ERP},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return {
@@ -144,7 +175,7 @@ async def read_users_me(
     db: Session = Depends(get_db),
 ):
     """Retorna informações do usuário autenticado"""
-    payload = _decode_token(token)
+    payload = _decode_erp(token)
     username = payload.get("sub")
     auth = _get_auth(db, username)
     usuario_db = db.query(UsuarioApp).filter(UsuarioApp.usuario == username).first()

@@ -8,6 +8,7 @@ import ImportCSV from '../components/ImportCSV';
 import DocumentosModal from '../components/DocumentosModal';
 import Modal from '../components/Modal';
 import { exportarCSV } from '../utils/export';
+import { formatarCNPJ, normalizarCNPJ, validarCNPJ } from '../utils/documento';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
@@ -38,37 +39,9 @@ function validarCPF(cpf: string): boolean {
   return r === parseInt(c[10]);
 }
 
-function validarCNPJ(cnpj: string): boolean {
-  const c = normalizarCNPJ(cnpj);
-  if (c.length !== 14 || /^([0-9A-Z])\1{13}$/.test(c)) return false;
-  if (!/[0-9]{2}$/.test(c)) return false;
-  const valor = (ch: string) => ch.charCodeAt(0) - 48;
-  const dv = (corpo: string, pesos: number[]) => {
-    const soma = pesos.reduce((s, p, i) => s + valor(corpo[i]) * p, 0);
-    const d = 11 - (soma % 11);
-    return d >= 10 ? 0 : d;
-  };
-  const pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-  const pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-  return dv(c.slice(0, 12), pesos1) === parseInt(c[12], 10) && dv(c.slice(0, 13), pesos2) === parseInt(c[13], 10);
-}
-
 function formatarCPF(cpf: string): string {
   const c = cpf.replace(/\D/g, '').slice(0, 11);
   return c.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-}
-
-function normalizarCNPJ(cnpj: string): string {
-  return cnpj.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 14);
-}
-
-function formatarCNPJ(cnpj: string): string {
-  const c = normalizarCNPJ(cnpj);
-  if (c.length <= 2) return c;
-  if (c.length <= 5) return `${c.slice(0, 2)}.${c.slice(2)}`;
-  if (c.length <= 8) return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5)}`;
-  if (c.length <= 12) return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8)}`;
-  return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
 }
 
 function formatarDoc(tipo: 'cpf' | 'cnpj', v: string): string {

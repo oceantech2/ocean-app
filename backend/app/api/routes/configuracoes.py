@@ -78,6 +78,8 @@ def criar_usuario(
         senha_hash=pwd_context.hash(payload.senha),
         papel=payload.papel,
         permissoes=payload.permissoes,
+        acesso_erp=payload.acesso_erp,
+        acesso_proposal=payload.acesso_proposal,
     )
     db.add(novo)
     db.commit()
@@ -90,11 +92,17 @@ def atualizar_usuario(
     uid: int,
     payload: UsuarioAppUpdate,
     db: Session = Depends(get_db),
-    _: str = Depends(require_admin),
+    current_admin: str = Depends(require_admin),
 ):
     u = db.query(UsuarioApp).filter(UsuarioApp.id == uid).first()
     if not u:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if payload.acesso_erp is False and u.usuario == current_admin:
+        raise HTTPException(status_code=400, detail="Não pode remover o próprio acesso ao ERP")
+    if payload.acesso_erp is not None:
+        u.acesso_erp = payload.acesso_erp
+    if payload.acesso_proposal is not None:
+        u.acesso_proposal = payload.acesso_proposal
     if payload.senha is not None:
         u.senha_hash = pwd_context.hash(payload.senha)
     if payload.papel is not None:
