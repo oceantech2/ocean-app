@@ -222,6 +222,7 @@ class NFUpdate(BaseModel):
     colaborador_placement_id: Optional[int] = None
     arquivada: Optional[bool] = None
     caixa: Optional[str] = None
+    situacao: Optional[Literal["pendente", "recebida", "cancelada"]] = None
     comissoes: Optional[List[ComissaoLinhaInput]] = None
     bonus: Optional[List[BonusLinhaInput]] = None
 
@@ -259,6 +260,7 @@ class NFResponse(NFBase):
     caixa: Optional[str] = None
     origem: Optional[str] = None  # manual | maggo
     anexo_nome: Optional[str] = None
+    revisar_cancelamento: bool = False
     criado_em: datetime
 
     class Config:
@@ -297,6 +299,7 @@ class BonusResponse(BonusBase):
     pago: bool = False
     data_liberacao: Optional[date] = None
     data_pagamento: Optional[date] = None
+    nf_cancelada: bool = False
     criado_em: datetime
 
     class Config:

@@ -53,7 +53,17 @@ export interface NF {
   caixa?: string | null;
   origem?: 'manual' | 'maggo' | null;
   anexo_nome?: string | null;
+  revisar_cancelamento?: boolean;
   criado_em?: string;
+}
+
+export type SituacaoNF = 'pendente' | 'recebida' | 'cancelada';
+
+export interface CancelamentoIgnorado {
+  linha?: number;
+  numero?: string;
+  nf_id: number;
+  motivo: 'recebida_no_ocean' | 'reativada_no_ocean';
 }
 
 // Bônus / Comissões
@@ -75,6 +85,7 @@ export interface Bonus {
   cliente?: string;
   posicao?: string;
   numero_nf?: string;
+  nf_cancelada?: boolean;
 }
 
 export interface ComissaoLinhaForm {

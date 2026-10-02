@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LoginResponse, UsuarioAppCreatePayload, UsuarioAppUpdatePayload } from '../types';
+import { CancelamentoIgnorado, LoginResponse, UsuarioAppCreatePayload, UsuarioAppUpdatePayload } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 
@@ -216,6 +216,7 @@ export const nfsService = {
         origem_existente?: 'manual' | 'maggo' | string;
         nf_id?: number;
       }>;
+      cancelamentos_ignorados?: CancelamentoIgnorado[];
     }>(
       '/nfs/importar-xlsx',
       fd,

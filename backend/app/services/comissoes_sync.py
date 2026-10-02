@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Bonus, Colaborador, NF
+from app.models import Bonus, Colaborador, NF, StatusNF
 from app.schemas import ComissaoLinhaInput
 from app.services.audit import registrar_auditoria
 
@@ -177,5 +177,6 @@ def serializar_bonus(bonus: Bonus, nf: Optional[NF] = None) -> dict:
         "cliente": bonus.cliente or (nf_ref.razao_social if nf_ref else None),
         "posicao": bonus.posicao or (nf_ref.posicao if nf_ref else None),
         "numero_nf": bonus.numero_nf or (nf_ref.numero if nf_ref else None),
+        "nf_cancelada": bool(nf_ref is not None and nf_ref.status == StatusNF.CANCELADA),
         "criado_em": bonus.criado_em,
     }

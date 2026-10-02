@@ -32,6 +32,11 @@ function atividadeBadges(b: Bonus) {
   return items;
 }
 
+/** Comissões de conta a receber cancelada ficam visíveis, mas fora de todos os totais. */
+function somaValida(lista: Bonus[]) {
+  return lista.filter((b) => !b.nf_cancelada).reduce((s, b) => s + b.valor_bonus, 0);
+}
+
 export default function BonusPage() {
   const navigate = useNavigate();
   const papel = useAuthStore((s) => s.papel);
@@ -97,7 +102,7 @@ export default function BonusPage() {
     for (const col of colaboradores) {
       const bonusCol = bonusFiltrado.filter((b) => b.colaborador_id === col.id);
       if (bonusCol.length === 0) continue;
-      const liberadoTotal = bonusCol.filter((b) => b.liberado).reduce((s, b) => s + b.valor_bonus, 0);
+      const liberadoTotal = somaValida(bonusCol.filter((b) => b.liberado));
       acc[col.id] = { colaborador: col, bonus: bonusCol, liberadoTotal };
     }
     for (const b of bonusFiltrado) {
@@ -107,7 +112,7 @@ export default function BonusPage() {
       acc[b.colaborador_id] = {
         colaborador: col,
         bonus: bonusCol,
-        liberadoTotal: bonusCol.filter((x) => x.liberado).reduce((s, x) => s + x.valor_bonus, 0),
+        liberadoTotal: somaValida(bonusCol.filter((x) => x.liberado)),
       };
     }
     return acc;
@@ -115,10 +120,10 @@ export default function BonusPage() {
 
   const graficoDados = Array.from({ length: 12 }, (_, i) => ({
     mes: MESES_NOME[i],
-    total: bonus.filter((b) => b.mes === i + 1 && b.ano === bonusAno).reduce((s, b) => s + b.valor_bonus, 0),
+    total: somaValida(bonus.filter((b) => b.mes === i + 1 && b.ano === bonusAno)),
   }));
 
-  const totalAba = bonusFiltrado.reduce((s, b) => s + b.valor_bonus, 0);
+  const totalAba = somaValida(bonusFiltrado);
   const colsList = Object.values(porColaborador);
   const colsPaginados = colsList.slice(pagina * ITENS_POR_PAGINA, (pagina + 1) * ITENS_POR_PAGINA);
 
@@ -222,6 +227,7 @@ export default function BonusPage() {
         'Nº NF': b.numero_nf || '', Cliente: b.cliente || '', Posição: b.posicao || '',
         Valor: b.valor_bonus,
         Liberado: b.liberado ? 'Sim' : 'Não', Pago: b.pago ? 'Sim' : 'Não',
+        'Conta cancelada': b.nf_cancelada ? 'Sim' : 'Não',
       })), `bonus_${bonusAno}`);
       return;
     }
@@ -232,6 +238,7 @@ export default function BonusPage() {
       'Nº NF': b.numero_nf || '', Cliente: b.cliente || '', Posição: b.posicao || '',
       'Percentual (%)': b.percentual, 'Valor Comissão': b.valor_bonus,
       Liberado: b.liberado ? 'Sim' : 'Não', Pago: b.pago ? 'Sim' : 'Não',
+      'Conta cancelada': b.nf_cancelada ? 'Sim' : 'Não',
     })), `comissoes_${bonusAno}`);
   };
 
@@ -357,7 +364,7 @@ export default function BonusPage() {
         <>
           <div className="space-y-4">
             {colsPaginados.map(({ colaborador, bonus: bList, liberadoTotal }) => {
-              const totalCol = bList.reduce((s, b) => s + b.valor_bonus, 0);
+              const totalCol = somaValida(bList);
               const idsGrupo = bList.map((b) => b.id);
               const grupoMarcado = idsGrupo.length > 0 && idsGrupo.every((id) => selecionados.has(id));
               return (
@@ -391,7 +398,11 @@ export default function BonusPage() {
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                         {bList.sort((a, b) => a.ano !== b.ano ? a.ano - b.ano : a.mes - b.mes).map((b) => (
-                          <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                          <tr
+                            key={b.id}
+                            className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${b.nf_cancelada ? 'opacity-60' : ''}`}
+                            title={b.nf_cancelada ? 'Conta a receber cancelada — fora dos totais' : undefined}
+                          >
                             {isAdmin && (
                               <td className="px-3 py-3">
                                 <input type="checkbox" checked={selecionados.has(b.id)} onChange={() => toggleSelecionado(b.id)} />
@@ -412,6 +423,11 @@ export default function BonusPage() {
                             <td className="px-3 py-3 text-xs text-gray-600 dark:text-gray-400">
                               <div>{b.cliente || '—'}</div>
                               {b.posicao && <div className="text-gray-400">{b.posicao}</div>}
+                              {b.nf_cancelada && (
+                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
+                                  Conta cancelada
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-3 text-xs text-gray-500 dark:text-gray-400">{b.numero_nf || '—'}</td>
                             {!eBonus && (

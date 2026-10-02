@@ -12,6 +12,7 @@ from app.schemas import (
     ProximoRecebimentoResponse,
 )
 from app.services.categorias_contas import label_categoria
+from app.services.nf_validas import filtro_bonus_valido, filtro_nf_valida
 from sqlalchemy import or_
 from app.api.routes.auth import get_current_user
 
@@ -393,7 +394,7 @@ def fechamentos_por_tipo(
     Contagem de fechamentos por tipo: retainer, sucesso e parcelamento.
     Opcional: filtrar por ano/mês.
     """
-    query = db.query(NF).filter(NF.excluida_em.is_(None))
+    query = db.query(NF).filter(filtro_nf_valida())
 
     if ano and mes:
         query = query.filter(
@@ -458,10 +459,12 @@ def bonus_mensal(
     dados = []
     
     for mes in range(1, 13):
-        bonus = db.query(Bonus).filter(
-            Bonus.ano == ano,
-            Bonus.mes == mes
-        ).all()
+        bonus = (
+            db.query(Bonus)
+            .outerjoin(NF, Bonus.nf_id == NF.id)
+            .filter(Bonus.ano == ano, Bonus.mes == mes, filtro_bonus_valido())
+            .all()
+        )
         
         total = sum(b.valor_bonus for b in bonus)
         dados.append({
@@ -482,7 +485,7 @@ def propostas_enviadas(
     dados = []
     
     for mes in range(1, 13):
-        query = db.query(NF).filter(NF.excluida_em.is_(None))
+        query = db.query(NF).filter(filtro_nf_valida())
         if ano:
             query = query.filter(extract("year", NF.data_emissao) == ano)
         
@@ -533,7 +536,7 @@ def placement_por_consultor(
             func.count().label("qtd"),
             func.sum(NF.valor_liquido).label("valor_liquido"),
             func.sum(NF.valor_bruto).label("valor_bruto"),
-        ).filter(campo_id.isnot(None), NF.excluida_em.is_(None))
+        ).filter(campo_id.isnot(None), filtro_nf_valida())
         if ano:
             q = q.filter(extract("year", NF.data_emissao) == ano)
         return q.group_by(campo_id).all()

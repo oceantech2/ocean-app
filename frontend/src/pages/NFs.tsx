@@ -2,7 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { nfsService, contasCorrentesService, impostosService, bonusService, colaboradoresService } from '../services/api';
 import { mensagemErro, detalheObjeto } from '../utils/erros';
-import { ContaCorrente, NF, Bonus, ComissaoLinhaForm, BonusLinhaForm, Colaborador } from '../types';
+import {
+  ContaCorrente, NF, Bonus, ComissaoLinhaForm, BonusLinhaForm, Colaborador, CancelamentoIgnorado, SituacaoNF,
+} from '../types';
 import { caixaInicialForm, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
 import { aplicarCalculoFiscal, calcularImpostoLiquido, codigoSlot1, validarAliquota } from '../utils/nfValores';
 import { anosCompetencia, mapaAliquotas, textoTooltipAliquota } from '../utils/aliquotaMes';
@@ -71,6 +73,25 @@ function motivoImportLabel(motivo?: string) {
 }
 
 const MSG_DATA_PAGAMENTO = 'Informe a data de pagamento para marcar como recebido.';
+const MSG_CONFIRMAR_CANCELAMENTO =
+  'Cancelar esta conta? Receita, imposto e todas as comissões vinculadas deixarão de ser considerados nos cálculos.';
+
+type PagamentoEstado = 'pendente' | 'recebido' | 'cancelada';
+
+const ROTULO_CANCELAMENTO_IGNORADO: Record<CancelamentoIgnorado['motivo'], string> = {
+  recebida_no_ocean: 'Recebida no Ocean, cancelada na planilha',
+  reativada_no_ocean: 'Reativada no Ocean, cancelada na planilha',
+};
+
+function estadoPagamentoInicial(nf: NF): PagamentoEstado {
+  if (nf.status === 'cancelada') return 'cancelada';
+  return nf.data_pagamento ? 'recebido' : 'pendente';
+}
+
+function situacaoPayload(estado: PagamentoEstado): SituacaoNF {
+  if (estado === 'recebido') return 'recebida';
+  return estado;
+}
 const MSG_NF_EXIGE_EMISSAO = 'Informe a data de emissão junto com o número da NF.';
 
 function bonusToLinha(b: Bonus): ComissaoLinhaForm {
@@ -153,7 +174,7 @@ const FORM_INICIAL = {
   valor_bruto: '', aliquota_imposto: '', valor_imposto: '', valor_liquido: '',
   data_ent_pgto: '', data_emissao: '', data_vencimento: '',
   data_pagamento: '',
-  pagamento_estado: 'pendente' as 'pendente' | 'recebido',
+  pagamento_estado: 'pendente' as PagamentoEstado,
   caixa: '',
   tipo: 'retainer' as 'retainer' | 'sucesso' | 'parcelamento',
 };
@@ -214,6 +235,7 @@ export default function NFs() {
   const [importandoXlsx, setImportandoXlsx] = useState(false);
   const [importPendente, setImportPendente] = useState<File | null>(null);
   const [dialogImportConflito, setDialogImportConflito] = useState(false);
+  const [cancelamentosIgnorados, setCancelamentosIgnorados] = useState<CancelamentoIgnorado[] | null>(null);
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
   const [comissoesLinhas, setComissoesLinhas] = useState<ComissaoLinhaForm[]>([]);
@@ -379,7 +401,7 @@ export default function NFs() {
       data_ent_pgto: nf.data_ent_pgto || '',
       data_emissao: nf.data_emissao || '',
       data_vencimento: nf.data_vencimento || '', data_pagamento: nf.data_pagamento || '',
-      pagamento_estado: nf.data_pagamento ? 'recebido' : 'pendente',
+      pagamento_estado: estadoPagamentoInicial(nf),
       caixa: caixaForm,
       tipo: (nf.tipo === 'sucesso' || nf.tipo === 'parcelamento' ? nf.tipo : 'retainer'),
     });
@@ -435,12 +457,16 @@ export default function NFs() {
     ok: number;
     atualizados: number;
     erros?: Array<{ linha?: number; numero?: string; motivo?: string }>;
+    cancelamentos_ignorados?: CancelamentoIgnorado[];
   }) => {
-    const { ok, atualizados, erros } = data;
+    const { ok, atualizados, erros, cancelamentos_ignorados } = data;
     if (ok > 0 || atualizados > 0) {
       toast.success(`${ok} criada(s), ${atualizados} atualizada(s)`);
       carregarNFs();
       triggerNotifRefresh();
+    }
+    if (cancelamentos_ignorados && cancelamentos_ignorados.length > 0) {
+      setCancelamentosIgnorados(cancelamentos_ignorados);
     }
     if (erros && erros.length > 0) {
       const resumo = erros
@@ -449,7 +475,7 @@ export default function NFs() {
         .join('\n');
       toast.error(`${erros.length} linha(s) com erro na importação`);
       console.warn('Erros importação NFs:\n' + resumo, erros);
-    } else if (ok === 0 && atualizados === 0) {
+    } else if (ok === 0 && atualizados === 0 && !cancelamentos_ignorados?.length) {
       toast('Nenhuma linha importada', { icon: 'ℹ️' });
     }
   };
@@ -579,6 +605,17 @@ export default function NFs() {
     if (!editando) return;
     const isManual = editando.origem === 'manual';
     const recebido = form.pagamento_estado === 'recebido';
+    const cancelada = form.pagamento_estado === 'cancelada';
+    const estavaCancelada = editando.status === 'cancelada';
+    if (recebido && !form.data_pagamento) {
+      toast.error(MSG_DATA_PAGAMENTO);
+      return;
+    }
+    if (cancelada && editando.status === 'paga') {
+      toast.error('Volte a conta para Pendente e salve antes de cancelar.');
+      return;
+    }
+    if (cancelada && !estavaCancelada && !window.confirm(MSG_CONFIRMAR_CANCELAMENTO)) return;
     const dataPagamento = recebido ? (form.data_pagamento || null) : null;
     const aliquotaPayload = form.aliquota_imposto.trim() === '' ? null : parseFloat(form.aliquota_imposto);
     try {
@@ -588,10 +625,13 @@ export default function NFs() {
         numero: numeroTrim || null,
         data_emissao: form.data_emissao || null,
         data_vencimento: form.data_vencimento || null,
-        data_pagamento: dataPagamento,
-        caixa: form.caixa || codigoSlot1(contasCorrentes),
         aliquota_imposto: aliquotaPayload,
+        situacao: situacaoPayload(form.pagamento_estado),
       };
+      if (!cancelada) {
+        dados.data_pagamento = dataPagamento;
+        dados.caixa = form.caixa || codigoSlot1(contasCorrentes);
+      }
       if (isManual) {
         if (!form.razao_social.trim() || !form.valor_bruto) {
           toast.error('Preencha empresa, método de pagamento e valor bruto');
@@ -628,7 +668,9 @@ export default function NFs() {
           }
         }
       }
-      toast.success('Conta a receber atualizada!');
+      if (cancelada && !estavaCancelada) toast.success('Conta cancelada');
+      else if (estavaCancelada && !cancelada) toast.success('Conta reativada');
+      else toast.success('Conta a receber atualizada!');
       fecharModal();
       carregarNFs();
       triggerNotifRefresh();
@@ -1019,6 +1061,14 @@ export default function NFs() {
                     <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{rotuloContaOrigem(nf.caixa, contasCorrentes)}</td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${statusColor(nf.status)}`}>{statusLabel(nf.status)}</span>
+                      {nf.revisar_cancelamento && (
+                        <span
+                          className="block mt-1 w-fit px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                          title="Cancelada com recebimento — revisar"
+                        >
+                          Revisar
+                        </span>
+                      )}
                     </td>
                     <td className={`px-2 py-2.5 sticky right-0 z-[1] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)] ${stickyBg(nf.status)}`}>
                       {papel === 'admin' && (
@@ -1086,6 +1136,12 @@ export default function NFs() {
                   {isManual
                     ? ' — dados Maggo e Ocean editáveis'
                     : ' — dados Maggo e Ocean editáveis no Ocean (correção não atualiza a Maggo)'}
+                </p>
+              )}
+              {!criando && editando?.revisar_cancelamento && (
+                <p className="text-xs mt-2 rounded-md px-2 py-1.5 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                  Cancelada com recebimento — revisar. Escolha <strong>Recebida</strong> para voltar a considerar
+                  esta conta, ou <strong>Pendente</strong> e salve para depois cancelar de novo sem o recebimento.
                 </p>
               )}
             </>
@@ -1317,18 +1373,28 @@ export default function NFs() {
                   value={form.pagamento_estado}
                   disabled={!oceanEditavel}
                   onChange={(e) => {
-                    const v = e.target.value as 'pendente' | 'recebido';
+                    const v = e.target.value as PagamentoEstado;
                     setForm({
                       ...form,
                     pagamento_estado: v,
-                    data_pagamento: v === 'pendente' ? '' : (form.data_pagamento || new Date().toISOString().split('T')[0]),
+                    data_pagamento: v === 'recebido'
+                      ? (form.data_pagamento || new Date().toISOString().split('T')[0])
+                      : (v === 'cancelada' ? form.data_pagamento : ''),
                     caixa: form.caixa || codigoSlot1(contasCorrentes),
                     });
                   }}
                 >
                   <option value="pendente">Pendente</option>
                   <option value="recebido">Recebida</option>
+                  {!criando && (
+                    <option value="cancelada" disabled={editando?.status === 'paga'}>Cancelada</option>
+                  )}
                 </select>
+                {!criando && editando?.status === 'paga' && oceanEditavel && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                    Para cancelar, volte a conta para Pendente e salve.
+                  </p>
+                )}
               </div>
               {!criando && (
                 <div>
@@ -1478,6 +1544,42 @@ export default function NFs() {
           )}
         >
           {null}
+        </Modal>
+      )}
+
+      {cancelamentosIgnorados && cancelamentosIgnorados.length > 0 && (
+        <Modal
+          maxWidth="max-w-lg"
+          bodyClassName="px-6 py-4"
+          footerClassName="p-6 flex justify-end text-sm"
+          header={(
+            <>
+              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Cancelamentos não aplicados</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                A planilha marca estas contas como canceladas, mas o Ocean manteve a situação atual. Revise cada uma se necessário.
+              </p>
+            </>
+          )}
+          footer={(
+            <button
+              type="button"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              onClick={() => setCancelamentosIgnorados(null)}
+            >
+              Fechar
+            </button>
+          )}
+        >
+          <ul className="divide-y divide-gray-100 dark:divide-gray-700 text-sm">
+            {cancelamentosIgnorados.map((c) => (
+              <li key={`${c.nf_id}-${c.linha ?? ''}`} className="py-2 flex justify-between gap-4">
+                <span className="text-gray-700 dark:text-gray-200">
+                  Linha {c.linha ?? '?'} — NF {c.numero || '—'}
+                </span>
+                <span className="text-gray-500 dark:text-gray-400 text-right">{ROTULO_CANCELAMENTO_IGNORADO[c.motivo]}</span>
+              </li>
+            ))}
+          </ul>
         </Modal>
       )}
     </div>

@@ -25,6 +25,18 @@ router = APIRouter()
 
 _MSG_EXCLUSAO_DESABILITADA = "Exclusão desabilitada — Contas a Receber são geridas pela fonte Maggo"
 _MSG_NF_EXIGE_EMISSAO = "Data de emissão é obrigatória quando o número da NF é informado"
+_MSG_DATA_PAGAMENTO = "Informe a data de pagamento para marcar como recebido."
+
+_ROTULO_STATUS = {
+    StatusNF.PENDENTE: "Pendente",
+    StatusNF.VENCIDA: "Vencida",
+    StatusNF.PAGA: "Recebida",
+    StatusNF.CANCELADA: "Cancelada",
+}
+_ROTULO_CANCELAMENTO_IGNORADO = {
+    "recebida_no_ocean": "Recebida no Ocean, cancelada na planilha",
+    "reativada_no_ocean": "Reativada no Ocean, cancelada na planilha",
+}
 
 
 def _parse_tipo_maggo(tipo: str | None, tipo_ab: str | None) -> TipoFechamento | None:
@@ -179,12 +191,21 @@ def _sync_maggo_stub(db: Session) -> Tuple[Set[str], List[str]]:
     return ids, colisoes
 
 
-def _aplicar_campos_arquivo(db_nf: NF, r: dict) -> None:
-    """Atualiza campos de negócio do arquivo; preserva enriquecimento Ocean."""
+def _aplicar_campos_arquivo(db_nf: NF, r: dict) -> str | None:
+    """Atualiza campos de negócio do arquivo; preserva enriquecimento Ocean.
+
+    Retorna o motivo quando o cancelamento vindo da planilha é ignorado
+    (recebida_no_ocean | reativada_no_ocean); nesse caso a conta não é alterada.
+    """
     if r.get("cancelada"):
+        if db_nf.status == StatusNF.CANCELADA:
+            return None
+        if db_nf.status == StatusNF.PAGA:
+            return "recebida_no_ocean"
+        if db_nf.situacao_definida_ocean:
+            return "reativada_no_ocean"
         db_nf.status = StatusNF.CANCELADA
-        db_nf.razao_social = r.get("razao_social") or db_nf.razao_social
-        return
+        return None
     db_nf.razao_social = r["razao_social"]
     db_nf.posicao = r.get("posicao")
     db_nf.valor_bruto = r["valor_bruto"]
@@ -194,7 +215,10 @@ def _aplicar_campos_arquivo(db_nf: NF, r: dict) -> None:
     if r.get("data_vencimento"):
         db_nf.data_vencimento = r["data_vencimento"]
     # Não sobrescreve data_pagamento / caixa / colaboradores / arquivada (Ocean)
+    if db_nf.situacao_definida_ocean and db_nf.status == StatusNF.CANCELADA:
+        return None
     db_nf.status = _calcular_status_nf(db_nf.data_vencimento, db_nf.data_pagamento)
+    return None
 
 
 @router.get("/", response_model=List[NFResponse])
@@ -308,6 +332,7 @@ def importar_nfs_xlsx(
 
     ok = 0
     atualizados = 0
+    cancelamentos_ignorados: list[dict] = []
 
     for r in elegiveis:
         numero = r["numero"]
@@ -335,7 +360,20 @@ def importar_nfs_xlsx(
             if on_conflict == "update":
                 try:
                     db.begin_nested()
-                    _aplicar_campos_arquivo(existente, r)
+                    motivo_ignorado = _aplicar_campos_arquivo(existente, r)
+                    if motivo_ignorado:
+                        cancelamentos_ignorados.append({
+                            "linha": r.get("_linha"),
+                            "numero": numero,
+                            "nf_id": existente.id,
+                            "motivo": motivo_ignorado,
+                        })
+                        registrar_auditoria(
+                            db, current_user, "editar", "NF", existente.id,
+                            f"Import ignorou cancelamento da NF {numero}: {_ROTULO_CANCELAMENTO_IGNORADO[motivo_ignorado]}",
+                        )
+                        db.flush()
+                        continue
                     registrar_auditoria(
                         db, current_user, "editar", "NF", existente.id,
                         f"Import atualizou NF {numero}",
@@ -367,7 +405,7 @@ def importar_nfs_xlsx(
                 valor_liquido=r["valor_liquido"],
                 data_emissao=r.get("data_emissao") or date.today(),
                 data_vencimento=r.get("data_vencimento") or date.today(),
-                data_pagamento=r.get("data_pagamento"),
+                data_pagamento=None if r.get("cancelada") else r.get("data_pagamento"),
                 tipo=tipo_enum,
                 tipo_abertura_fechamento=None,
                 status=status_nf,
@@ -405,7 +443,12 @@ def importar_nfs_xlsx(
             })
 
     db.commit()
-    return {"ok": ok, "atualizados": atualizados, "erros": erros}
+    return {
+        "ok": ok,
+        "atualizados": atualizados,
+        "erros": erros,
+        "cancelamentos_ignorados": cancelamentos_ignorados,
+    }
 
 
 @router.get("/exportar-xlsx")
@@ -628,6 +671,7 @@ def atualizar_nf(
     db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
 
     pagamento_antes = db_nf.data_pagamento
+    status_antes = db_nf.status
     # model_dump transforma ComissaoLinhaInput em dict; sincronizar espera o modelo
     comissoes_payload = (
         nf_update.comissoes if "comissoes" in nf_update.model_fields_set else None
@@ -635,8 +679,52 @@ def atualizar_nf(
     bonus_payload = (
         nf_update.bonus if "bonus" in nf_update.model_fields_set else None
     )
-    dados_atualizacao = nf_update.model_dump(exclude_unset=True, exclude={"comissoes", "bonus"})
+    dados_atualizacao = nf_update.model_dump(
+        exclude_unset=True, exclude={"comissoes", "bonus", "situacao"}
+    )
     caixa_pedido = dados_atualizacao.pop("caixa", None)
+
+    situacao = nf_update.situacao
+    estava_cancelada = status_antes == StatusNF.CANCELADA
+    reativando = estava_cancelada and situacao in ("pendente", "recebida")
+    cancelando = situacao == "cancelada" and not estava_cancelada
+
+    if cancelando and status_antes == StatusNF.PAGA:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "NF_CANCELAR_RECEBIDA",
+                "message": "Volte a conta para Pendente e salve antes de cancelar.",
+            },
+        )
+    if cancelando:
+        # Conta cancelada não carrega recebimento
+        dados_atualizacao.pop("data_pagamento", None)
+        caixa_pedido = None
+    if (
+        estava_cancelada
+        and not reativando
+        and dados_atualizacao.get("data_pagamento") is not None
+        and dados_atualizacao["data_pagamento"] != pagamento_antes
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "NF_CANCELADA_PAGAMENTO",
+                "message": "Conta cancelada: reative-a (Pendente ou Recebida) antes de registrar pagamento.",
+            },
+        )
+    if estava_cancelada and not reativando:
+        dados_atualizacao.pop("data_pagamento", None)
+    if reativando and situacao == "pendente":
+        dados_atualizacao["data_pagamento"] = None
+    if reativando and situacao == "recebida":
+        pagamento_final = dados_atualizacao.get("data_pagamento", pagamento_antes)
+        if pagamento_final is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=_MSG_DATA_PAGAMENTO,
+            )
     # Cliente pode enviar imposto/líquido; fonte de verdade é bruto + alíquota
     dados_atualizacao.pop("valor_imposto", None)
     dados_atualizacao.pop("valor_liquido", None)
@@ -669,8 +757,19 @@ def atualizar_nf(
         db.rollback()
         raise
 
-    if "data_pagamento" in dados_atualizacao or "data_vencimento" in dados_atualizacao:
+    if cancelando:
+        db_nf.status = StatusNF.CANCELADA
+    elif estava_cancelada and not reativando:
+        pass  # cancelamento só é desfeito por situacao=pendente|recebida
+    elif reativando or "data_pagamento" in dados_atualizacao or "data_vencimento" in dados_atualizacao:
         db_nf.status = _calcular_status_nf(db_nf.data_vencimento, db_nf.data_pagamento)
+
+    mudanca_situacao = ""
+    if (cancelando or reativando) and db_nf.status != status_antes:
+        db_nf.situacao_definida_ocean = True
+        mudanca_situacao = (
+            f" — Situação: {_ROTULO_STATUS[status_antes]} → {_ROTULO_STATUS[db_nf.status]}"
+        )
 
     if pagamento_antes is None and db_nf.data_pagamento is not None:
         db_nf.caixa = (
@@ -687,7 +786,7 @@ def atualizar_nf(
     try:
         sincronizar(db, db_nf, comissoes_payload, current_user)
         sincronizar_bonus(db, db_nf, bonus_payload, current_user)
-        registrar_auditoria(db, current_user, "editar", "NF", db_nf.id, f"NF {db_nf.numero or '(sem número)'} — campos: {', '.join(dados_atualizacao.keys())}")
+        registrar_auditoria(db, current_user, "editar", "NF", db_nf.id, f"NF {db_nf.numero or '(sem número)'} — campos: {', '.join(dados_atualizacao.keys())}{mudanca_situacao}")
         db.commit()
         db.refresh(db_nf)
     except IntegrityError as e:

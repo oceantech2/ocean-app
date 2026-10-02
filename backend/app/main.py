@@ -359,6 +359,9 @@ def _migrar():
             conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS excluida_em TIMESTAMP NULL"))
             conn.execute(text("ALTER TABLE nfs ADD COLUMN IF NOT EXISTS aliquota_imposto FLOAT NULL"))
             conn.execute(text(
+                "ALTER TABLE nfs ADD COLUMN IF NOT EXISTS situacao_definida_ocean BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.execute(text(
                 "ALTER TABLE metas_financeiras ADD COLUMN IF NOT EXISTS aliquota_periodo DOUBLE PRECISION"
             ))
             conn.execute(text("ALTER TABLE bonus ADD COLUMN IF NOT EXISTS nf_id INTEGER REFERENCES nfs(id)"))

@@ -107,9 +107,15 @@ class NF(Base):
     anexo_path = Column(Text, nullable=True)
     anexo_nome = Column(String(255), nullable=True)
     excluida_em = Column(DateTime, nullable=True, index=True)
+    # Cancelamento/reativação decidido no Ocean; a importação de planilha não altera esse estado
+    situacao_definida_ocean = Column(Boolean, default=False, nullable=False, server_default='false')
 
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def revisar_cancelamento(self) -> bool:
+        return self.status == StatusNF.CANCELADA and self.data_pagamento is not None
     
     # Relacionamentos
     colaborador_lead = relationship("Colaborador", foreign_keys=[colaborador_lead_id], back_populates="nfs_como_lead")
