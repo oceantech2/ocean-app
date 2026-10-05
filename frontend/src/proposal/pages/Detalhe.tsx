@@ -5,9 +5,10 @@ import ProposalLayout from '../components/ProposalLayout';
 import StatusBadge from '../components/StatusBadge';
 import { formatarCNPJ } from '../../utils/documento';
 import { formatarDataISO, formatarGarantia, formatarPagamento, formatarTaxa } from '../modelos/formatacao';
+import { rotuloMoedaDetalhe } from '../modelos/idioma';
 import { rotuloTipo } from '../modelos/investimentos';
 import { rotuloSetor } from '../modelos/setores';
-import { AlteracaoCampo, cancelarProposta, mensagemErro, obterProposta, Proposta } from '../services/proposalApi';
+import { AlteracaoCampo, cancelarProposta, mensagemErro, Moeda, obterProposta, Proposta } from '../services/proposalApi';
 import {
   copiarTexto,
   formatarAliquota,
@@ -51,9 +52,9 @@ function rotuloCampo(campo: string, porModelo: boolean): string {
   return ROTULOS_CAMPO[campo] || campo;
 }
 
-function formatarValorCampo(campo: string, valor: AlteracaoCampo['novo']): string {
+function formatarValorCampo(campo: string, valor: AlteracaoCampo['novo'], moeda: Moeda): string {
   if (valor === null || valor === '') return '—';
-  if (typeof valor === 'object') return `${formatarTaxa(valor)} · ${formatarPagamento(valor.entrada)}`;
+  if (typeof valor === 'object') return `${formatarTaxa(valor, { moeda })} · ${formatarPagamento(valor.entrada)}`;
   switch (campo) {
     case 'data_proposta':
       return formatarDataISO(String(valor));
@@ -118,7 +119,7 @@ function SecoesModelo({ p }: { p: Proposta }) {
           {(p.investimentos ?? []).map((inv) => (
             <div key={inv.tipo} className="rounded-lg border border-gray-200 border-t-4 border-t-ocean-700 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">{rotuloTipo(inv.tipo)}</p>
-              <p className="mt-2 text-2xl font-semibold text-gray-900">{formatarTaxa(inv)}</p>
+              <p className="mt-2 text-2xl font-semibold text-gray-900">{formatarTaxa(inv, { moeda: p.moeda ?? 'BRL' })}</p>
               <p className="mt-1 text-sm text-gray-600">{formatarPagamento(inv.entrada)}</p>
             </div>
           ))}
@@ -196,6 +197,7 @@ export default function Detalhe() {
               <h1 className="text-2xl font-semibold text-gray-900">{proposta.cliente_nome}</h1>
               <p className="text-sm text-gray-600">
                 {proposta.modelo_nome}
+                {porModelo && proposta.moeda && ` · ${rotuloMoedaDetalhe(proposta.moeda)}`}
                 {porModelo && proposta.projeto_nome && ` · ${proposta.projeto_nome}`}
               </p>
               <div className="mt-1">
@@ -284,9 +286,11 @@ export default function Detalhe() {
                       {edicao.alteracoes.map((a) => (
                         <li key={a.campo}>
                           <span className="font-medium">{rotuloCampo(a.campo, porModelo)}:</span>{' '}
-                          <span className="text-gray-500 line-through">{formatarValorCampo(a.campo, a.anterior)}</span>
+                          <span className="text-gray-500 line-through">
+                            {formatarValorCampo(a.campo, a.anterior, proposta.moeda ?? 'BRL')}
+                          </span>
                           {' → '}
-                          <span>{formatarValorCampo(a.campo, a.novo)}</span>
+                          <span>{formatarValorCampo(a.campo, a.novo, proposta.moeda ?? 'BRL')}</span>
                         </li>
                       ))}
                     </ul>

@@ -1,14 +1,26 @@
-import type { Investimento } from '../services/proposalApi';
+import type { Idioma, Investimento, Moeda } from '../services/proposalApi';
+import { PREFIXO_MOEDA } from './idioma';
 
-const fmtPercentual = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 });
-const fmtInteiro = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
-const fmtCentavos = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const TZ_SP = 'America/Sao_Paulo';
+const DATA_POR_EXTENSO: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' };
 
-export function formatarTaxa(inv: Pick<Investimento, 'taxa_tipo' | 'taxa'>): string {
+interface OpcoesTaxa {
+  idioma?: Idioma;
+  moeda?: Moeda;
+}
+
+export function formatarTaxa(
+  inv: Pick<Investimento, 'taxa_tipo' | 'taxa'>,
+  { idioma = 'pt-BR', moeda = 'BRL' }: OpcoesTaxa = {},
+): string {
   const taxa = Number(inv.taxa);
   if (!Number.isFinite(taxa)) return '—';
-  if (inv.taxa_tipo === 'percentual') return `${fmtPercentual.format(taxa)}%`;
-  return Number.isInteger(taxa) ? `R$ ${fmtInteiro.format(taxa)}` : `R$ ${fmtCentavos.format(taxa)}`;
+  if (inv.taxa_tipo === 'percentual') {
+    return `${new Intl.NumberFormat(idioma, { maximumFractionDigits: 2 }).format(taxa)}%`;
+  }
+  const casas = Number.isInteger(taxa) ? 0 : 2;
+  const numero = new Intl.NumberFormat(idioma, { minimumFractionDigits: casas, maximumFractionDigits: casas }).format(taxa);
+  return `${PREFIXO_MOEDA[moeda]} ${numero}`;
 }
 
 export function formatarPagamento(entrada: number | null | undefined): string {
@@ -21,17 +33,29 @@ export function formatarGarantia(meses: number | null | undefined): string {
   return meses === 1 ? '1 mês' : `${meses} meses`;
 }
 
-export function formatarDataISO(isoData: string | null | undefined): string {
+export function formatarDataISO(isoData: string | null | undefined, idioma: Idioma = 'pt-BR'): string {
   if (!isoData) return '—';
-  const [a, m, d] = isoData.slice(0, 10).split('-');
+  const dia = isoData.slice(0, 10);
+  if (idioma === 'en-US') {
+    return new Date(`${dia}T00:00:00Z`).toLocaleDateString('en-US', { ...DATA_POR_EXTENSO, timeZone: 'UTC' });
+  }
+  const [a, m, d] = dia.split('-');
   return `${d}/${m}/${a}`;
 }
 
-export function dataHoraSP(iso: string): { data: string; hora: string } {
+export function formatarDataSP(iso: string | null | undefined, idioma: Idioma = 'pt-BR'): string {
+  if (!iso) return '—';
+  const opcoes = idioma === 'en-US' ? DATA_POR_EXTENSO : {};
+  return new Date(iso).toLocaleDateString(idioma, { ...opcoes, timeZone: TZ_SP });
+}
+
+export function dataHoraSP(iso: string, idioma: Idioma = 'pt-BR'): { data: string; hora: string } {
   const dt = new Date(iso);
+  const hora: Intl.DateTimeFormatOptions =
+    idioma === 'en-US' ? { hour: 'numeric', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' };
   return {
-    data: dt.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-    hora: dt.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }),
+    data: formatarDataSP(iso, idioma),
+    hora: dt.toLocaleTimeString(idioma, { ...hora, timeZone: TZ_SP }),
   };
 }
 

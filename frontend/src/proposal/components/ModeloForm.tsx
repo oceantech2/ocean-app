@@ -1,10 +1,12 @@
 import { ReactNode, useState } from 'react';
 import { EMAIL_RE, formatarGarantia, formatarPagamento, formatarTaxa, telefoneValido } from '../modelos/formatacao';
+import { MOEDAS_FORM, PREFIXO_MOEDA } from '../modelos/idioma';
 import { TIPOS } from '../modelos/investimentos';
 import { SETORES } from '../modelos/setores';
 import type {
   Investimento,
   ModeloId,
+  Moeda,
   PerfilConsultor,
   Proposta,
   PropostaModeloPayload,
@@ -23,6 +25,7 @@ export interface InvestimentoForm {
 
 export interface FormModelo {
   modelo: ModeloId;
+  moeda: Moeda;
   cliente_nome: string;
   data_proposta: string;
   setor: SetorId | '';
@@ -50,6 +53,7 @@ const investimentosVazios = (): Record<TipoInvestimento, InvestimentoForm> => ({
 
 export const formModeloInicial = (consultor?: PerfilConsultor | null, modelo: ModeloId = 'executive-search'): FormModelo => ({
   modelo,
+  moeda: 'BRL',
   cliente_nome: '',
   data_proposta: hojeSP(),
   setor: '',
@@ -77,6 +81,7 @@ export function formDeModelo(p: Proposta, opcoes: { dataHoje?: boolean; validade
   }
   return {
     modelo: p.modelo as ModeloId,
+    moeda: p.moeda ?? 'BRL',
     cliente_nome: p.cliente_nome,
     data_proposta: opcoes.dataHoje || !p.data_proposta ? hojeSP() : p.data_proposta,
     setor: p.setor ?? '',
@@ -156,9 +161,10 @@ interface Props {
   salvando: boolean;
   onSubmit: (payload: PropostaModeloPayload) => void;
   aviso?: ReactNode;
+  moedaFixa?: boolean;
 }
 
-export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salvando, onSubmit, aviso }: Props) {
+export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salvando, onSubmit, aviso, moedaFixa }: Props) {
   const [form, setForm] = useState<FormModelo>(inicial);
   const [erros, setErros] = useState<Erros>({});
 
@@ -179,6 +185,7 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
     if (Object.values(encontrados).some(Boolean)) return;
     onSubmit({
       modelo: form.modelo,
+      moeda: form.moeda,
       cliente_nome: form.cliente_nome.trim(),
       data_proposta: form.data_proposta,
       setor: form.setor,
@@ -226,6 +233,29 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
       {aviso}
       <form onSubmit={salvar} noValidate className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
+          <section className={secaoCls}>
+            <h2 className="font-semibold text-gray-900">Moeda</h2>
+            <div>
+              <select
+                value={form.moeda}
+                onChange={(e) => set('moeda', e.target.value as Moeda)}
+                disabled={moedaFixa}
+                className={`${inputCls()} disabled:bg-gray-100 disabled:text-gray-600`}
+              >
+                {MOEDAS_FORM.map((m) => (
+                  <option key={m.moeda} value={m.moeda}>
+                    {m.rotulo}
+                  </option>
+                ))}
+              </select>
+              <p className="text-sm text-gray-500 mt-1">
+                {moedaFixa
+                  ? 'A moeda não pode ser alterada depois de criada.'
+                  : 'Define a moeda dos valores e o idioma da página que o cliente recebe.'}
+              </p>
+            </div>
+          </section>
+
           <section className={secaoCls}>
             <h2 className="font-semibold text-gray-900">Cliente</h2>
             {texto('cliente_nome', 'Empresa')}
@@ -360,7 +390,7 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
                                 inv.taxa_tipo === t ? 'bg-ocean-700 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
                               }`}
                             >
-                              {t === 'percentual' ? '%' : 'R$'}
+                              {t === 'percentual' ? '%' : PREFIXO_MOEDA[form.moeda]}
                             </button>
                           ))}
                         </div>
@@ -402,7 +432,7 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
             <div key={tipo} className="text-sm text-gray-700 border-b border-gray-100 pb-2">
               <div className="flex justify-between font-medium text-gray-900">
                 <span>{rotulo}</span>
-                <span>{inv ? formatarTaxa(inv) : '—'}</span>
+                <span>{inv ? formatarTaxa(inv, { moeda: form.moeda }) : '—'}</span>
               </div>
               <div className="text-gray-600">{inv ? formatarPagamento(inv.entrada) : 'Preencha a taxa'}</div>
             </div>

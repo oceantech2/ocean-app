@@ -14,7 +14,7 @@ from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrim
 from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
-from app.models import CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE
+from app.models import CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_MOEDA
 
 # Criar tabelas
 Base.metadata.create_all(bind=engine)
@@ -574,6 +574,30 @@ def _migrar():
                     email VARCHAR(255),
                     atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
                 )
+                """
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Proposal (feature 081): moeda da proposta por modelo (define o idioma da página do cliente)
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE propostas ADD COLUMN IF NOT EXISTS moeda VARCHAR(3)"))
+            conn.execute(text(
+                "UPDATE propostas SET moeda = 'BRL' WHERE modelo <> 'simples' AND moeda IS NULL"
+            ))
+            conn.execute(text(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_propostas_moeda' AND conrelid = 'propostas'::regclass
+                    ) THEN
+                        ALTER TABLE propostas ADD CONSTRAINT ck_propostas_moeda CHECK ({CK_PROPOSTAS_MOEDA});
+                    END IF;
+                END $$
                 """
             ))
             conn.commit()

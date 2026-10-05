@@ -31,6 +31,9 @@ TIPOS_INVESTIMENTO = {
 }
 TAXA_TIPOS = ("percentual", "valor")
 
+MOEDAS = ("BRL", "USD")
+MOEDA_PADRAO = "BRL"
+
 CENTAVO = Decimal("0.01")
 VALOR_MAXIMO = Decimal("1000000000000")
 GARANTIA_MAXIMA_MESES = 120
@@ -94,6 +97,15 @@ def _entrada(valor, rotulo: str) -> Optional[int]:
     if not isinstance(valor, int) or isinstance(valor, bool) or valor < 0 or valor > 99:
         raise _erro(f"Entrada do {rotulo} deve estar entre 0 e 99%")
     return valor or None
+
+
+def validar_moeda(valor: Optional[str]) -> str:
+    moeda = (valor or "").strip().upper()
+    if not moeda:
+        return MOEDA_PADRAO
+    if moeda not in MOEDAS:
+        raise _erro("Moeda inválida")
+    return moeda
 
 
 def validar_investimentos(itens) -> list[dict]:

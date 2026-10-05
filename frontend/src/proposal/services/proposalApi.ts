@@ -12,6 +12,8 @@ export type ModeloId = 'executive-search';
 export type SetorId = 'oil-gas' | 'energia' | 'infraestrutura' | 'mineracao' | 'industria-servicos';
 export type TipoInvestimento = 'retainer' | 'sucesso' | 'valor-fechado';
 export type TaxaTipo = 'percentual' | 'valor';
+export type Moeda = 'BRL' | 'USD';
+export type Idioma = 'pt-BR' | 'en-US';
 
 export interface Investimento {
   tipo: TipoInvestimento;
@@ -25,6 +27,7 @@ export interface PropostaListItem {
   codigo: string;
   modelo: ModeloId | 'simples';
   modelo_nome: string;
+  moeda: Moeda | null;
   cliente_nome: string;
   projeto_nome: string | null;
   data_proposta: string | null;
@@ -109,6 +112,7 @@ export interface PropostaModeloPayload {
   garantia_meses: number | null;
   investimentos: Investimento[];
   validade: string;
+  moeda: Moeda;
 }
 
 export interface ConsultorPublico {
@@ -125,6 +129,7 @@ export interface PropostaPublicaData {
   mensagem?: string;
   modelo?: ModeloId | 'simples';
   modelo_versao?: number;
+  moeda?: Moeda;
   data_proposta?: string;
   setor?: SetorId;
   consultor?: ConsultorPublico;

@@ -567,6 +567,7 @@ class PropostaCreate(BaseModel):
     projeto_nome: str = ""
     garantia_meses: Optional[int] = None
     investimentos: Optional[List[InvestimentoIn]] = None
+    moeda: Optional[str] = None
 
 
 class PerfilConsultorIn(BaseModel):

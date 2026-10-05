@@ -111,6 +111,7 @@ export default function Editar() {
           salvando={salvando}
           onSubmit={salvar}
           aviso={aviso}
+          moedaFixa
         />
       )}
     </ProposalLayout>

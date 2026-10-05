@@ -377,6 +377,10 @@ CK_PROPOSTAS_CAMPOS_MODELO = (
     "AND jsonb_array_length(investimentos) BETWEEN 1 AND 3)"
 )
 CK_PROPOSTAS_DATA_VALIDADE = "data_proposta IS NULL OR data_proposta <= validade"
+CK_PROPOSTAS_MOEDA = (
+    "(modelo = 'simples' AND moeda IS NULL) "
+    "OR (modelo <> 'simples' AND moeda IN ('BRL', 'USD'))"
+)
 
 
 class Proposta(Base):
@@ -389,6 +393,7 @@ class Proposta(Base):
     __table_args__ = (
         CheckConstraint(CK_PROPOSTAS_CAMPOS_MODELO, name="ck_propostas_campos_modelo"),
         CheckConstraint(CK_PROPOSTAS_DATA_VALIDADE, name="ck_propostas_data_validade"),
+        CheckConstraint(CK_PROPOSTAS_MOEDA, name="ck_propostas_moeda"),
         CheckConstraint("valor > 0", name="ck_propostas_valor_positivo"),
         CheckConstraint(
             "status IN ('aguardando','visualizada','assinada','cancelada')",
@@ -434,6 +439,8 @@ class Proposta(Base):
     projeto_nome = Column(String(255), nullable=True)
     garantia_meses = Column(SmallInteger, nullable=True)
     investimentos = Column(JSONB, nullable=True)
+    # BRL → página em português; USD → página em inglês. Nula nas propostas simples.
+    moeda = Column(String(3), nullable=True)
 
     assinatura = relationship(
         "PropostaAssinatura", back_populates="proposta", uselist=False, passive_deletes=True

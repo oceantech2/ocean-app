@@ -13,6 +13,7 @@ from app.models import Proposta
 from app.services.documento import formatar_cnpj, normalizar_cnpj, validar_cnpj, validar_email
 from app.services.proposta_modelos import (
     MODELO_SIMPLES,
+    MOEDA_PADRAO,
     TIPOS_INVESTIMENTO,
     nome_modelo,
     telefone_whatsapp,
@@ -124,7 +125,7 @@ def _json_canonico(dados: dict) -> str:
 
 def conteudo_canonico(p: Proposta) -> str:
     if not eh_simples(p):
-        return _json_canonico({
+        dados = {
             "codigo": p.codigo,
             "emitida_em": p.emitida_em.replace(microsecond=0).isoformat(),
             "modelo": p.modelo,
@@ -142,7 +143,11 @@ def conteudo_canonico(p: Proposta) -> str:
             "garantia_meses": p.garantia_meses,
             "investimentos": p.investimentos,
             "validade": p.validade.isoformat(),
-        })
+        }
+        # Sem a chave = BRL: mantém válidos os hashes gravados antes da moeda existir
+        if p.moeda and p.moeda != MOEDA_PADRAO:
+            dados["moeda"] = p.moeda
+        return _json_canonico(dados)
     # Formato das propostas simples congelado: assinaturas antigas dependem dele
     dados = {
         "aliquota": _dec_str(p.aliquota) if p.imposto_ativo else None,
@@ -275,6 +280,7 @@ def serializar_item(p: Proposta) -> dict:
         "codigo": p.codigo,
         "modelo": p.modelo,
         "modelo_nome": nome_modelo(p.modelo),
+        "moeda": p.moeda,
         "cliente_nome": p.cliente_nome,
         "projeto_nome": p.projeto_nome,
         "data_proposta": _data(p.data_proposta),
@@ -331,10 +337,12 @@ def serializar_detalhe(p: Proposta) -> dict:
 def serializar_publica(p: Proposta) -> dict:
     """Só dados da própria proposta; cancelada/expirada não expõem valores nem identificação."""
     status = status_efetivo(p)
-    if status == "cancelada":
-        return {"status": status, "pode_assinar": False, "mensagem": MSG_CANCELADA_PUBLICA}
-    if status == "expirada":
-        return {"status": status, "pode_assinar": False, "mensagem": MSG_EXPIRADA_PUBLICA}
+    if status in ("cancelada", "expirada"):
+        mensagem = MSG_CANCELADA_PUBLICA if status == "cancelada" else MSG_EXPIRADA_PUBLICA
+        indisponivel = {"status": status, "pode_assinar": False, "mensagem": mensagem}
+        if not eh_simples(p):
+            indisponivel["moeda"] = p.moeda
+        return indisponivel
     assinatura = None
     if status == "assinada" and p.assinatura is not None:
         assinatura = {"nome": p.assinatura.nome, "assinada_em": _iso(p.assinatura.assinada_em)}
@@ -344,6 +352,7 @@ def serializar_publica(p: Proposta) -> dict:
             "pode_assinar": status in STATUS_PENDENTES,
             "modelo": p.modelo,
             "modelo_versao": p.modelo_versao,
+            "moeda": p.moeda,
             "cliente_nome": p.cliente_nome,
             "data_proposta": _data(p.data_proposta),
             "setor": p.setor,

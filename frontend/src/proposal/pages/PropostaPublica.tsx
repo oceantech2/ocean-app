@@ -2,18 +2,20 @@ import { ReactNode, Suspense, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { componenteDoModelo } from '../modelos';
+import { textosIndisponivel } from '../modelos/executive-search/v1/i18n/indisponivel';
+import { idiomaDaMoeda } from '../modelos/idioma';
 import { assinarPublica, consultarPublica, mensagemErro, PropostaPublicaData } from '../services/proposalApi';
 import { formatarAliquota, formatarData, formatarDataHora, formatarMoeda } from '../utils/propostaCalculo';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function Moldura({ children }: { children: ReactNode }) {
+function Moldura({ children, titulo = 'Proposta comercial' }: { children: ReactNode; titulo?: string }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-ocean-50 to-white">
       <div className="bg-ocean-900">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
           <img src="/logo.png" alt="Ocean" className="h-9 w-auto bg-white rounded-md p-1" />
-          <span className="text-white font-semibold">Proposta comercial</span>
+          <span className="text-white font-semibold">{titulo}</span>
         </div>
       </div>
       <div className="max-w-2xl mx-auto px-4 py-6 sm:py-10">{children}</div>
@@ -21,9 +23,9 @@ function Moldura({ children }: { children: ReactNode }) {
   );
 }
 
-function Mensagem({ texto }: { texto: string }) {
+function Mensagem({ texto, titulo }: { texto: string; titulo?: string }) {
   return (
-    <Moldura>
+    <Moldura titulo={titulo}>
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-700">{texto}</div>
     </Moldura>
   );
@@ -98,14 +100,14 @@ export default function PropostaPublica() {
     }
   };
 
-  const carregando = (
+  const telaCarregando = (texto: string) => (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-ocean-50">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-ocean-700" />
-      <p className="text-ocean-900">Carregando proposta…</p>
+      <p className="text-ocean-900">{texto}</p>
     </div>
   );
 
-  if (loading) return carregando;
+  if (loading) return telaCarregando('Carregando proposta…');
 
   if (naoEncontrada) return <Mensagem texto="Proposta não encontrada" />;
 
@@ -123,6 +125,11 @@ export default function PropostaPublica() {
   }
 
   if (dados.status === 'cancelada' || dados.status === 'expirada') {
+    if (dados.moeda === 'USD') {
+      const indisponivel = textosIndisponivel('en-US');
+      const texto = dados.status === 'cancelada' ? indisponivel.cancelada : indisponivel.expirada;
+      return <Mensagem texto={texto} titulo={indisponivel.moldura} />;
+    }
     return <Mensagem texto={dados.mensagem || 'Esta proposta não está mais disponível.'} />;
   }
 
@@ -130,7 +137,7 @@ export default function PropostaPublica() {
     const Pagina = componenteDoModelo(dados.modelo, dados.modelo_versao);
     if (!Pagina) return <Mensagem texto="Não foi possível exibir esta proposta" />;
     return (
-      <Suspense fallback={carregando}>
+      <Suspense fallback={telaCarregando(textosIndisponivel(idiomaDaMoeda(dados.moeda)).carregando)}>
         <Pagina dados={dados} codigo={codigo} onRecarregar={recarregarSilencioso} />
       </Suspense>
     );
