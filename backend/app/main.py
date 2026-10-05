@@ -13,7 +13,8 @@ from app.api.routes import (
 from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrimonio
 from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
-from app.api.routes import proposal_auth, proposal_propostas, public_propostas
+from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
+from app.models import CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE
 
 # Criar tabelas
 Base.metadata.create_all(bind=engine)
@@ -490,6 +491,95 @@ def _migrar():
         except Exception:
             conn.rollback()
 
+    # Proposal (feature 079): edição antes da assinatura (versão + histórico)
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE propostas ADD COLUMN IF NOT EXISTS versao INTEGER NOT NULL DEFAULT 1"
+            ))
+            conn.execute(text("ALTER TABLE propostas ADD COLUMN IF NOT EXISTS atualizada_em TIMESTAMP"))
+            conn.execute(text("ALTER TABLE propostas ADD COLUMN IF NOT EXISTS versao_visualizada_em TIMESTAMP"))
+            # Só propostas nunca editadas: não pode desfazer o reset feito por uma edição a cada boot
+            conn.execute(text(
+                """
+                UPDATE propostas SET versao_visualizada_em = visualizada_em
+                WHERE versao_visualizada_em IS NULL AND visualizada_em IS NOT NULL
+                  AND versao = 1 AND atualizada_em IS NULL
+                """
+            ))
+            conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS propostas_edicoes (
+                    id SERIAL PRIMARY KEY,
+                    proposta_id INTEGER NOT NULL REFERENCES propostas(id) ON DELETE CASCADE,
+                    versao INTEGER NOT NULL,
+                    editada_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                    editado_por_id INTEGER REFERENCES usuarios_app(id) ON DELETE SET NULL,
+                    editado_por_usuario VARCHAR(255) NOT NULL,
+                    alteracoes JSONB NOT NULL,
+                    CONSTRAINT uq_propostas_edicoes_versao UNIQUE (proposta_id, versao),
+                    CONSTRAINT ck_propostas_edicoes_alteracoes CHECK (
+                        jsonb_typeof(alteracoes) = 'array' AND jsonb_array_length(alteracoes) > 0
+                    )
+                )
+                """
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Proposal (feature 080): propostas por modelo (Executive Search) + perfil do consultor
+    with engine.connect() as conn:
+        try:
+            for coluna in (
+                "modelo VARCHAR(40) NOT NULL DEFAULT 'simples'",
+                "modelo_versao INTEGER",
+                "data_proposta DATE",
+                "setor VARCHAR(40)",
+                "consultor_nome VARCHAR(255)",
+                "consultor_cargo VARCHAR(255)",
+                "consultor_telefone VARCHAR(30)",
+                "consultor_email VARCHAR(255)",
+                "projeto_nome VARCHAR(255)",
+                "garantia_meses SMALLINT",
+                "investimentos JSONB",
+            ):
+                conn.execute(text(f"ALTER TABLE propostas ADD COLUMN IF NOT EXISTS {coluna}"))
+            for coluna in ("cnpj", "valor", "total"):
+                conn.execute(text(f"ALTER TABLE propostas ALTER COLUMN {coluna} DROP NOT NULL"))
+            for nome, expressao in (
+                ("ck_propostas_campos_modelo", CK_PROPOSTAS_CAMPOS_MODELO),
+                ("ck_propostas_data_validade", CK_PROPOSTAS_DATA_VALIDADE),
+            ):
+                conn.execute(text(
+                    f"""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint
+                            WHERE conname = '{nome}' AND conrelid = 'propostas'::regclass
+                        ) THEN
+                            ALTER TABLE propostas ADD CONSTRAINT {nome} CHECK ({expressao});
+                        END IF;
+                    END $$
+                    """
+                ))
+            conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS proposal_perfis_consultor (
+                    usuario_id INTEGER PRIMARY KEY REFERENCES usuarios_app(id) ON DELETE CASCADE,
+                    nome VARCHAR(255),
+                    cargo VARCHAR(255),
+                    telefone VARCHAR(30),
+                    email VARCHAR(255),
+                    atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
 _migrar()
 
 # Inicializar aplicação
@@ -544,6 +634,7 @@ app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arqui
 # Proposal: autenticação própria (token app=proposal) e página pública sem login
 app.include_router(proposal_auth.router, prefix="/api/proposal/auth", tags=["Proposal · Auth"])
 app.include_router(proposal_propostas.router, prefix="/api/proposal/propostas", tags=["Proposal · Propostas"])
+app.include_router(proposal_perfil.router, prefix="/api/proposal/perfil", tags=["Proposal · Perfil"])
 app.include_router(public_propostas.router, prefix="/api/public/propostas", tags=["Proposal · Público"])
 
 # Wipe destrutivo: só monta rotas em DEBUG (dev local)

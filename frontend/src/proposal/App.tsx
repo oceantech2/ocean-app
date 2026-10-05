@@ -6,6 +6,8 @@ import Login from './pages/Login';
 import Lista from './pages/Lista';
 import Nova from './pages/Nova';
 import Detalhe from './pages/Detalhe';
+import Editar from './pages/Editar';
+import Perfil from './pages/Perfil';
 import PropostaPublica from './pages/PropostaPublica';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -28,6 +30,8 @@ export default function App() {
         <Route path="/" element={<ProtectedRoute><Lista /></ProtectedRoute>} />
         <Route path="/nova" element={<ProtectedRoute><Nova /></ProtectedRoute>} />
         <Route path="/propostas/:id" element={<ProtectedRoute><Detalhe /></ProtectedRoute>} />
+        <Route path="/propostas/:id/editar" element={<ProtectedRoute><Editar /></ProtectedRoute>} />
+        <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

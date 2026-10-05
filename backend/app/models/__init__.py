@@ -1,7 +1,8 @@
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Enum, Text, Date,
-    Numeric, CheckConstraint, Index, text,
+    Numeric, CheckConstraint, Index, UniqueConstraint, SmallInteger, text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -365,10 +366,29 @@ class UsuarioApp(Base):
 
 
 # ==================== PROPOSAL ====================
+CK_PROPOSTAS_CAMPOS_MODELO = (
+    "(modelo = 'simples' AND cnpj IS NOT NULL AND valor IS NOT NULL AND total IS NOT NULL) "
+    "OR (modelo <> 'simples' "
+    "AND modelo_versao IS NOT NULL AND data_proposta IS NOT NULL AND setor IS NOT NULL "
+    "AND consultor_nome IS NOT NULL AND consultor_cargo IS NOT NULL "
+    "AND consultor_telefone IS NOT NULL AND consultor_email IS NOT NULL "
+    "AND projeto_nome IS NOT NULL AND garantia_meses > 0 "
+    "AND jsonb_typeof(investimentos) = 'array' "
+    "AND jsonb_array_length(investimentos) BETWEEN 1 AND 3)"
+)
+CK_PROPOSTAS_DATA_VALIDADE = "data_proposta IS NULL OR data_proposta <= validade"
+
+
 class Proposta(Base):
-    """Proposta comercial emitida no Proposal; imutável após gerada, exceto status e datas."""
+    """Proposta comercial emitida no Proposal; editável até ser assinada ou cancelada.
+
+    `modelo = 'simples'` são as propostas da feature 077 (CNPJ, valor e imposto); os demais
+    modelos (ex.: `executive-search`) usam os campos do modelo e `investimentos`.
+    """
     __tablename__ = "propostas"
     __table_args__ = (
+        CheckConstraint(CK_PROPOSTAS_CAMPOS_MODELO, name="ck_propostas_campos_modelo"),
+        CheckConstraint(CK_PROPOSTAS_DATA_VALIDADE, name="ck_propostas_data_validade"),
         CheckConstraint("valor > 0", name="ck_propostas_valor_positivo"),
         CheckConstraint(
             "status IN ('aguardando','visualizada','assinada','cancelada')",
@@ -384,13 +404,13 @@ class Proposta(Base):
 
     id = Column(Integer, primary_key=True)
     codigo = Column(String(64), unique=True, nullable=False)
-    cliente_nome = Column(String(255), nullable=False)
-    cnpj = Column(String(14), nullable=False)
-    valor = Column(Numeric(14, 2), nullable=False)
+    cliente_nome = Column(String(255), nullable=False)  # "Empresa" nas propostas por modelo
+    cnpj = Column(String(14), nullable=True)
+    valor = Column(Numeric(14, 2), nullable=True)
     imposto_ativo = Column(Boolean, nullable=False, default=False)
     aliquota = Column(Numeric(5, 2), nullable=True)
     valor_imposto = Column(Numeric(14, 2), nullable=False, default=0)
-    total = Column(Numeric(14, 2), nullable=False)
+    total = Column(Numeric(14, 2), nullable=True)
     emitida_em = Column(DateTime, nullable=False, default=datetime.utcnow)
     validade = Column(Date, nullable=False)
     status = Column(String(20), nullable=False, default="aguardando", index=True)
@@ -400,10 +420,52 @@ class Proposta(Base):
     conteudo_hash = Column(String(64), nullable=False)
     criado_por_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="SET NULL"), nullable=True)
     criado_por_usuario = Column(String(255), nullable=False)
+    versao = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    atualizada_em = Column(DateTime, nullable=True)
+    versao_visualizada_em = Column(DateTime, nullable=True)
+    modelo = Column(String(40), nullable=False, default="simples", server_default=text("'simples'"))
+    modelo_versao = Column(Integer, nullable=True)
+    data_proposta = Column(Date, nullable=True)
+    setor = Column(String(40), nullable=True)
+    consultor_nome = Column(String(255), nullable=True)
+    consultor_cargo = Column(String(255), nullable=True)
+    consultor_telefone = Column(String(30), nullable=True)
+    consultor_email = Column(String(255), nullable=True)
+    projeto_nome = Column(String(255), nullable=True)
+    garantia_meses = Column(SmallInteger, nullable=True)
+    investimentos = Column(JSONB, nullable=True)
 
     assinatura = relationship(
         "PropostaAssinatura", back_populates="proposta", uselist=False, passive_deletes=True
     )
+    edicoes = relationship(
+        "PropostaEdicao",
+        back_populates="proposta",
+        order_by="desc(PropostaEdicao.versao)",
+        passive_deletes=True,
+    )
+
+
+class PropostaEdicao(Base):
+    """Registro append-only de uma edição efetiva da proposta (campo anterior → novo)."""
+    __tablename__ = "propostas_edicoes"
+    __table_args__ = (
+        UniqueConstraint("proposta_id", "versao", name="uq_propostas_edicoes_versao"),
+        CheckConstraint(
+            "jsonb_typeof(alteracoes) = 'array' AND jsonb_array_length(alteracoes) > 0",
+            name="ck_propostas_edicoes_alteracoes",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    proposta_id = Column(Integer, ForeignKey("propostas.id", ondelete="CASCADE"), nullable=False)
+    versao = Column(Integer, nullable=False)
+    editada_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    editado_por_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="SET NULL"), nullable=True)
+    editado_por_usuario = Column(String(255), nullable=False)
+    alteracoes = Column(JSONB, nullable=False)
+
+    proposta = relationship("Proposta", back_populates="edicoes")
 
 
 class PropostaAssinatura(Base):
@@ -423,6 +485,18 @@ class PropostaAssinatura(Base):
     conteudo_hash = Column(String(64), nullable=False)
 
     proposta = relationship("Proposta", back_populates="assinatura")
+
+
+class PerfilConsultor(Base):
+    """Dados de contato do usuário do Proposal que pré-preenchem o consultor das novas propostas."""
+    __tablename__ = "proposal_perfis_consultor"
+
+    usuario_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="CASCADE"), primary_key=True)
+    nome = Column(String(255), nullable=True)
+    cargo = Column(String(255), nullable=True)
+    telefone = Column(String(30), nullable=True)
+    email = Column(String(255), nullable=True)
+    atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # ==================== CONFIGURAÇÃO GLOBAL DO APP ====================

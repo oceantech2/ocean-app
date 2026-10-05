@@ -11,6 +11,12 @@ from fastapi import HTTPException, Request
 
 from app.models import Proposta
 from app.services.documento import formatar_cnpj, normalizar_cnpj, validar_cnpj, validar_email
+from app.services.proposta_modelos import (
+    MODELO_SIMPLES,
+    TIPOS_INVESTIMENTO,
+    nome_modelo,
+    telefone_whatsapp,
+)
 
 TZ_SP = ZoneInfo("America/Sao_Paulo")
 DIAS_VALIDADE_PADRAO = 30
@@ -54,8 +60,8 @@ def calcular_valores(valor: Decimal, imposto_ativo: bool, aliquota: Optional[Dec
     return imposto, valor + imposto
 
 
-def validar_criacao(payload) -> dict:
-    """Valida o pedido de criação e devolve os campos normalizados (422 com mensagem do contrato)."""
+def validar_dados(payload, validade_se_vazia: date) -> dict:
+    """Valida criação/edição e devolve os campos normalizados (422 com mensagem do contrato)."""
     cliente_nome = (payload.cliente_nome or "").strip()
     if not cliente_nome:
         raise _erro("Informe o nome do cliente")
@@ -83,9 +89,9 @@ def validar_criacao(payload) -> dict:
         if aliquota <= 0 or aliquota >= 100:
             raise _erro("Alíquota deve ser maior que 0 e menor que 100")
 
-    validade = payload.validade or validade_padrao()
+    validade = payload.validade or validade_se_vazia
     if validade <= hoje_sp():
-        raise _erro("Validade deve ser posterior à data de emissão")
+        raise _erro("Validade deve ser posterior a hoje")
 
     valor_imposto, total = calcular_valores(valor, imposto_ativo, aliquota)
     return {
@@ -108,7 +114,36 @@ def _dec_str(valor: Optional[Decimal]) -> Optional[str]:
     return None if valor is None else f"{Decimal(valor):.2f}"
 
 
+def eh_simples(p: Proposta) -> bool:
+    return (p.modelo or MODELO_SIMPLES) == MODELO_SIMPLES
+
+
+def _json_canonico(dados: dict) -> str:
+    return json.dumps(dados, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
 def conteudo_canonico(p: Proposta) -> str:
+    if not eh_simples(p):
+        return _json_canonico({
+            "codigo": p.codigo,
+            "emitida_em": p.emitida_em.replace(microsecond=0).isoformat(),
+            "modelo": p.modelo,
+            "modelo_versao": p.modelo_versao,
+            "cliente_nome": p.cliente_nome,
+            "data_proposta": _data(p.data_proposta),
+            "setor": p.setor,
+            "consultor": {
+                "nome": p.consultor_nome,
+                "cargo": p.consultor_cargo,
+                "telefone": p.consultor_telefone,
+                "email": p.consultor_email,
+            },
+            "projeto_nome": p.projeto_nome,
+            "garantia_meses": p.garantia_meses,
+            "investimentos": p.investimentos,
+            "validade": p.validade.isoformat(),
+        })
+    # Formato das propostas simples congelado: assinaturas antigas dependem dele
     dados = {
         "aliquota": _dec_str(p.aliquota) if p.imposto_ativo else None,
         "cliente_nome": p.cliente_nome,
@@ -121,11 +156,75 @@ def conteudo_canonico(p: Proposta) -> str:
         "valor": _dec_str(p.valor),
         "valor_imposto": _dec_str(p.valor_imposto),
     }
-    return json.dumps(dados, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _json_canonico(dados)
 
 
 def calcular_hash(p: Proposta) -> str:
     return hashlib.sha256(conteudo_canonico(p).encode("utf-8")).hexdigest()
+
+
+CAMPOS_EDITAVEIS = (
+    "cliente_nome", "cnpj", "valor", "imposto_ativo", "aliquota", "valor_imposto", "total", "validade",
+)
+
+
+CAMPOS_MODELO = (
+    "cliente_nome", "data_proposta", "setor", "consultor_nome", "consultor_cargo",
+    "consultor_telefone", "consultor_email", "projeto_nome", "garantia_meses", "validade",
+)
+
+
+def _canonico(campo: str, valor):
+    if valor is None:
+        return None
+    if campo in ("valor", "aliquota", "valor_imposto", "total"):
+        return _dec_str(valor)
+    if campo in ("validade", "data_proposta"):
+        return valor.isoformat()
+    if campo == "garantia_meses":
+        return int(valor)
+    if campo == "imposto_ativo":
+        return bool(valor)
+    return valor
+
+
+def diff_campos(p: Proposta, dados: dict) -> list[dict]:
+    """Campos alterados entre a proposta atual e os dados validados, na forma canônica do hash."""
+    if not eh_simples(p):
+        return _diff_modelo(p, dados)
+    alteracoes = []
+    for campo in CAMPOS_EDITAVEIS:
+        anterior = _canonico(campo, getattr(p, campo))
+        novo = _canonico(campo, dados[campo])
+        if campo == "aliquota":
+            anterior = anterior if p.imposto_ativo else None
+            novo = novo if dados["imposto_ativo"] else None
+        if anterior != novo:
+            alteracoes.append({"campo": campo, "anterior": anterior, "novo": novo})
+    return alteracoes
+
+
+def _investimentos_por_tipo(itens) -> dict:
+    return {
+        item["tipo"]: {"taxa_tipo": item["taxa_tipo"], "taxa": item["taxa"], "entrada": item.get("entrada")}
+        for item in (itens or [])
+    }
+
+
+def _diff_modelo(p: Proposta, dados: dict) -> list[dict]:
+    alteracoes = []
+    for campo in CAMPOS_MODELO:
+        anterior = _canonico(campo, getattr(p, campo))
+        novo = _canonico(campo, dados[campo])
+        if anterior != novo:
+            alteracoes.append({"campo": campo, "anterior": anterior, "novo": novo})
+    atuais = _investimentos_por_tipo(p.investimentos)
+    novos = _investimentos_por_tipo(dados["investimentos"])
+    for tipo in TIPOS_INVESTIMENTO:
+        anterior, novo = atuais.get(tipo), novos.get(tipo)
+        if anterior != novo:
+            alteracoes.append({"campo": f"investimento.{tipo}", "anterior": anterior, "novo": novo})
+    return alteracoes
 
 
 def status_efetivo(p: Proposta) -> str:
@@ -166,12 +265,20 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
     return None if dt is None else dt.replace(microsecond=0).isoformat() + "Z"
 
 
+def _data(d: Optional[date]) -> Optional[str]:
+    return None if d is None else d.isoformat()
+
+
 def serializar_item(p: Proposta) -> dict:
     return {
         "id": p.id,
         "codigo": p.codigo,
+        "modelo": p.modelo,
+        "modelo_nome": nome_modelo(p.modelo),
         "cliente_nome": p.cliente_nome,
-        "cnpj": formatar_cnpj(p.cnpj),
+        "projeto_nome": p.projeto_nome,
+        "data_proposta": _data(p.data_proposta),
+        "cnpj": formatar_cnpj(p.cnpj) if p.cnpj else None,
         "total": _dec_str(p.total),
         "emitida_em": _iso(p.emitida_em),
         "validade": p.validade.isoformat(),
@@ -184,12 +291,32 @@ def serializar_detalhe(p: Proposta) -> dict:
     a = p.assinatura
     return {
         **serializar_item(p),
+        "modelo_versao": p.modelo_versao,
+        "setor": p.setor,
+        "consultor_nome": p.consultor_nome,
+        "consultor_cargo": p.consultor_cargo,
+        "consultor_telefone": p.consultor_telefone,
+        "consultor_email": p.consultor_email,
+        "garantia_meses": p.garantia_meses,
+        "investimentos": p.investimentos,
         "valor": _dec_str(p.valor),
         "imposto_ativo": bool(p.imposto_ativo),
         "aliquota": _dec_str(p.aliquota) if p.imposto_ativo else None,
         "valor_imposto": _dec_str(p.valor_imposto),
         "visualizada_em": _iso(p.visualizada_em),
         "cancelada_em": _iso(p.cancelada_em),
+        "versao": p.versao,
+        "atualizada_em": _iso(p.atualizada_em),
+        "versao_visualizada_em": _iso(p.versao_visualizada_em),
+        "edicoes": [
+            {
+                "versao": e.versao,
+                "editada_em": _iso(e.editada_em),
+                "editado_por_usuario": e.editado_por_usuario,
+                "alteracoes": e.alteracoes,
+            }
+            for e in sorted(p.edicoes, key=lambda e: e.versao, reverse=True)
+        ],
         "assinatura": None if a is None else {
             "nome": a.nome,
             "email": a.email,
@@ -208,8 +335,36 @@ def serializar_publica(p: Proposta) -> dict:
         return {"status": status, "pode_assinar": False, "mensagem": MSG_CANCELADA_PUBLICA}
     if status == "expirada":
         return {"status": status, "pode_assinar": False, "mensagem": MSG_EXPIRADA_PUBLICA}
+    assinatura = None
+    if status == "assinada" and p.assinatura is not None:
+        assinatura = {"nome": p.assinatura.nome, "assinada_em": _iso(p.assinatura.assinada_em)}
+    if not eh_simples(p):
+        return {
+            "status": status,
+            "pode_assinar": status in STATUS_PENDENTES,
+            "modelo": p.modelo,
+            "modelo_versao": p.modelo_versao,
+            "cliente_nome": p.cliente_nome,
+            "data_proposta": _data(p.data_proposta),
+            "setor": p.setor,
+            "consultor": {
+                "nome": p.consultor_nome,
+                "cargo": p.consultor_cargo,
+                "telefone": p.consultor_telefone,
+                "telefone_digitos": telefone_whatsapp(p.consultor_telefone),
+                "email": p.consultor_email,
+            },
+            "projeto_nome": p.projeto_nome,
+            "garantia_meses": p.garantia_meses,
+            "investimentos": p.investimentos,
+            "validade": p.validade.isoformat(),
+            "versao": p.versao,
+            "atualizada_em": _iso(p.atualizada_em),
+            "assinatura": assinatura,
+        }
     dados = {
         "status": status,
+        "modelo": MODELO_SIMPLES,
         "cliente_nome": p.cliente_nome,
         "cnpj": formatar_cnpj(p.cnpj),
         "valor": _dec_str(p.valor),
@@ -219,8 +374,10 @@ def serializar_publica(p: Proposta) -> dict:
         "total": _dec_str(p.total),
         "emitida_em": _iso(p.emitida_em),
         "validade": p.validade.isoformat(),
+        "versao": p.versao,
+        "atualizada_em": _iso(p.atualizada_em),
         "pode_assinar": status in STATUS_PENDENTES,
     }
-    if status == "assinada" and p.assinatura is not None:
-        dados["assinatura"] = {"nome": p.assinatura.nome, "assinada_em": _iso(p.assinatura.assinada_em)}
+    if assinatura is not None:
+        dados["assinatura"] = assinatura
     return dados

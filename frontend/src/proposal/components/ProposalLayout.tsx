@@ -21,6 +21,9 @@ export default function ProposalLayout({ children }: { children: ReactNode }) {
           </Link>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600 hidden sm:inline">{usuario}</span>
+            <Link to="/perfil" className="text-sm text-ocean-700 hover:underline">
+              Meu perfil
+            </Link>
             <button
               onClick={sair}
               className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition"

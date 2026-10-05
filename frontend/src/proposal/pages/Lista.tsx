@@ -4,8 +4,9 @@ import toast from 'react-hot-toast';
 import ProposalLayout from '../components/ProposalLayout';
 import StatusBadge from '../components/StatusBadge';
 import { listarPropostas, mensagemErro, PropostaListItem, StatusProposta } from '../services/proposalApi';
+import { formatarDataISO } from '../modelos/formatacao';
 import { useProposalAuthStore } from '../store';
-import { copiarTexto, formatarData, formatarMoeda, montarLinkPublico, STATUS_LABEL } from '../utils/propostaCalculo';
+import { copiarTexto, formatarData, montarLinkPublico, STATUS_LABEL } from '../utils/propostaCalculo';
 
 const FILTROS: Array<{ valor: StatusProposta | ''; label: string }> = [
   { valor: '', label: 'Todas' },
@@ -88,10 +89,10 @@ export default function Lista() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-left text-gray-600">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Cliente</th>
-                  <th className="px-4 py-3 font-medium">CNPJ</th>
-                  <th className="px-4 py-3 font-medium text-right">Total</th>
-                  <th className="px-4 py-3 font-medium">Emissão</th>
+                  <th className="px-4 py-3 font-medium">Empresa</th>
+                  <th className="px-4 py-3 font-medium">Modelo</th>
+                  <th className="px-4 py-3 font-medium">Projeto</th>
+                  <th className="px-4 py-3 font-medium">Data</th>
                   <th className="px-4 py-3 font-medium">Validade</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   {isAdmin && <th className="px-4 py-3 font-medium">Criado por</th>}
@@ -102,9 +103,11 @@ export default function Lista() {
                 {itens.map((p) => (
                   <tr key={p.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-900">{p.cliente_nome}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.cnpj}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">{formatarMoeda(p.total)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">{formatarData(p.emitida_em)}</td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.modelo_nome}</td>
+                    <td className="px-4 py-3 text-gray-600">{p.projeto_nome ?? '—'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {p.data_proposta ? formatarDataISO(p.data_proposta) : formatarData(p.emitida_em)}
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap">{formatarData(p.validade)}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={p.status} />

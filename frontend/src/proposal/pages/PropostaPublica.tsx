@@ -1,6 +1,7 @@
-import { ReactNode, useCallback, useEffect, useState } from 'react';
+import { ReactNode, Suspense, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { componenteDoModelo } from '../modelos';
 import { assinarPublica, consultarPublica, mensagemErro, PropostaPublicaData } from '../services/proposalApi';
 import { formatarAliquota, formatarData, formatarDataHora, formatarMoeda } from '../utils/propostaCalculo';
 
@@ -50,8 +51,8 @@ export default function PropostaPublica() {
   const [erros, setErros] = useState<{ nome?: string; email?: string; aceite?: string }>({});
   const [enviando, setEnviando] = useState(false);
 
-  const carregar = useCallback(async () => {
-    setLoading(true);
+  const carregar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     setErroRede(false);
     try {
       setDados(await consultarPublica(codigo));
@@ -68,6 +69,10 @@ export default function PropostaPublica() {
     carregar();
   }, [carregar]);
 
+  const recarregarSilencioso = useCallback(() => {
+    carregar(true);
+  }, [carregar]);
+
   const assinar = async (e: React.FormEvent) => {
     e.preventDefault();
     const encontrados: typeof erros = {};
@@ -79,7 +84,7 @@ export default function PropostaPublica() {
 
     setEnviando(true);
     try {
-      setDados(await assinarPublica(codigo, { nome: nome.trim(), email: email.trim(), aceite }));
+      setDados(await assinarPublica(codigo, { nome: nome.trim(), email: email.trim(), aceite, versao: dados?.versao }));
       setAbrirForm(false);
       toast.success('Proposta assinada');
     } catch (err: any) {
@@ -93,14 +98,14 @@ export default function PropostaPublica() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-ocean-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-ocean-700" />
-        <p className="text-ocean-900">Carregando proposta…</p>
-      </div>
-    );
-  }
+  const carregando = (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-ocean-50">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-ocean-700" />
+      <p className="text-ocean-900">Carregando proposta…</p>
+    </div>
+  );
+
+  if (loading) return carregando;
 
   if (naoEncontrada) return <Mensagem texto="Proposta não encontrada" />;
 
@@ -109,7 +114,7 @@ export default function PropostaPublica() {
       <Moldura>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center space-y-4">
           <p className="text-gray-700">Não foi possível carregar a proposta.</p>
-          <button onClick={carregar} className="px-4 py-2 rounded-lg bg-ocean-700 text-white hover:bg-ocean-800 transition">
+          <button onClick={() => carregar()} className="px-4 py-2 rounded-lg bg-ocean-700 text-white hover:bg-ocean-800 transition">
             Tentar novamente
           </button>
         </div>
@@ -119,6 +124,16 @@ export default function PropostaPublica() {
 
   if (dados.status === 'cancelada' || dados.status === 'expirada') {
     return <Mensagem texto={dados.mensagem || 'Esta proposta não está mais disponível.'} />;
+  }
+
+  if (dados.modelo && dados.modelo !== 'simples') {
+    const Pagina = componenteDoModelo(dados.modelo, dados.modelo_versao);
+    if (!Pagina) return <Mensagem texto="Não foi possível exibir esta proposta" />;
+    return (
+      <Suspense fallback={carregando}>
+        <Pagina dados={dados} codigo={codigo} onRecarregar={recarregarSilencioso} />
+      </Suspense>
+    );
   }
 
   const inputCls = (erro?: string) =>
@@ -147,6 +162,9 @@ export default function PropostaPublica() {
           <div>
             <p className="text-gray-500">Emissão</p>
             <p className="text-gray-900">{formatarData(dados.emitida_em)}</p>
+            {dados.atualizada_em && (
+              <p className="text-gray-500 mt-1">Atualizada em {formatarData(dados.atualizada_em)}</p>
+            )}
           </div>
           <div>
             <p className="text-gray-500">Válida até</p>

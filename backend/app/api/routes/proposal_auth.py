@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -33,6 +34,22 @@ def get_proposal_user(
     if not usuario or not usuario.ativo or not usuario.acesso_proposal:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=MSG_SEM_ACESSO)
     return {"id": usuario.id, "usuario": usuario.usuario, "papel": usuario.papel or "visualizador"}
+
+
+oauth2_proposal_opcional = OAuth2PasswordBearer(tokenUrl="/api/proposal/auth/token", auto_error=False)
+
+
+def get_proposal_user_opcional(
+    token: Optional[str] = Depends(oauth2_proposal_opcional),
+    db: Session = Depends(get_db),
+) -> Optional[dict]:
+    """Para rotas públicas: usuário do Proposal se o token for válido; nunca recusa a requisição."""
+    if not token:
+        return None
+    try:
+        return get_proposal_user(token, db)
+    except HTTPException:
+        return None
 
 
 @router.post("/token")

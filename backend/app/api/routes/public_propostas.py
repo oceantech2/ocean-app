@@ -1,9 +1,12 @@
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.routes.proposal_auth import get_proposal_user_opcional
 from app.database import get_db
 from app.models import Proposta, PropostaAssinatura
 from app.schemas import PropostaAssinar
@@ -13,12 +16,15 @@ from app.services.propostas import (
     calcular_hash,
     hoje_sp,
     ip_origem,
+    pode_ver,
     serializar_publica,
     status_efetivo,
     validar_assinatura,
 )
 
 router = APIRouter()
+
+MSG_VERSAO_DESATUALIZADA = "Esta proposta foi atualizada. Revise os dados e assine novamente."
 
 _MOTIVO_409 = {
     "assinada": "Proposta já assinada",
@@ -47,15 +53,25 @@ def _recusar(db: Session, codigo: str):
 
 
 @router.get("/{codigo}")
-def consultar_proposta(codigo: str, db: Session = Depends(get_db)):
+def consultar_proposta(
+    codigo: str,
+    db: Session = Depends(get_db),
+    user: Optional[dict] = Depends(get_proposal_user_opcional),
+):
     p = _por_codigo(db, codigo)
-    if p.status == "aguardando" and p.visualizada_em is None and status_efetivo(p) == "aguardando":
+    aberta_pela_ocean = user is not None and pode_ver(p, user)
+    if not aberta_pela_ocean and p.versao_visualizada_em is None and status_efetivo(p) == "aguardando":
+        agora = datetime.utcnow()
         db.query(Proposta).filter(
             Proposta.id == p.id,
             Proposta.status == "aguardando",
-            Proposta.visualizada_em.is_(None),
+            Proposta.versao_visualizada_em.is_(None),
         ).update(
-            {"status": "visualizada", "visualizada_em": datetime.utcnow()},
+            {
+                "status": "visualizada",
+                "versao_visualizada_em": agora,
+                "visualizada_em": func.coalesce(Proposta.visualizada_em, agora),
+            },
             synchronize_session=False,
         )
         db.commit()
@@ -76,6 +92,8 @@ def assinar_proposta(
 
     if status_efetivo(p) not in STATUS_PENDENTES:
         _recusar(db, codigo)
+    if payload.versao != p.versao:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=MSG_VERSAO_DESATUALIZADA)
 
     conteudo_hash = calcular_hash(p)
     if conteudo_hash != p.conteudo_hash:
@@ -88,10 +106,16 @@ def assinar_proposta(
             Proposta.id == p.id,
             Proposta.status.in_(STATUS_PENDENTES),
             Proposta.validade >= hoje_sp(),
+            Proposta.versao == payload.versao,
         )
         .update({"status": "assinada", "assinada_em": agora}, synchronize_session=False)
     )
     if not atualizadas:
+        db.rollback()
+        db.expire_all()
+        atual = _por_codigo(db, codigo)
+        if status_efetivo(atual) in STATUS_PENDENTES and atual.versao != payload.versao:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=MSG_VERSAO_DESATUALIZADA)
         _recusar(db, codigo)
 
     db.add(PropostaAssinatura(

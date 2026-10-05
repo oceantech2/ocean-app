@@ -1,117 +1,86 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { formatarCNPJ, validarCNPJ } from '../../utils/documento';
+import ModeloForm, { FormModelo, formDeModelo, formModeloInicial } from '../components/ModeloForm';
 import ProposalLayout from '../components/ProposalLayout';
-import { criarProposta, mensagemErro, obterProposta, Proposta } from '../services/proposalApi';
+import { modelosDisponiveis } from '../modelos';
 import {
-  calcularImpostoCentavos,
-  centavosParaDecimal,
-  copiarTexto,
-  formatarData,
-  formatarMoeda,
-  formatarMoedaCentavos,
-  hojeSP,
-  montarLinkPublico,
-  parseAliquotaCentesimos,
-  parseMoedaCentavos,
-  somarDias,
-  validadePadrao,
-} from '../utils/propostaCalculo';
+  criarProposta,
+  mensagemErro,
+  ModeloId,
+  obterPerfil,
+  obterProposta,
+  PerfilConsultor,
+  Proposta,
+  PropostaModeloPayload,
+} from '../services/proposalApi';
+import { copiarTexto, formatarData, montarLinkPublico } from '../utils/propostaCalculo';
 
-interface Form {
-  cliente_nome: string;
-  cnpj: string;
-  valor: string;
-  imposto_ativo: boolean;
-  aliquota: string;
-  validade: string;
-}
+const MODELOS = modelosDisponiveis();
+const MODELO_PADRAO: ModeloId = MODELOS[0]?.id ?? 'executive-search';
 
-type Erros = Partial<Record<keyof Form, string>>;
-
-const formInicial = (): Form => ({
-  cliente_nome: '',
-  cnpj: '',
-  valor: '',
-  imposto_ativo: false,
-  aliquota: '',
-  validade: validadePadrao(),
-});
-
-const decimalParaBR = (v: string | null) =>
-  v ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-
-function Erro({ msg }: { msg?: string }) {
-  return msg ? <p className="text-sm text-red-600 mt-1">{msg}</p> : null;
-}
-
-function validar(form: Form, valorCent: number | null, aliqCent: number | null): Erros {
-  const erros: Erros = {};
-  if (!form.cliente_nome.trim()) erros.cliente_nome = 'Informe o nome do cliente';
-  if (!validarCNPJ(form.cnpj)) erros.cnpj = 'CNPJ inválido';
-  if (!valorCent || valorCent <= 0) erros.valor = 'Valor deve ser maior que zero';
-  if (form.imposto_ativo && (!aliqCent || aliqCent <= 0 || aliqCent >= 10000)) {
-    erros.aliquota = 'Alíquota deve ser maior que 0 e menor que 100';
-  }
-  if (!form.validade || form.validade <= hojeSP()) {
-    erros.validade = 'Validade deve ser posterior à data de emissão';
-  }
-  return erros;
-}
+const perfilIncompleto = (perfil: PerfilConsultor | null) =>
+  !perfil || !perfil.nome || !perfil.cargo || !perfil.telefone || !perfil.email;
 
 export default function Nova() {
   const [params, setParams] = useSearchParams();
   const copiarId = params.get('copiar');
-  const [form, setForm] = useState<Form>(formInicial);
-  const [erros, setErros] = useState<Erros>({});
+  const [modelo, setModelo] = useState<ModeloId>(MODELO_PADRAO);
+  const [perfil, setPerfil] = useState<PerfilConsultor | null>(null);
+  const [copiando, setCopiando] = useState(false);
+  const [inicial, setInicial] = useState<FormModelo>(() => formModeloInicial(null, MODELO_PADRAO));
+  const [versaoForm, setVersaoForm] = useState(0);
   const [salvando, setSalvando] = useState(false);
-  const [carregandoCopia, setCarregandoCopia] = useState(false);
+  const [carregando, setCarregando] = useState(true);
   const [criada, setCriada] = useState<Proposta | null>(null);
 
-  useEffect(() => {
-    if (!copiarId) return;
-    setCarregandoCopia(true);
-    obterProposta(copiarId)
-      .then((p) =>
-        setForm({
-          cliente_nome: p.cliente_nome,
-          cnpj: p.cnpj,
-          valor: decimalParaBR(p.valor),
-          imposto_ativo: p.imposto_ativo,
-          aliquota: decimalParaBR(p.aliquota),
-          validade: validadePadrao(),
-        }),
-      )
-      .catch((e) => toast.error(mensagemErro(e, 'Não foi possível carregar a proposta de origem')))
-      .finally(() => setCarregandoCopia(false));
-  }, [copiarId]);
-
-  const valorCent = useMemo(() => parseMoedaCentavos(form.valor), [form.valor]);
-  const aliqCent = useMemo(() => parseAliquotaCentesimos(form.aliquota), [form.aliquota]);
-  const impostoCent = form.imposto_ativo && valorCent && aliqCent ? calcularImpostoCentavos(valorCent, aliqCent) : 0;
-  const totalCent = (valorCent || 0) + impostoCent;
-
-  const set = <K extends keyof Form>(campo: K, valor: Form[K]) => {
-    setForm((f) => ({ ...f, [campo]: valor }));
-    setErros((e) => ({ ...e, [campo]: undefined }));
+  const reiniciarForm = (form: FormModelo) => {
+    setInicial(form);
+    setVersaoForm((v) => v + 1);
   };
 
-  const salvar = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const encontrados = validar(form, valorCent, aliqCent);
-    setErros(encontrados);
-    if (Object.keys(encontrados).length) return;
+  useEffect(() => {
+    let ativo = true;
+    setCarregando(true);
+    (async () => {
+      const perfilAtual = await obterPerfil().catch(() => null);
+      if (!ativo) return;
+      setPerfil(perfilAtual);
+      if (copiarId) {
+        try {
+          const origem = await obterProposta(copiarId);
+          if (!ativo) return;
+          if (origem.modelo !== 'simples') {
+            setModelo(origem.modelo);
+            setCopiando(true);
+            reiniciarForm(formDeModelo(origem, { dataHoje: true, validadePadrao: true }));
+            return;
+          }
+          toast.error('Esta proposta não pode ser copiada');
+        } catch (e) {
+          if (ativo) toast.error(mensagemErro(e, 'Não foi possível carregar a proposta de origem'));
+        }
+      }
+      if (!ativo) return;
+      setModelo(MODELO_PADRAO);
+      setCopiando(false);
+      reiniciarForm(formModeloInicial(perfilAtual, MODELO_PADRAO));
+    })().finally(() => ativo && setCarregando(false));
+    return () => {
+      ativo = false;
+    };
+  }, [copiarId]);
+
+  const trocarModelo = (novo: ModeloId) => {
+    setModelo(novo);
+    setCopiando(false);
+    reiniciarForm(formModeloInicial(perfil, novo));
+  };
+
+  const salvar = async (payload: PropostaModeloPayload) => {
     setSalvando(true);
     try {
-      const p = await criarProposta({
-        cliente_nome: form.cliente_nome.trim(),
-        cnpj: form.cnpj,
-        valor: centavosParaDecimal(valorCent!),
-        imposto_ativo: form.imposto_ativo,
-        aliquota: form.imposto_ativo ? centavosParaDecimal(aliqCent!) : null,
-        validade: form.validade,
-      });
+      const p = await criarProposta(payload);
       setCriada(p);
       toast.success('Proposta criada');
     } catch (err) {
@@ -123,8 +92,8 @@ export default function Nova() {
 
   const novaProposta = () => {
     setCriada(null);
-    setForm(formInicial());
-    setErros({});
+    setCopiando(false);
+    reiniciarForm(formModeloInicial(perfil, modelo));
     if (copiarId) setParams({});
   };
 
@@ -141,7 +110,7 @@ export default function Nova() {
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Proposta criada</h1>
             <p className="text-sm text-gray-600 mt-1">
-              {criada.cliente_nome} · {formatarMoeda(criada.total)} · válida até {formatarData(criada.validade)}
+              {criada.cliente_nome} · {criada.projeto_nome} · válida até {formatarData(criada.validade)}
             </p>
           </div>
           <div>
@@ -180,10 +149,16 @@ export default function Nova() {
     );
   }
 
-  const inputCls = (erro?: string) =>
-    `w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-ocean-600 ${
-      erro ? 'border-red-400' : 'border-gray-300'
-    }`;
+  const aviso =
+    !copiando && perfilIncompleto(perfil) ? (
+      <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        Preencha seu perfil para não precisar digitar seus dados de contato em cada proposta.{' '}
+        <Link to="/perfil" className="font-medium underline">
+          Ir para Meu perfil
+        </Link>
+      </div>
+    ) : undefined;
+
   return (
     <ProposalLayout>
       <div className="flex items-center justify-between mb-6">
@@ -193,119 +168,36 @@ export default function Nova() {
         </Link>
       </div>
 
-      {carregandoCopia ? (
+      <div className="mb-6 max-w-sm">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Modelo (divisão)</label>
+        <select
+          value={modelo}
+          onChange={(e) => trocarModelo(e.target.value as ModeloId)}
+          disabled={carregando}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-ocean-600 disabled:bg-gray-50"
+        >
+          {MODELOS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.nome}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {carregando ? (
         <div className="flex justify-center py-16">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-ocean-700" />
         </div>
       ) : (
-        <form onSubmit={salvar} noValidate className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome do cliente</label>
-              <input
-                value={form.cliente_nome}
-                onChange={(e) => set('cliente_nome', e.target.value)}
-                className={inputCls(erros.cliente_nome)}
-                maxLength={255}
-              />
-              <Erro msg={erros.cliente_nome} />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">CNPJ</label>
-              <input
-                value={form.cnpj}
-                onChange={(e) => set('cnpj', formatarCNPJ(e.target.value))}
-                className={inputCls(erros.cnpj)}
-                placeholder="00.000.000/0000-00"
-              />
-              <Erro msg={erros.cnpj} />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Valor (R$)</label>
-              <input
-                value={form.valor}
-                onChange={(e) => set('valor', e.target.value.replace(/[^\d.,]/g, ''))}
-                onBlur={() => valorCent && set('valor', decimalParaBR(centavosParaDecimal(valorCent)))}
-                className={inputCls(erros.valor)}
-                inputMode="decimal"
-                placeholder="0,00"
-              />
-              <Erro msg={erros.valor} />
-            </div>
-
-            <div className="flex items-center justify-between py-1">
-              <span className="text-sm font-medium text-gray-700">Incluir imposto</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={form.imposto_ativo}
-                onClick={() => set('imposto_ativo', !form.imposto_ativo)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                  form.imposto_ativo ? 'bg-ocean-700' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                    form.imposto_ativo ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {form.imposto_ativo && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Alíquota (%)</label>
-                <input
-                  value={form.aliquota}
-                  onChange={(e) => set('aliquota', e.target.value.replace(/[^\d.,]/g, ''))}
-                  className={inputCls(erros.aliquota)}
-                  inputMode="decimal"
-                  placeholder="0,00"
-                />
-                <Erro msg={erros.aliquota} />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Validade</label>
-              <input
-                type="date"
-                value={form.validade}
-                min={somarDias(hojeSP(), 1)}
-                onChange={(e) => set('validade', e.target.value)}
-                className={inputCls(erros.validade)}
-              />
-              <Erro msg={erros.validade} />
-            </div>
-          </div>
-
-          <aside className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 h-fit space-y-3">
-            <h2 className="font-semibold text-gray-900">Resumo</h2>
-            <div className="flex justify-between text-sm text-gray-700">
-              <span>Valor</span>
-              <span>{formatarMoedaCentavos(valorCent || 0)}</span>
-            </div>
-            {form.imposto_ativo && (
-              <div className="flex justify-between text-sm text-gray-700">
-                <span>Imposto{aliqCent ? ` (${(aliqCent / 100).toLocaleString('pt-BR')}%)` : ''}</span>
-                <span>{formatarMoedaCentavos(impostoCent)}</span>
-              </div>
-            )}
-            <div className="flex justify-between border-t border-gray-200 pt-3 font-semibold text-gray-900">
-              <span>Total</span>
-              <span>{formatarMoedaCentavos(totalCent)}</span>
-            </div>
-            <button
-              type="submit"
-              disabled={salvando}
-              className="w-full mt-2 bg-ocean-700 text-white font-semibold py-2 rounded-lg hover:bg-ocean-800 disabled:bg-gray-400 transition"
-            >
-              {salvando ? 'Gerando...' : 'Gerar proposta'}
-            </button>
-          </aside>
-        </form>
+        <ModeloForm
+          key={versaoForm}
+          inicial={inicial}
+          rotuloSalvar="Gerar proposta"
+          rotuloSalvando="Gerando..."
+          salvando={salvando}
+          onSubmit={salvar}
+          aviso={aviso}
+        />
       )}
     </ProposalLayout>
   );

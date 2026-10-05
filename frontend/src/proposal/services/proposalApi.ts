@@ -8,12 +8,28 @@ export const PAPEL_KEY = 'proposal_papel';
 
 export type StatusProposta = 'aguardando' | 'visualizada' | 'assinada' | 'cancelada' | 'expirada';
 
+export type ModeloId = 'executive-search';
+export type SetorId = 'oil-gas' | 'energia' | 'infraestrutura' | 'mineracao' | 'industria-servicos';
+export type TipoInvestimento = 'retainer' | 'sucesso' | 'valor-fechado';
+export type TaxaTipo = 'percentual' | 'valor';
+
+export interface Investimento {
+  tipo: TipoInvestimento;
+  taxa_tipo: TaxaTipo;
+  taxa: string;
+  entrada: number | null;
+}
+
 export interface PropostaListItem {
   id: number;
   codigo: string;
+  modelo: ModeloId | 'simples';
+  modelo_nome: string;
   cliente_nome: string;
-  cnpj: string;
-  total: string;
+  projeto_nome: string | null;
+  data_proposta: string | null;
+  cnpj: string | null;
+  total: string | null;
   emitida_em: string;
   validade: string;
   status: StatusProposta;
@@ -29,14 +45,39 @@ export interface PropostaAssinatura {
   conteudo_hash: string;
 }
 
+export interface AlteracaoCampo {
+  campo: string;
+  anterior: string | number | boolean | Investimento | null;
+  novo: string | number | boolean | Investimento | null;
+}
+
+export interface PropostaEdicao {
+  versao: number;
+  editada_em: string;
+  editado_por_usuario: string;
+  alteracoes: AlteracaoCampo[];
+}
+
 export interface Proposta extends PropostaListItem {
-  valor: string;
+  modelo_versao: number | null;
+  setor: SetorId | null;
+  consultor_nome: string | null;
+  consultor_cargo: string | null;
+  consultor_telefone: string | null;
+  consultor_email: string | null;
+  garantia_meses: number | null;
+  investimentos: Investimento[] | null;
+  valor: string | null;
   imposto_ativo: boolean;
   aliquota: string | null;
   valor_imposto: string | null;
   visualizada_em: string | null;
   cancelada_em: string | null;
   assinatura: PropostaAssinatura | null;
+  versao: number;
+  atualizada_em: string | null;
+  versao_visualizada_em: string | null;
+  edicoes: PropostaEdicao[];
 }
 
 export interface PropostaListResponse {
@@ -55,10 +96,41 @@ export interface PropostaPayload {
   validade: string | null;
 }
 
+export interface PropostaModeloPayload {
+  modelo: ModeloId;
+  cliente_nome: string;
+  data_proposta: string;
+  setor: SetorId | '';
+  consultor_nome: string;
+  consultor_cargo: string;
+  consultor_telefone: string;
+  consultor_email: string;
+  projeto_nome: string;
+  garantia_meses: number | null;
+  investimentos: Investimento[];
+  validade: string;
+}
+
+export interface ConsultorPublico {
+  nome: string;
+  cargo: string;
+  telefone: string;
+  telefone_digitos: string;
+  email: string;
+}
+
 export interface PropostaPublicaData {
   status: StatusProposta;
   pode_assinar: boolean;
   mensagem?: string;
+  modelo?: ModeloId | 'simples';
+  modelo_versao?: number;
+  data_proposta?: string;
+  setor?: SetorId;
+  consultor?: ConsultorPublico;
+  projeto_nome?: string;
+  garantia_meses?: number;
+  investimentos?: Investimento[];
   cliente_nome?: string;
   cnpj?: string;
   valor?: string;
@@ -68,7 +140,9 @@ export interface PropostaPublicaData {
   total?: string;
   emitida_em?: string;
   validade?: string;
-  assinatura?: { nome: string; assinada_em: string };
+  versao?: number;
+  atualizada_em?: string | null;
+  assinatura?: { nome: string; assinada_em: string } | null;
 }
 
 export interface LoginResponse {
@@ -126,7 +200,7 @@ export async function login(username: string, password: string, totpCode?: strin
   return data;
 }
 
-export async function criarProposta(payload: PropostaPayload): Promise<Proposta> {
+export async function criarProposta(payload: PropostaModeloPayload): Promise<Proposta> {
   const { data } = await proposalHttp.post<Proposta>('/proposal/propostas/', payload);
   return data;
 }
@@ -143,19 +217,49 @@ export async function listarPropostas(params: { status?: StatusProposta | ''; pa
   return data;
 }
 
+export async function editarProposta(
+  id: number | string,
+  payload: PropostaPayload | PropostaModeloPayload,
+): Promise<Proposta & { alterada: boolean }> {
+  const { data } = await proposalHttp.put<Proposta & { alterada: boolean }>(`/proposal/propostas/${id}`, payload);
+  return data;
+}
+
 export async function cancelarProposta(id: number | string): Promise<Proposta> {
   const { data } = await proposalHttp.post<Proposta>(`/proposal/propostas/${id}/cancelar`);
   return data;
 }
 
+export interface PerfilConsultor {
+  nome: string | null;
+  cargo: string | null;
+  telefone: string | null;
+  email: string | null;
+  atualizado_em?: string | null;
+}
+
+export async function obterPerfil(): Promise<PerfilConsultor> {
+  const { data } = await proposalHttp.get<PerfilConsultor>('/proposal/perfil');
+  return data;
+}
+
+export async function salvarPerfil(payload: PerfilConsultor): Promise<PerfilConsultor> {
+  const { data } = await proposalHttp.put<PerfilConsultor>('/proposal/perfil', payload);
+  return data;
+}
+
 export async function consultarPublica(codigo: string): Promise<PropostaPublicaData> {
-  const { data } = await publicHttp.get<PropostaPublicaData>(`/public/propostas/${encodeURIComponent(codigo)}`);
+  // Com sessão do Proposal na mesma origem, a abertura pela Ocean não conta como visualização do cliente
+  const token = localStorage.getItem(TOKEN_KEY);
+  const { data } = await publicHttp.get<PropostaPublicaData>(`/public/propostas/${encodeURIComponent(codigo)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   return data;
 }
 
 export async function assinarPublica(
   codigo: string,
-  payload: { nome: string; email: string; aceite: boolean },
+  payload: { nome: string; email: string; aceite: boolean; versao: number | undefined },
 ): Promise<PropostaPublicaData> {
   const { data } = await publicHttp.post<PropostaPublicaData>(
     `/public/propostas/${encodeURIComponent(codigo)}/assinar`,

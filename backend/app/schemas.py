@@ -543,6 +543,12 @@ class UsuarioAppResponse(BaseModel):
         from_attributes = True
 
 # ==================== PROPOSAL ====================
+class InvestimentoIn(BaseModel):
+    tipo: str = ""
+    taxa_tipo: str = ""
+    taxa: Optional[Decimal] = None
+    entrada: Optional[int] = None
+
 class PropostaCreate(BaseModel):
     cliente_nome: str = ""
     cnpj: str = ""
@@ -550,11 +556,30 @@ class PropostaCreate(BaseModel):
     imposto_ativo: bool = False
     aliquota: Optional[Decimal] = None
     validade: Optional[date] = None
+    # Propostas por modelo (feature 080)
+    modelo: Optional[str] = None
+    data_proposta: Optional[date] = None
+    setor: str = ""
+    consultor_nome: str = ""
+    consultor_cargo: str = ""
+    consultor_telefone: str = ""
+    consultor_email: str = ""
+    projeto_nome: str = ""
+    garantia_meses: Optional[int] = None
+    investimentos: Optional[List[InvestimentoIn]] = None
+
+
+class PerfilConsultorIn(BaseModel):
+    nome: Optional[str] = None
+    cargo: Optional[str] = None
+    telefone: Optional[str] = None
+    email: Optional[str] = None
 
 class PropostaAssinar(BaseModel):
     nome: str = ""
     email: str = ""
     aceite: bool = False
+    versao: Optional[int] = None
 
 class PaginasVisibilidadeResponse(BaseModel):
     paginas: dict[str, bool]
