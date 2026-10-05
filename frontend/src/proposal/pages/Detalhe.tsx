@@ -5,6 +5,8 @@ import ProposalLayout from '../components/ProposalLayout';
 import StatusBadge from '../components/StatusBadge';
 import { formatarCNPJ } from '../../utils/documento';
 import { formatarDataISO, formatarGarantia, formatarPagamento, formatarTaxa } from '../modelos/formatacao';
+import EscopoRico from '../modelos/EscopoRico';
+import { escopoParaTexto } from '../modelos/escopo';
 import { rotuloMoedaDetalhe } from '../modelos/idioma';
 import { rotuloTipo } from '../modelos/investimentos';
 import { rotuloSetor } from '../modelos/setores';
@@ -43,6 +45,7 @@ const ROTULOS_CAMPO: Record<string, string> = {
   consultor_telefone: 'Consultor: telefone',
   consultor_email: 'Consultor: e-mail',
   projeto_nome: 'Projeto',
+  projeto_escopo: 'Escopo do Projeto',
   garantia_meses: 'Garantia',
 };
 
@@ -74,6 +77,8 @@ function formatarValorCampo(campo: string, valor: AlteracaoCampo['novo'], moeda:
       return formatarAliquota(String(valor)) || '—';
     case 'validade':
       return formatarData(String(valor));
+    case 'projeto_escopo':
+      return escopoParaTexto(String(valor)) || '—';
     default:
       return String(valor);
   }
@@ -113,6 +118,16 @@ function SecoesModelo({ p }: { p: Proposta }) {
           </dl>
         </section>
       </div>
+      <section className={cartao}>
+        <h2 className="font-semibold text-gray-900 mb-4">Escopo do Projeto</h2>
+        {p.projeto_escopo ? (
+          <div className="text-gray-900 break-words space-y-2 [&_ol]:list-decimal [&_ul]:list-disc [&_ol]:pl-6 [&_ul]:pl-6 [&_ol]:space-y-2 [&_ul]:space-y-1 [&_ul]:mt-1 [&_strong]:font-semibold">
+            <EscopoRico html={p.projeto_escopo} />
+          </div>
+        ) : (
+          <p className="text-gray-500">Não informado</p>
+        )}
+      </section>
       <section className={cartao}>
         <h2 className="font-semibold text-gray-900 mb-4">Investimento</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -283,16 +298,30 @@ export default function Detalhe() {
                       {formatarDataHora(edicao.editada_em)} · {edicao.editado_por_usuario}
                     </p>
                     <ul className="mt-1 space-y-0.5 text-sm text-gray-800">
-                      {edicao.alteracoes.map((a) => (
-                        <li key={a.campo}>
-                          <span className="font-medium">{rotuloCampo(a.campo, porModelo)}:</span>{' '}
-                          <span className="text-gray-500 line-through">
-                            {formatarValorCampo(a.campo, a.anterior, proposta.moeda ?? 'BRL')}
-                          </span>
-                          {' → '}
-                          <span>{formatarValorCampo(a.campo, a.novo, proposta.moeda ?? 'BRL')}</span>
-                        </li>
-                      ))}
+                      {edicao.alteracoes.map((a) =>
+                        a.campo === 'projeto_escopo' ? (
+                          <li key={a.campo}>
+                            <span className="font-medium">{rotuloCampo(a.campo, porModelo)}:</span>
+                            <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <p className="whitespace-pre-wrap rounded-md bg-gray-50 p-2 text-gray-500 line-through">
+                                {formatarValorCampo(a.campo, a.anterior, proposta.moeda ?? 'BRL')}
+                              </p>
+                              <p className="whitespace-pre-wrap rounded-md bg-gray-50 p-2">
+                                {formatarValorCampo(a.campo, a.novo, proposta.moeda ?? 'BRL')}
+                              </p>
+                            </div>
+                          </li>
+                        ) : (
+                          <li key={a.campo}>
+                            <span className="font-medium">{rotuloCampo(a.campo, porModelo)}:</span>{' '}
+                            <span className="text-gray-500 line-through">
+                              {formatarValorCampo(a.campo, a.anterior, proposta.moeda ?? 'BRL')}
+                            </span>
+                            {' → '}
+                            <span>{formatarValorCampo(a.campo, a.novo, proposta.moeda ?? 'BRL')}</span>
+                          </li>
+                        ),
+                      )}
                     </ul>
                   </li>
                 ))}

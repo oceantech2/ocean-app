@@ -68,6 +68,7 @@ export interface Proposta extends PropostaListItem {
   consultor_cargo: string | null;
   consultor_telefone: string | null;
   consultor_email: string | null;
+  projeto_escopo: string | null;
   garantia_meses: number | null;
   investimentos: Investimento[] | null;
   valor: string | null;
@@ -109,6 +110,7 @@ export interface PropostaModeloPayload {
   consultor_telefone: string;
   consultor_email: string;
   projeto_nome: string;
+  projeto_escopo: string | null;
   garantia_meses: number | null;
   investimentos: Investimento[];
   validade: string;
@@ -134,6 +136,7 @@ export interface PropostaPublicaData {
   setor?: SetorId;
   consultor?: ConsultorPublico;
   projeto_nome?: string;
+  projeto_escopo?: string | null;
   garantia_meses?: number;
   investimentos?: Investimento[];
   cliente_nome?: string;

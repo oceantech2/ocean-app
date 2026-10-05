@@ -17,11 +17,13 @@ const textos: TextosES = {
   nav: {
     servico: 'Serviço',
     metodologia: 'Metodologia',
+    escopo: 'Escopo do Projeto',
     investimento: 'Investimento',
     garantias: 'Garantias e condições',
     contato: 'Contato',
   },
   servico: {
+    tituloDivisao: 'Executive Search',
     texto:
       'Desenvolvemos inteligência de mercado e encontramos os profissionais que fazem a diferença, do especialista ' +
       'técnico ao C-level. Nosso processo vai além da captação de currículos: mapeamos o mercado ativamente, abordamos ' +

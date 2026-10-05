@@ -14,7 +14,9 @@ from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrim
 from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
-from app.models import CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_MOEDA
+from app.models import (
+    CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_MOEDA,
+)
 
 # Criar tabelas
 Base.metadata.create_all(bind=engine)
@@ -603,6 +605,54 @@ def _migrar():
             conn.commit()
         except Exception:
             conn.rollback()
+
+    # Proposal (feature 082): Escopo do Projeto e versão 2 do modelo Executive Search
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE propostas ADD COLUMN IF NOT EXISTS projeto_escopo TEXT"))
+            conn.execute(text(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_propostas_escopo' AND conrelid = 'propostas'::regclass
+                    ) THEN
+                        ALTER TABLE propostas ADD CONSTRAINT ck_propostas_escopo CHECK ({CK_PROPOSTAS_ESCOPO});
+                    END IF;
+                END $$
+                """
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Pendentes passam para a versão vigente do modelo; o hash precisa ser regravado, senão o aceite é recusado.
+    # Assinadas e canceladas ficam na versão com que foram emitidas.
+    from app.models import Proposta
+    from app.services.propostas import STATUS_PENDENTES, calcular_hash
+
+    db = SessionLocal()
+    try:
+        pendentes = (
+            db.query(Proposta)
+            .filter(
+                Proposta.modelo == "executive-search",
+                Proposta.modelo_versao == 1,
+                Proposta.status.in_(STATUS_PENDENTES),
+            )
+            .with_for_update()
+            .all()
+        )
+        for p in pendentes:
+            p.modelo_versao = 2
+            p.conteudo_hash = calcular_hash(p)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logging.getLogger("ocean.migracao").exception("Falha ao migrar propostas pendentes para a versão 2")
+    finally:
+        db.close()
 
 _migrar()
 

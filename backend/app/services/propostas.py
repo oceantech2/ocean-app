@@ -147,6 +147,9 @@ def conteudo_canonico(p: Proposta) -> str:
         # Sem a chave = BRL: mantém válidos os hashes gravados antes da moeda existir
         if p.moeda and p.moeda != MOEDA_PADRAO:
             dados["moeda"] = p.moeda
+        # Sem a chave quando vazio: mantém válidos os hashes gravados antes do escopo existir
+        if p.projeto_escopo:
+            dados["projeto_escopo"] = p.projeto_escopo
         return _json_canonico(dados)
     # Formato das propostas simples congelado: assinaturas antigas dependem dele
     dados = {
@@ -175,7 +178,7 @@ CAMPOS_EDITAVEIS = (
 
 CAMPOS_MODELO = (
     "cliente_nome", "data_proposta", "setor", "consultor_nome", "consultor_cargo",
-    "consultor_telefone", "consultor_email", "projeto_nome", "garantia_meses", "validade",
+    "consultor_telefone", "consultor_email", "projeto_nome", "projeto_escopo", "garantia_meses", "validade",
 )
 
 
@@ -303,6 +306,7 @@ def serializar_detalhe(p: Proposta) -> dict:
         "consultor_cargo": p.consultor_cargo,
         "consultor_telefone": p.consultor_telefone,
         "consultor_email": p.consultor_email,
+        "projeto_escopo": p.projeto_escopo,
         "garantia_meses": p.garantia_meses,
         "investimentos": p.investimentos,
         "valor": _dec_str(p.valor),
@@ -364,6 +368,7 @@ def serializar_publica(p: Proposta) -> dict:
                 "email": p.consultor_email,
             },
             "projeto_nome": p.projeto_nome,
+            "projeto_escopo": p.projeto_escopo,
             "garantia_meses": p.garantia_meses,
             "investimentos": p.investimentos,
             "validade": p.validade.isoformat(),

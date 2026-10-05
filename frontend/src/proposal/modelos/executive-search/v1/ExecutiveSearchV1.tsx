@@ -3,8 +3,10 @@ import { assinarPublica } from '../../../services/proposalApi';
 import { dataHoraSP, EMAIL_RE, formatarDataISO, formatarDataSP, formatarTaxa } from '../../formatacao';
 import { idiomaDaMoeda } from '../../idioma';
 import type { ModeloPaginaProps } from '../../index';
+import EscopoRico from '../../EscopoRico';
 import { fotoSetor } from '../../setores';
 import { textosES } from './i18n';
+import { recursosDaVersao } from './versoes';
 import './executive-search-v1.css';
 
 const MSG_VERSAO_DESATUALIZADA = 'Esta proposta foi atualizada';
@@ -23,6 +25,9 @@ export default function ExecutiveSearchV1({ dados, codigo, onRecarregar }: Model
   const moeda = dados.moeda ?? 'BRL';
   const idioma = idiomaDaMoeda(moeda);
   const t = textosES(idioma);
+  const recursos = recursosDaVersao(dados.modelo_versao);
+  const tituloServico = recursos.tituloDivisao ? t.servico.tituloDivisao : t.nav.servico;
+  const escopo = recursos.escopo && dados.projeto_escopo ? dados.projeto_escopo : null;
   const consultor = dados.consultor;
   const cliente = dados.cliente_nome ?? '';
   const data = formatarDataISO(dados.data_proposta, idioma);
@@ -137,8 +142,9 @@ export default function ExecutiveSearchV1({ dados, codigo, onRecarregar }: Model
 
       <nav aria-label={t.pagina.navegacao}>
         <div className="wrap">
-          <a href="#servico">{t.nav.servico}</a>
+          <a href="#servico">{tituloServico}</a>
           <a href="#metodologia">{t.nav.metodologia}</a>
+          {escopo && <a href="#escopo">{t.nav.escopo}</a>}
           <a href="#investimento">{t.nav.investimento}</a>
           <a href="#garantias">{t.nav.garantias}</a>
           <a href="#contato">{t.nav.contato}</a>
@@ -148,7 +154,7 @@ export default function ExecutiveSearchV1({ dados, codigo, onRecarregar }: Model
       <main className="wrap">
         <section id="servico">
           <div className="head">
-            <h2>{t.nav.servico}</h2>
+            <h2>{tituloServico}</h2>
           </div>
           <p className="lead">{t.servico.texto}</p>
         </section>
@@ -173,6 +179,17 @@ export default function ExecutiveSearchV1({ dados, codigo, onRecarregar }: Model
             ))}
           </div>
         </section>
+
+        {escopo && (
+          <section id="escopo">
+            <div className="head">
+              <h2>{t.nav.escopo}</h2>
+            </div>
+            <div className="scope">
+              <EscopoRico html={escopo} />
+            </div>
+          </section>
+        )}
 
         <section id="investimento">
           <div className="head">

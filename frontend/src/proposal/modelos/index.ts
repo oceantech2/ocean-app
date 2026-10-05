@@ -14,13 +14,17 @@ interface ModeloRegistro {
   versoes: Partial<Record<number, LazyExoticComponent<ComponentType<ModeloPaginaProps>>>>;
 }
 
+// v1 e v2 compartilham o componente; as diferenças ficam em executive-search/v1/versoes.ts
+const paginaExecutiveSearch = lazy(() => import('./executive-search/v1/ExecutiveSearchV1'));
+
 // Mantido em sincronia com MODELOS de backend/app/services/proposta_modelos.py
 export const MODELOS: Record<ModeloId, ModeloRegistro> = {
   'executive-search': {
     nome: 'Executive Search',
     disponivel: true,
     versoes: {
-      1: lazy(() => import('./executive-search/v1/ExecutiveSearchV1')),
+      1: paginaExecutiveSearch,
+      2: paginaExecutiveSearch,
     },
   },
 };

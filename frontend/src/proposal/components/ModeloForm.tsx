@@ -1,4 +1,5 @@
-import { ReactNode, useState } from 'react';
+import { lazy, ReactNode, Suspense, useState } from 'react';
+import { contarCaracteres, LIMITE_ESCOPO, MSG_ESCOPO_LONGO } from '../modelos/escopo';
 import { EMAIL_RE, formatarGarantia, formatarPagamento, formatarTaxa, telefoneValido } from '../modelos/formatacao';
 import { MOEDAS_FORM, PREFIXO_MOEDA } from '../modelos/idioma';
 import { TIPOS } from '../modelos/investimentos';
@@ -15,6 +16,9 @@ import type {
   TipoInvestimento,
 } from '../services/proposalApi';
 import { centavosParaDecimal, hojeSP, parseNumeroBR, somarDias, validadePadrao } from '../utils/propostaCalculo';
+
+// Carregado sob demanda: o editor não entra no código da página pública do cliente
+const EditorEscopo = lazy(() => import('./EditorEscopo'));
 
 export interface InvestimentoForm {
   ativo: boolean;
@@ -34,6 +38,7 @@ export interface FormModelo {
   consultor_telefone: string;
   consultor_email: string;
   projeto_nome: string;
+  projeto_escopo: string;
   garantia_meses: string;
   validade: string;
   investimentos: Record<TipoInvestimento, InvestimentoForm>;
@@ -62,6 +67,7 @@ export const formModeloInicial = (consultor?: PerfilConsultor | null, modelo: Mo
   consultor_telefone: consultor?.telefone ?? '',
   consultor_email: consultor?.email ?? '',
   projeto_nome: '',
+  projeto_escopo: '',
   garantia_meses: '',
   validade: validadePadrao(),
   investimentos: investimentosVazios(),
@@ -90,6 +96,7 @@ export function formDeModelo(p: Proposta, opcoes: { dataHoje?: boolean; validade
     consultor_telefone: p.consultor_telefone ?? '',
     consultor_email: p.consultor_email ?? '',
     projeto_nome: p.projeto_nome ?? '',
+    projeto_escopo: p.projeto_escopo ?? '',
     garantia_meses: p.garantia_meses ? String(p.garantia_meses) : '',
     validade: opcoes.validadePadrao ? validadePadrao() : p.validade,
     investimentos,
@@ -125,6 +132,7 @@ function validar(form: FormModelo): Erros {
   if (!telefoneValido(form.consultor_telefone)) erros.consultor_telefone = 'Telefone do consultor inválido';
   if (!EMAIL_RE.test(form.consultor_email.trim())) erros.consultor_email = 'E-mail do consultor inválido';
   if (!form.projeto_nome.trim()) erros.projeto_nome = 'Informe o nome do projeto';
+  if (contarCaracteres(form.projeto_escopo) > LIMITE_ESCOPO) erros.projeto_escopo = MSG_ESCOPO_LONGO;
   const garantia = Number(form.garantia_meses);
   if (!/^\d+$/.test(form.garantia_meses.trim()) || garantia < 1 || garantia > 120) {
     erros.garantia_meses = 'Garantia deve ser um número de meses maior que zero';
@@ -194,6 +202,7 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
       consultor_telefone: form.consultor_telefone.trim(),
       consultor_email: form.consultor_email.trim(),
       projeto_nome: form.projeto_nome.trim(),
+      projeto_escopo: contarCaracteres(form.projeto_escopo) ? form.projeto_escopo : null,
       garantia_meses: Number(form.garantia_meses),
       validade: form.validade,
       investimentos: TIPOS.filter(({ tipo }) => form.investimentos[tipo].ativo)
@@ -325,6 +334,26 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
           <section className={secaoCls}>
             <h2 className="font-semibold text-gray-900">Projeto</h2>
             {texto('projeto_nome', 'Nome do projeto')}
+            <div>
+              <label className={labelCls}>Escopo do Projeto (opcional)</label>
+              <Suspense
+                fallback={
+                  <div className="h-[12.5rem] border border-gray-300 rounded-lg flex items-center justify-center">
+                    <div className="h-6 w-6 rounded-full border-2 border-ocean-600 border-t-transparent animate-spin" />
+                  </div>
+                }
+              >
+                <EditorEscopo
+                  valor={form.projeto_escopo}
+                  onChange={(html) => set('projeto_escopo', html)}
+                  erro={erros.projeto_escopo}
+                />
+              </Suspense>
+              <p className="text-sm text-gray-500 mt-1">
+                Aparece na seção Escopo do Projeto da proposta. Deixe em branco para não exibir a seção.
+              </p>
+              <Erro msg={erros.projeto_escopo} />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Garantia (meses)</label>

@@ -381,6 +381,7 @@ CK_PROPOSTAS_MOEDA = (
     "(modelo = 'simples' AND moeda IS NULL) "
     "OR (modelo <> 'simples' AND moeda IN ('BRL', 'USD'))"
 )
+CK_PROPOSTAS_ESCOPO = "projeto_escopo IS NULL OR modelo <> 'simples'"
 
 
 class Proposta(Base):
@@ -394,6 +395,7 @@ class Proposta(Base):
         CheckConstraint(CK_PROPOSTAS_CAMPOS_MODELO, name="ck_propostas_campos_modelo"),
         CheckConstraint(CK_PROPOSTAS_DATA_VALIDADE, name="ck_propostas_data_validade"),
         CheckConstraint(CK_PROPOSTAS_MOEDA, name="ck_propostas_moeda"),
+        CheckConstraint(CK_PROPOSTAS_ESCOPO, name="ck_propostas_escopo"),
         CheckConstraint("valor > 0", name="ck_propostas_valor_positivo"),
         CheckConstraint(
             "status IN ('aguardando','visualizada','assinada','cancelada')",
@@ -437,6 +439,8 @@ class Proposta(Base):
     consultor_telefone = Column(String(30), nullable=True)
     consultor_email = Column(String(255), nullable=True)
     projeto_nome = Column(String(255), nullable=True)
+    # HTML canônico restrito (p, ol, ul, li, strong, br) gerado por normalizar_escopo; NULL = sem escopo
+    projeto_escopo = Column(Text, nullable=True)
     garantia_meses = Column(SmallInteger, nullable=True)
     investimentos = Column(JSONB, nullable=True)
     # BRL → página em português; USD → página em inglês. Nula nas propostas simples.

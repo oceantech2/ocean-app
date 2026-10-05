@@ -18,7 +18,10 @@
     "zustand": "^4.4.0",
     "recharts": "^2.10.3",
     "date-fns": "^2.30.0",
-    "react-hot-toast": "^2.4.1"
+    "react-hot-toast": "^2.4.1",
+    "@tiptap/pm": "^3.31.4",
+    "@tiptap/react": "^3.31.4",
+    "@tiptap/starter-kit": "^3.31.4"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",

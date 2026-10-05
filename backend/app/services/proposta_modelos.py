@@ -7,10 +7,11 @@ from typing import Optional
 from fastapi import HTTPException
 
 from app.services.documento import validar_email
+from app.services.escopo_projeto import normalizar_escopo
 
 # Mantido em sincronia com frontend/src/proposal/modelos/index.ts
 MODELOS = {
-    "executive-search": {"nome": "Executive Search", "versao_atual": 1, "disponivel": True},
+    "executive-search": {"nome": "Executive Search", "versao_atual": 2, "disponivel": True},
 }
 MODELO_SIMPLES = "simples"
 NOME_SIMPLES = "Proposta simples"
@@ -173,6 +174,7 @@ def validar_modelo(payload, modelo: str, validade_se_vazia: date, data_se_vazia:
         payload.consultor_telefone, payload.consultor_email, obrigatorio=True,
     )
     projeto_nome = _texto(payload.projeto_nome, "Informe o nome do projeto", "Nome do projeto muito longo")
+    projeto_escopo = normalizar_escopo(getattr(payload, "projeto_escopo", None))
 
     garantia = payload.garantia_meses
     if not isinstance(garantia, int) or isinstance(garantia, bool) or not 1 <= garantia <= GARANTIA_MAXIMA_MESES:
@@ -200,6 +202,7 @@ def validar_modelo(payload, modelo: str, validade_se_vazia: date, data_se_vazia:
         "consultor_telefone": consultor["telefone"],
         "consultor_email": consultor["email"],
         "projeto_nome": projeto_nome,
+        "projeto_escopo": projeto_escopo,
         "garantia_meses": garantia,
         "investimentos": investimentos,
         "validade": validade,

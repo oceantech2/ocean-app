@@ -10,8 +10,9 @@ export interface TextosES {
     atualizadaEm: (data: string) => string;
     logoAlt: string;
   };
-  nav: { servico: string; metodologia: string; investimento: string; garantias: string; contato: string };
-  servico: { texto: string };
+  nav: { servico: string; metodologia: string; escopo: string; investimento: string; garantias: string; contato: string };
+  // tituloDivisao: título da 1ª seção a partir da versão 2 (na v1 é nav.servico)
+  servico: { tituloDivisao: string; texto: string };
   metodologia: { passos: { titulo: string; itens: string[] }[] };
   investimento: {
     taxa: string;
