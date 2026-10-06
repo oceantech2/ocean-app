@@ -5,7 +5,8 @@ import ProposalLayout from '../components/ProposalLayout';
 import StatusBadge from '../components/StatusBadge';
 import { listarPropostas, mensagemErro, PropostaListItem, StatusProposta } from '../services/proposalApi';
 import { formatarDataISO } from '../modelos/formatacao';
-import { rotuloMoedaCurto } from '../modelos/idioma';
+import { resumoProjetos } from '../modelos/formatoProposta';
+import { rotuloIdiomaMoeda } from '../modelos/idioma';
 import { useProposalAuthStore } from '../store';
 import { copiarTexto, formatarData, montarLinkPublico, STATUS_LABEL } from '../utils/propostaCalculo';
 
@@ -106,9 +107,9 @@ export default function Lista() {
                     <td className="px-4 py-3 text-gray-900">{p.cliente_nome}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                       {p.modelo_nome}
-                      {p.moeda && <div className="text-xs text-gray-500">{rotuloMoedaCurto(p.moeda)}</div>}
+                      {p.moeda && <div className="text-xs text-gray-500">{rotuloIdiomaMoeda(p)}</div>}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{p.projeto_nome ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{resumoProjetos(p.projeto_nome, p.projetos_total)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {p.data_proposta ? formatarDataISO(p.data_proposta) : formatarData(p.emitida_em)}
                     </td>

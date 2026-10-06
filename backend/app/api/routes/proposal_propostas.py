@@ -8,7 +8,7 @@ from app.api.routes.proposal_auth import get_proposal_user
 from app.database import get_db
 from app.models import Proposta, PropostaEdicao
 from app.schemas import PropostaCreate
-from app.services.proposta_modelos import modelo_disponivel, validar_modelo, validar_moeda
+from app.services.proposta_modelos import modelo_disponivel, validar_idioma, validar_modelo, validar_moeda
 from app.services.propostas import (
     MSG_NAO_ENCONTRADA,
     STATUS_FILTRO,
@@ -22,7 +22,6 @@ from app.services.propostas import (
     serializar_detalhe,
     serializar_item,
     status_efetivo,
-    validade_padrao,
     validar_dados,
 )
 
@@ -88,8 +87,9 @@ def criar_proposta(
 ):
     if not modelo_disponivel(payload.modelo):
         raise HTTPException(status_code=422, detail="Modelo de proposta inválido")
-    dados = validar_modelo(payload, payload.modelo, validade_padrao(), hoje_sp())
+    dados = validar_modelo(payload, payload.modelo, hoje_sp())
     dados["moeda"] = validar_moeda(payload.moeda)
+    dados["idioma"] = validar_idioma(payload.idioma)
 
     codigo = gerar_codigo()
     while db.query(Proposta.id).filter(Proposta.codigo == codigo).first():
@@ -145,7 +145,10 @@ def editar_proposta(
             moeda = (payload.moeda or "").strip().upper()
             if moeda and moeda != p.moeda:
                 raise HTTPException(status_code=422, detail="A moeda da proposta não pode ser alterada")
-            dados = validar_modelo(payload, p.modelo, p.validade, p.data_proposta)
+            idioma = (payload.idioma or "").strip()
+            if idioma and idioma != p.idioma:
+                raise HTTPException(status_code=422, detail="O idioma da proposta não pode ser alterado")
+            dados = validar_modelo(payload, p.modelo, p.data_proposta)
             dados.pop("modelo")
     except HTTPException:
         db.rollback()

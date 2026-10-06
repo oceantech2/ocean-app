@@ -1,13 +1,11 @@
 // Diferenças entre as versões do modelo Executive Search, renderizadas pelo mesmo componente.
 // Uma proposta assinada continua na versão com que foi aceita (a versão entra no hash do conteúdo).
-export interface RecursosVersao {
-  tituloDivisao: boolean;
-  escopo: boolean;
-}
+import type { RecursosVersao } from '../../pagina/PaginaModelo';
 
 const RECURSOS: Record<number, RecursosVersao> = {
-  1: { tituloDivisao: false, escopo: false },
-  2: { tituloDivisao: true, escopo: true },
+  1: { tituloDivisao: false, escopo: false, formatoNovo: false },
+  2: { tituloDivisao: true, escopo: true, formatoNovo: false },
+  3: { tituloDivisao: true, escopo: true, formatoNovo: true },
 };
 
 export function recursosDaVersao(versao?: number): RecursosVersao {

@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { Editor, EditorContent, Extension, useEditor, useEditorState } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { contarCaracteres, LIMITE_ESCOPO } from '../modelos/escopo';
@@ -72,9 +72,12 @@ interface Props {
   valor: string;
   onChange: (html: string) => void;
   erro?: string;
+  rotulo: string;
 }
 
-export default function EditorEscopo({ valor, onChange, erro }: Props) {
+const atributosEditor = (rotulo: string) => ({ 'aria-label': rotulo, 'aria-multiline': 'true', role: 'textbox' });
+
+export default function EditorEscopo({ valor, onChange, erro, rotulo }: Props) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -94,11 +97,14 @@ export default function EditorEscopo({ valor, onChange, erro }: Props) {
       LimiteNivel,
     ],
     content: valor,
-    editorProps: {
-      attributes: { 'aria-label': 'Escopo do Projeto', 'aria-multiline': 'true', role: 'textbox' },
-    },
+    editorProps: { attributes: atributosEditor(rotulo) },
     onUpdate: ({ editor: e }) => onChange(e.isEmpty ? '' : e.getHTML()),
   });
+
+  // Na Nova proposta o modelo (e com ele o rótulo) pode mudar com o editor já montado
+  useEffect(() => {
+    editor?.setOptions({ editorProps: { attributes: atributosEditor(rotulo) } });
+  }, [editor, rotulo]);
 
   const estado = useEditorState({
     editor,

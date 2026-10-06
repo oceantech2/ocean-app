@@ -1,6 +1,7 @@
-import type { TipoInvestimento } from '../../../../services/proposalApi';
+import type { TipoInvestimento } from '../../../services/proposalApi';
 
-export interface TextosES {
+// Textos comuns a todas as divisões; o que muda por divisão fica em ConteudoDivisao
+export interface TextosPagina {
   pagina: { titulo: string; lang: string; navegacao: string };
   capa: {
     titulo: [string, string];
@@ -8,29 +9,23 @@ export interface TextosES {
     data: string;
     consultor: string;
     atualizadaEm: (data: string) => string;
-    logoAlt: string;
   };
-  nav: { servico: string; metodologia: string; escopo: string; investimento: string; garantias: string; contato: string };
-  // tituloDivisao: título da 1ª seção a partir da versão 2 (na v1 é nav.servico)
-  servico: { tituloDivisao: string; texto: string };
-  metodologia: { passos: { titulo: string; itens: string[] }[] };
+  // servico: título da 1ª seção quando a versão não usa o título da divisão (Executive Search v1)
+  nav: { servico: string; investimento: string; garantias: string; contato: string };
   investimento: {
     taxa: string;
+    taxaSub: string;
     pagamento: string;
     tipos: Record<TipoInvestimento, string>;
     comEntrada: (entrada: number, final: number) => string;
     semEntrada: string;
     observacoesTitulo: string;
-    observacoes: string[];
   };
   garantias: {
     shortlist: string;
-    shortlistValor: string;
     sla: string;
-    slaValor: string;
     garantia: string;
     meses: (n: number) => string;
-    observacoes: string[];
   };
   proximos: {
     titulo: string;
@@ -61,4 +56,22 @@ export interface TextosES {
   };
   whatsapp: { mensagem: (cliente: string) => string };
   pdf: { nomeArquivo: (cliente: string) => string };
+}
+
+export type IconeServico = 'assessment' | 'outplacement' | 'solucoes';
+
+export type SecaoMeio =
+  | { tipo: 'metodologia'; id: string; titulo: string; passos: { titulo: string; itens: string[] }[] }
+  | { tipo: 'servicos'; id: string; titulo: string; cartoes: { icone: IconeServico; titulo: string; texto: string }[] };
+
+export interface ConteudoDivisao {
+  logo: { src: string; alt: string; larga?: boolean };
+  tituloDivisao: string;
+  textoServico: string;
+  secaoMeio: SecaoMeio;
+  tituloEscopo: string;
+  observacoesInvestimento: string[];
+  observacoesGarantias: string[];
+  // Executive Search: a seção aparece mesmo sem Shortlist/SLA/Garantia, por causa das Observações
+  garantiasSempreVisivel: boolean;
 }

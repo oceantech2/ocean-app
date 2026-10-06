@@ -32,7 +32,8 @@ html{scroll-behavior:smooth}
 .tpl-es .meta{display:flex;flex-wrap:wrap;gap:var(--space-32) var(--space-48);margin-top:0;padding-top:var(--space-24);border-top:1px solid rgba(184,221,248,.35)}
 .tpl-es .div-logo{margin-left:auto;align-self:flex-end}
 .tpl-es .div-logo img{display:block;width:220px;height:auto;max-width:none}
-@media(max-width:700px){.tpl-es .div-logo{margin-left:0;flex-basis:100%}.tpl-es .div-logo img{width:190px}}
+.tpl-es .div-logo.larga img{width:290px}
+@media(max-width:700px){.tpl-es .div-logo{margin-left:0;flex-basis:100%}.tpl-es .div-logo img,.tpl-es .div-logo.larga img{width:190px}}
 .tpl-es .meta span{display:block;font:400 12px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--fg-inverse-muted);margin-bottom:6px}
 .tpl-es .meta strong{font:500 18px/1.3 var(--display);color:var(--fg-inverse)}
 .tpl-es .meta small{display:block;margin-top:6px;font:400 12px/1.2 var(--body);color:var(--fg-inverse-muted)}
@@ -54,8 +55,14 @@ html{scroll-behavior:smooth}
 .tpl-es .step ul{list-style:disc;margin:0;padding:0 0 0 18px;display:grid;gap:var(--space-12);align-content:start;flex:1;font-size:13.5px}
 .tpl-es .step li{padding-left:4px}
 .tpl-es .step li::marker{color:var(--navy)}
+.tpl-es .svcs{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-24)}
+.tpl-es .svc{border:1px solid var(--border);border-top:4px solid var(--action);border-radius:var(--radius-md);padding:var(--space-24) var(--space-24) var(--space-32)}
+.tpl-es .svc .ic{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:var(--radius-md);background:var(--bg-subtle);color:var(--action);margin-bottom:var(--space-16)}
+.tpl-es .svc h3{font:600 18px/1.2 var(--display);letter-spacing:-.01em;margin:0 0 var(--space-12)}
+.tpl-es .svc p{margin:0;font-size:14.5px;line-height:1.55}
 @media(max-width:900px){
   .tpl-es .steps{grid-template-columns:1fr;gap:var(--space-24)}
+  .tpl-es .svcs{grid-template-columns:1fr}
 }
 .tpl-es .invest{display:grid;gap:var(--space-48)}
 .tpl-es .pos h3{font:600 22px/1.2 var(--display);letter-spacing:-.01em;margin:0 0 var(--space-16)}
@@ -66,6 +73,7 @@ html{scroll-behavior:smooth}
 .tpl-es .plan dt{font:400 12px/1.2 var(--body);letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
 .tpl-es .plan dd{margin:0;font-size:16px}
 .tpl-es .plan dd.rate{font:600 32px/1.1 var(--display);letter-spacing:-.02em;color:var(--fg-title)}
+.tpl-es .plan dd.rate-sub{font:400 14px/1.3 var(--body);color:var(--fg-body);margin-top:6px}
 .tpl-es .btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 var(--space-24);border-radius:var(--radius-md);font:600 13px/1 var(--body);letter-spacing:.1em;text-transform:uppercase;text-decoration:none;border:2px solid transparent;cursor:pointer;transition:background-color .15s,color .15s;white-space:nowrap}
 .tpl-es .btn-primary{background:var(--action);color:var(--white)}
 .tpl-es .btn-primary:hover{background:var(--action-hover)}
@@ -158,7 +166,7 @@ html{scroll-behavior:smooth}
 }
 @media print{
   .tpl-es nav,.tpl-es .next .cta{display:none}
-  .tpl-es section,.tpl-es .card,.tpl-es .step{break-inside:avoid}
+  .tpl-es section,.tpl-es .card,.tpl-es .step,.tpl-es .svc{break-inside:avoid}
   .tpl-es .cover,.tpl-es .contact,.tpl-es th{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   /* Neutraliza o CSS global de impressão do ERP (frontend/src/index.css) */
   .tpl-es header.cover{display:block !important}

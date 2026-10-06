@@ -8,7 +8,7 @@ export const PAPEL_KEY = 'proposal_papel';
 
 export type StatusProposta = 'aguardando' | 'visualizada' | 'assinada' | 'cancelada' | 'expirada';
 
-export type ModeloId = 'executive-search';
+export type ModeloId = 'executive-search' | 'outplacement-development';
 export type SetorId = 'oil-gas' | 'energia' | 'infraestrutura' | 'mineracao' | 'industria-servicos';
 export type TipoInvestimento = 'retainer' | 'sucesso' | 'valor-fechado';
 export type TaxaTipo = 'percentual' | 'valor';
@@ -22,14 +22,22 @@ export interface Investimento {
   entrada: number | null;
 }
 
+export interface Projeto {
+  nome: string;
+  investimentos: Investimento[];
+}
+
 export interface PropostaListItem {
   id: number;
   codigo: string;
   modelo: ModeloId | 'simples';
   modelo_nome: string;
   moeda: Moeda | null;
+  idioma: Idioma | null;
   cliente_nome: string;
+  // Formato novo: nome do primeiro projeto
   projeto_nome: string | null;
+  projetos_total: number;
   data_proposta: string | null;
   cnpj: string | null;
   total: string | null;
@@ -50,8 +58,8 @@ export interface PropostaAssinatura {
 
 export interface AlteracaoCampo {
   campo: string;
-  anterior: string | number | boolean | Investimento | null;
-  novo: string | number | boolean | Investimento | null;
+  anterior: string | number | boolean | Investimento | Projeto | null;
+  novo: string | number | boolean | Investimento | Projeto | null;
 }
 
 export interface PropostaEdicao {
@@ -69,8 +77,15 @@ export interface Proposta extends PropostaListItem {
   consultor_telefone: string | null;
   consultor_email: string | null;
   projeto_escopo: string | null;
+  // Formato antigo (Executive Search v1/v2)
   garantia_meses: number | null;
   investimentos: Investimento[] | null;
+  // Formato novo
+  projetos: Projeto[] | null;
+  shortlist: string | null;
+  sla: string | null;
+  garantia: string | null;
+  validade_dias: number | null;
   valor: string | null;
   imposto_ativo: boolean;
   aliquota: string | null;
@@ -102,6 +117,8 @@ export interface PropostaPayload {
 
 export interface PropostaModeloPayload {
   modelo: ModeloId;
+  idioma: Idioma;
+  moeda: Moeda;
   cliente_nome: string;
   data_proposta: string;
   setor: SetorId | '';
@@ -109,12 +126,12 @@ export interface PropostaModeloPayload {
   consultor_cargo: string;
   consultor_telefone: string;
   consultor_email: string;
-  projeto_nome: string;
   projeto_escopo: string | null;
-  garantia_meses: number | null;
-  investimentos: Investimento[];
-  validade: string;
-  moeda: Moeda;
+  projetos: Projeto[];
+  shortlist: string | null;
+  sla: string | null;
+  garantia: string | null;
+  validade_dias: number;
 }
 
 export interface ConsultorPublico {
@@ -132,13 +149,18 @@ export interface PropostaPublicaData {
   modelo?: ModeloId | 'simples';
   modelo_versao?: number;
   moeda?: Moeda;
+  idioma?: Idioma | null;
   data_proposta?: string;
   setor?: SetorId;
   consultor?: ConsultorPublico;
-  projeto_nome?: string;
+  projeto_nome?: string | null;
   projeto_escopo?: string | null;
-  garantia_meses?: number;
-  investimentos?: Investimento[];
+  garantia_meses?: number | null;
+  investimentos?: Investimento[] | null;
+  projetos?: Projeto[] | null;
+  shortlist?: string | null;
+  sla?: string | null;
+  garantia?: string | null;
   cliente_nome?: string;
   cnpj?: string;
   valor?: string;

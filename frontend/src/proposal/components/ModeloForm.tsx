@@ -1,21 +1,39 @@
 import { lazy, ReactNode, Suspense, useState } from 'react';
+import { registroDoModelo } from '../modelos';
 import { contarCaracteres, LIMITE_ESCOPO, MSG_ESCOPO_LONGO } from '../modelos/escopo';
-import { EMAIL_RE, formatarGarantia, formatarPagamento, formatarTaxa, telefoneValido } from '../modelos/formatacao';
-import { MOEDAS_FORM, PREFIXO_MOEDA } from '../modelos/idioma';
+import { EMAIL_RE, formatarPagamento, formatarTaxa, telefoneValido } from '../modelos/formatacao';
+import {
+  formatoNovo,
+  LIMITE_PROJETOS,
+  mesesPorExtenso,
+  projetosDaProposta,
+  TEXTOS_PADRAO_GARANTIAS,
+  VALIDADE_DIAS_MAX,
+} from '../modelos/formatoProposta';
+import { IDIOMAS_FORM, idiomaDaProposta, MOEDAS_FORM, PREFIXO_MOEDA } from '../modelos/idioma';
 import { TIPOS } from '../modelos/investimentos';
 import { SETORES } from '../modelos/setores';
 import type {
+  Idioma,
   Investimento,
   ModeloId,
   Moeda,
   PerfilConsultor,
+  Projeto,
   Proposta,
   PropostaModeloPayload,
   SetorId,
   TaxaTipo,
   TipoInvestimento,
 } from '../services/proposalApi';
-import { centavosParaDecimal, hojeSP, parseNumeroBR, somarDias, validadePadrao } from '../utils/propostaCalculo';
+import {
+  centavosParaDecimal,
+  DIAS_VALIDADE_PADRAO,
+  formatarData,
+  hojeSP,
+  parseNumeroBR,
+  somarDias,
+} from '../utils/propostaCalculo';
 
 // Carregado sob demanda: o editor não entra no código da página pública do cliente
 const EditorEscopo = lazy(() => import('./EditorEscopo'));
@@ -27,8 +45,15 @@ export interface InvestimentoForm {
   entrada: string;
 }
 
+export interface ProjetoForm {
+  // Identidade estável para a lista do React ao reordenar
+  chave: number;
+  nome: string;
+  investimentos: Record<TipoInvestimento, InvestimentoForm>;
+}
+
 export interface FormModelo {
-  modelo: ModeloId;
+  idioma: Idioma;
   moeda: Moeda;
   cliente_nome: string;
   data_proposta: string;
@@ -37,16 +62,20 @@ export interface FormModelo {
   consultor_cargo: string;
   consultor_telefone: string;
   consultor_email: string;
-  projeto_nome: string;
   projeto_escopo: string;
-  garantia_meses: string;
-  validade: string;
-  investimentos: Record<TipoInvestimento, InvestimentoForm>;
+  projetos: ProjetoForm[];
+  shortlist: string;
+  sla: string;
+  garantia: string;
+  validade_dias: string;
 }
 
 type Erros = Record<string, string | undefined>;
 
 const LIMITE_VALOR_CENTAVOS = 100_000_000_000_000;
+
+let ultimaChave = 0;
+const novaChave = () => ++ultimaChave;
 
 const investimentoVazio = (): InvestimentoForm => ({ ativo: false, taxa_tipo: 'percentual', taxa: '', entrada: '' });
 
@@ -56,8 +85,10 @@ const investimentosVazios = (): Record<TipoInvestimento, InvestimentoForm> => ({
   'valor-fechado': investimentoVazio(),
 });
 
-export const formModeloInicial = (consultor?: PerfilConsultor | null, modelo: ModeloId = 'executive-search'): FormModelo => ({
-  modelo,
+const projetoVazio = (): ProjetoForm => ({ chave: novaChave(), nome: '', investimentos: investimentosVazios() });
+
+export const formModeloInicial = (consultor?: PerfilConsultor | null): FormModelo => ({
+  idioma: 'pt-BR',
   moeda: 'BRL',
   cliente_nome: '',
   data_proposta: hojeSP(),
@@ -66,18 +97,19 @@ export const formModeloInicial = (consultor?: PerfilConsultor | null, modelo: Mo
   consultor_cargo: consultor?.cargo ?? '',
   consultor_telefone: consultor?.telefone ?? '',
   consultor_email: consultor?.email ?? '',
-  projeto_nome: '',
   projeto_escopo: '',
-  garantia_meses: '',
-  validade: validadePadrao(),
-  investimentos: investimentosVazios(),
+  projetos: [projetoVazio()],
+  shortlist: TEXTOS_PADRAO_GARANTIAS['pt-BR'].shortlist,
+  sla: TEXTOS_PADRAO_GARANTIAS['pt-BR'].sla,
+  garantia: '',
+  validade_dias: String(DIAS_VALIDADE_PADRAO),
 });
 
 const taxaParaBR = (taxa: string) => Number(taxa).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 
-export function formDeModelo(p: Proposta, opcoes: { dataHoje?: boolean; validadePadrao?: boolean } = {}): FormModelo {
+function projetoParaForm(projeto: Projeto): ProjetoForm {
   const investimentos = investimentosVazios();
-  for (const inv of p.investimentos ?? []) {
+  for (const inv of projeto.investimentos) {
     investimentos[inv.tipo] = {
       ativo: true,
       taxa_tipo: inv.taxa_tipo,
@@ -85,21 +117,37 @@ export function formDeModelo(p: Proposta, opcoes: { dataHoje?: boolean; validade
       entrada: inv.entrada ? String(inv.entrada) : '',
     };
   }
+  return { chave: novaChave(), nome: projeto.nome, investimentos };
+}
+
+function diasEntre(inicio: string, fim: string): number {
+  return Math.round((Date.parse(`${fim}T00:00:00Z`) - Date.parse(`${inicio}T00:00:00Z`)) / 86_400_000);
+}
+
+/** Formulário a partir de uma proposta; propostas no formato antigo (ES v1/v2) são convertidas. */
+export function formDeModelo(p: Proposta, opcoes: { copia?: boolean } = {}): FormModelo {
+  const idioma = idiomaDaProposta(p);
+  const novo = formatoNovo(p);
+  const projetos = projetosDaProposta(p).map(projetoParaForm);
+  const dias = opcoes.copia
+    ? DIAS_VALIDADE_PADRAO
+    : p.validade_dias ?? (p.data_proposta ? diasEntre(p.data_proposta, p.validade) : DIAS_VALIDADE_PADRAO);
   return {
-    modelo: p.modelo as ModeloId,
+    idioma,
     moeda: p.moeda ?? 'BRL',
     cliente_nome: p.cliente_nome,
-    data_proposta: opcoes.dataHoje || !p.data_proposta ? hojeSP() : p.data_proposta,
+    data_proposta: opcoes.copia || !p.data_proposta ? hojeSP() : p.data_proposta,
     setor: p.setor ?? '',
     consultor_nome: p.consultor_nome ?? '',
     consultor_cargo: p.consultor_cargo ?? '',
     consultor_telefone: p.consultor_telefone ?? '',
     consultor_email: p.consultor_email ?? '',
-    projeto_nome: p.projeto_nome ?? '',
     projeto_escopo: p.projeto_escopo ?? '',
-    garantia_meses: p.garantia_meses ? String(p.garantia_meses) : '',
-    validade: opcoes.validadePadrao ? validadePadrao() : p.validade,
-    investimentos,
+    projetos: projetos.length ? projetos : [projetoVazio()],
+    shortlist: novo ? p.shortlist ?? '' : TEXTOS_PADRAO_GARANTIAS[idioma].shortlist,
+    sla: novo ? p.sla ?? '' : TEXTOS_PADRAO_GARANTIAS[idioma].sla,
+    garantia: novo ? p.garantia ?? '' : p.garantia_meses ? mesesPorExtenso(p.garantia_meses, idioma) : '',
+    validade_dias: String(dias),
   };
 }
 
@@ -119,41 +167,55 @@ function investimentoDoForm(tipo: TipoInvestimento, inv: InvestimentoForm): Inve
   return { tipo, taxa_tipo: inv.taxa_tipo, taxa: centavosParaDecimal(centesimos), entrada };
 }
 
+function investimentosDoProjeto(projeto: ProjetoForm): Investimento[] {
+  return TIPOS.filter(({ tipo }) => projeto.investimentos[tipo].ativo)
+    .map(({ tipo }) => investimentoDoForm(tipo, projeto.investimentos[tipo]))
+    .filter((inv): inv is Investimento => inv !== null);
+}
+
+/** Validade calculada (data da proposta + dias) ou null quando os dias são inválidos. */
+function validadeCalculada(form: FormModelo): string | null {
+  const dias = Number(form.validade_dias);
+  if (!form.data_proposta || !/^\d+$/.test(form.validade_dias) || dias < 1 || dias > VALIDADE_DIAS_MAX) return null;
+  return somarDias(form.data_proposta, dias);
+}
+
 function validar(form: FormModelo): Erros {
   const erros: Erros = {};
   if (!form.cliente_nome.trim()) erros.cliente_nome = 'Informe a empresa';
   if (!form.data_proposta) erros.data_proposta = 'Informe a data da proposta';
-  else if (form.validade && form.data_proposta > form.validade) {
-    erros.data_proposta = 'Data da proposta não pode ser posterior à validade';
-  }
   if (!form.setor) erros.setor = 'Selecione o setor';
   if (!form.consultor_nome.trim()) erros.consultor_nome = 'Informe o nome do consultor';
   if (!form.consultor_cargo.trim()) erros.consultor_cargo = 'Informe o cargo do consultor';
   if (!telefoneValido(form.consultor_telefone)) erros.consultor_telefone = 'Telefone do consultor inválido';
   if (!EMAIL_RE.test(form.consultor_email.trim())) erros.consultor_email = 'E-mail do consultor inválido';
-  if (!form.projeto_nome.trim()) erros.projeto_nome = 'Informe o nome do projeto';
   if (contarCaracteres(form.projeto_escopo) > LIMITE_ESCOPO) erros.projeto_escopo = MSG_ESCOPO_LONGO;
-  const garantia = Number(form.garantia_meses);
-  if (!/^\d+$/.test(form.garantia_meses.trim()) || garantia < 1 || garantia > 120) {
-    erros.garantia_meses = 'Garantia deve ser um número de meses maior que zero';
-  }
-  if (!form.validade || form.validade <= hojeSP()) erros.validade = 'Validade deve ser posterior a hoje';
 
-  const ativos = TIPOS.filter(({ tipo }) => form.investimentos[tipo].ativo);
-  if (!ativos.length) erros.investimentos = 'Selecione de 1 a 3 modelos de investimento';
-  for (const { tipo, rotulo } of ativos) {
-    const inv = form.investimentos[tipo];
-    const centesimos = parseTaxa(inv.taxa);
-    if (inv.taxa_tipo === 'percentual') {
-      if (!centesimos || centesimos >= 10000) {
-        erros[`${tipo}.taxa`] = `Taxa do ${rotulo} deve ser maior que 0 e menor que 100%`;
+  form.projetos.forEach((projeto, i) => {
+    const p = `projeto.${i}`;
+    if (!projeto.nome.trim()) erros[`${p}.nome`] = 'Informe o nome do projeto';
+    const ativos = TIPOS.filter(({ tipo }) => projeto.investimentos[tipo].ativo);
+    if (!ativos.length) erros[`${p}.investimentos`] = 'Selecione de 1 a 3 modelos de investimento';
+    for (const { tipo, rotulo } of ativos) {
+      const inv = projeto.investimentos[tipo];
+      const centesimos = parseTaxa(inv.taxa);
+      if (inv.taxa_tipo === 'percentual') {
+        if (!centesimos || centesimos >= 10000) {
+          erros[`${p}.${tipo}.taxa`] = `Taxa do ${rotulo} deve ser maior que 0 e menor que 100%`;
+        }
+      } else if (!centesimos || centesimos >= LIMITE_VALOR_CENTAVOS) {
+        erros[`${p}.${tipo}.taxa`] = `Taxa do ${rotulo} deve ser maior que zero`;
       }
-    } else if (!centesimos || centesimos >= LIMITE_VALOR_CENTAVOS) {
-      erros[`${tipo}.taxa`] = `Taxa do ${rotulo} deve ser maior que zero`;
+      if (parseEntrada(inv.entrada) === undefined) {
+        erros[`${p}.${tipo}.entrada`] = `Entrada do ${rotulo} deve estar entre 0 e 99%`;
+      }
     }
-    if (parseEntrada(inv.entrada) === undefined) {
-      erros[`${tipo}.entrada`] = `Entrada do ${rotulo} deve estar entre 0 e 99%`;
-    }
+  });
+
+  if (form.data_proposta) {
+    const validade = validadeCalculada(form);
+    if (!validade) erros.validade_dias = `Validade deve ser de 1 a ${VALIDADE_DIAS_MAX} dias`;
+    else if (validade <= hojeSP()) erros.validade_dias = 'A validade calculada já passou. Ajuste a data ou os dias.';
   }
   return erros;
 }
@@ -162,29 +224,89 @@ function Erro({ msg }: { msg?: string }) {
   return msg ? <p className="text-sm text-red-600 mt-1">{msg}</p> : null;
 }
 
+const semErrosDeProjeto = (e: Erros): Erros =>
+  Object.fromEntries(Object.entries(e).filter(([chave]) => !chave.startsWith('projeto.')));
+
 interface Props {
   inicial: FormModelo;
+  modelo: ModeloId;
   rotuloSalvar: string;
   rotuloSalvando: string;
   salvando: boolean;
   onSubmit: (payload: PropostaModeloPayload) => void;
   aviso?: ReactNode;
-  moedaFixa?: boolean;
+  idiomaMoedaFixos?: boolean;
 }
 
-export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salvando, onSubmit, aviso, moedaFixa }: Props) {
+export default function ModeloForm({
+  inicial,
+  modelo,
+  rotuloSalvar,
+  rotuloSalvando,
+  salvando,
+  onSubmit,
+  aviso,
+  idiomaMoedaFixos,
+}: Props) {
   const [form, setForm] = useState<FormModelo>(inicial);
   const [erros, setErros] = useState<Erros>({});
+  const registro = registroDoModelo(modelo);
 
   const set = <K extends keyof FormModelo>(campo: K, valor: FormModelo[K]) => {
     setForm((f) => ({ ...f, [campo]: valor }));
     setErros((e) => ({ ...e, [campo]: undefined }));
   };
 
-  const setInv = (tipo: TipoInvestimento, mudanca: Partial<InvestimentoForm>) => {
-    setForm((f) => ({ ...f, investimentos: { ...f.investimentos, [tipo]: { ...f.investimentos[tipo], ...mudanca } } }));
-    setErros((e) => ({ ...e, investimentos: undefined, [`${tipo}.taxa`]: undefined, [`${tipo}.entrada`]: undefined }));
+  // Troca só os textos que ainda são o padrão do idioma anterior; o que o consultor digitou fica
+  const trocarIdioma = (idioma: Idioma) => {
+    setForm((f) => {
+      const antes = TEXTOS_PADRAO_GARANTIAS[f.idioma];
+      const depois = TEXTOS_PADRAO_GARANTIAS[idioma];
+      return {
+        ...f,
+        idioma,
+        shortlist: f.shortlist === antes.shortlist ? depois.shortlist : f.shortlist,
+        sla: f.sla === antes.sla ? depois.sla : f.sla,
+      };
+    });
   };
+
+  const setProjeto = (i: number, mudanca: Partial<ProjetoForm>) => {
+    setForm((f) => ({ ...f, projetos: f.projetos.map((p, j) => (j === i ? { ...p, ...mudanca } : p)) }));
+    setErros((e) => ({ ...e, [`projeto.${i}.nome`]: undefined }));
+  };
+
+  const setInv = (i: number, tipo: TipoInvestimento, mudanca: Partial<InvestimentoForm>) => {
+    setForm((f) => ({
+      ...f,
+      projetos: f.projetos.map((p, j) =>
+        j === i ? { ...p, investimentos: { ...p.investimentos, [tipo]: { ...p.investimentos[tipo], ...mudanca } } } : p,
+      ),
+    }));
+    setErros((e) => ({
+      ...e,
+      [`projeto.${i}.investimentos`]: undefined,
+      [`projeto.${i}.${tipo}.taxa`]: undefined,
+      [`projeto.${i}.${tipo}.entrada`]: undefined,
+    }));
+  };
+
+  // Erros de projeto são indexados pela posição: mudar a lista invalida os que estão na tela
+  const mudarProjetos = (mudar: (projetos: ProjetoForm[]) => ProjetoForm[]) => {
+    setForm((f) => ({ ...f, projetos: mudar(f.projetos) }));
+    setErros(semErrosDeProjeto);
+  };
+
+  const adicionarProjeto = () =>
+    mudarProjetos((ps) => (ps.length < LIMITE_PROJETOS ? [...ps, projetoVazio()] : ps));
+  const removerProjeto = (i: number) => mudarProjetos((ps) => (ps.length > 1 ? ps.filter((_, j) => j !== i) : ps));
+  const moverProjeto = (i: number, destino: number) =>
+    mudarProjetos((ps) => {
+      if (destino < 0 || destino >= ps.length) return ps;
+      const copia = [...ps];
+      [copia[i], copia[destino]] = [copia[destino], copia[i]];
+      return copia;
+    });
 
   const salvar = (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,7 +314,8 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
     setErros(encontrados);
     if (Object.values(encontrados).some(Boolean)) return;
     onSubmit({
-      modelo: form.modelo,
+      modelo,
+      idioma: form.idioma,
       moeda: form.moeda,
       cliente_nome: form.cliente_nome.trim(),
       data_proposta: form.data_proposta,
@@ -201,13 +324,12 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
       consultor_cargo: form.consultor_cargo.trim(),
       consultor_telefone: form.consultor_telefone.trim(),
       consultor_email: form.consultor_email.trim(),
-      projeto_nome: form.projeto_nome.trim(),
       projeto_escopo: contarCaracteres(form.projeto_escopo) ? form.projeto_escopo : null,
-      garantia_meses: Number(form.garantia_meses),
-      validade: form.validade,
-      investimentos: TIPOS.filter(({ tipo }) => form.investimentos[tipo].ativo)
-        .map(({ tipo }) => investimentoDoForm(tipo, form.investimentos[tipo]))
-        .filter((inv): inv is Investimento => inv !== null),
+      projetos: form.projetos.map((p) => ({ nome: p.nome.trim(), investimentos: investimentosDoProjeto(p) })),
+      shortlist: form.shortlist.trim() || null,
+      sla: form.sla.trim() || null,
+      garantia: form.garantia.trim() || null,
+      validade_dias: Number(form.validade_dias),
     });
   };
 
@@ -217,8 +339,10 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
     }`;
   const labelCls = 'block text-sm font-medium text-gray-700 mb-1';
   const secaoCls = 'bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4';
+  const botaoProjetoCls =
+    'px-2 py-1 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent transition';
 
-  const texto = (campo: 'cliente_nome' | 'consultor_nome' | 'consultor_cargo' | 'projeto_nome', rotulo: string) => (
+  const texto = (campo: 'cliente_nome' | 'consultor_nome' | 'consultor_cargo', rotulo: string) => (
     <div>
       <label className={labelCls}>{rotulo}</label>
       <input
@@ -231,11 +355,21 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
     </div>
   );
 
-  const resumo = TIPOS.filter(({ tipo }) => form.investimentos[tipo].ativo).map(({ tipo, rotulo }) => {
-    const inv = investimentoDoForm(tipo, form.investimentos[tipo]);
-    return { tipo, rotulo, inv };
-  });
-  const garantia = Number(form.garantia_meses);
+  const condicao = (campo: 'shortlist' | 'sla' | 'garantia', rotulo: string, placeholder: string) => (
+    <div>
+      <label className={labelCls}>{rotulo} (opcional)</label>
+      <input
+        value={form[campo]}
+        onChange={(e) => set(campo, e.target.value)}
+        className={inputCls()}
+        maxLength={255}
+        placeholder={placeholder}
+      />
+    </div>
+  );
+
+  const validade = validadeCalculada(form);
+  const garantiaResumo = form.garantia.trim();
 
   return (
     <>
@@ -243,26 +377,44 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
       <form onSubmit={salvar} noValidate className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Moeda</h2>
-            <div>
-              <select
-                value={form.moeda}
-                onChange={(e) => set('moeda', e.target.value as Moeda)}
-                disabled={moedaFixa}
-                className={`${inputCls()} disabled:bg-gray-100 disabled:text-gray-600`}
-              >
-                {MOEDAS_FORM.map((m) => (
-                  <option key={m.moeda} value={m.moeda}>
-                    {m.rotulo}
-                  </option>
-                ))}
-              </select>
-              <p className="text-sm text-gray-500 mt-1">
-                {moedaFixa
-                  ? 'A moeda não pode ser alterada depois de criada.'
-                  : 'Define a moeda dos valores e o idioma da página que o cliente recebe.'}
-              </p>
+            <h2 className="font-semibold text-gray-900">Apresentação</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Idioma da apresentação</label>
+                <select
+                  value={form.idioma}
+                  onChange={(e) => trocarIdioma(e.target.value as Idioma)}
+                  disabled={idiomaMoedaFixos}
+                  className={`${inputCls()} disabled:bg-gray-100 disabled:text-gray-600`}
+                >
+                  {IDIOMAS_FORM.map((i) => (
+                    <option key={i.idioma} value={i.idioma}>
+                      {i.rotulo}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Moeda</label>
+                <select
+                  value={form.moeda}
+                  onChange={(e) => set('moeda', e.target.value as Moeda)}
+                  disabled={idiomaMoedaFixos}
+                  className={`${inputCls()} disabled:bg-gray-100 disabled:text-gray-600`}
+                >
+                  {MOEDAS_FORM.map((m) => (
+                    <option key={m.moeda} value={m.moeda}>
+                      {m.rotulo}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+            <p className="text-sm text-gray-500">
+              {idiomaMoedaFixos
+                ? 'Idioma e moeda não podem ser alterados depois de criada.'
+                : 'O idioma define os textos da página que o cliente recebe; a moeda, o símbolo dos valores.'}
+            </p>
           </section>
 
           <section className={secaoCls}>
@@ -274,8 +426,10 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
                 <input
                   type="date"
                   value={form.data_proposta}
-                  max={form.validade || undefined}
-                  onChange={(e) => set('data_proposta', e.target.value)}
+                  onChange={(e) => {
+                    set('data_proposta', e.target.value);
+                    setErros((er) => ({ ...er, validade_dias: undefined }));
+                  }}
                   className={inputCls(erros.data_proposta)}
                 />
                 <Erro msg={erros.data_proposta} />
@@ -332,10 +486,8 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
           </section>
 
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Projeto</h2>
-            {texto('projeto_nome', 'Nome do projeto')}
+            <h2 className="font-semibold text-gray-900">{registro.rotuloEscopo} (opcional)</h2>
             <div>
-              <label className={labelCls}>Escopo do Projeto (opcional)</label>
               <Suspense
                 fallback={
                   <div className="h-[12.5rem] border border-gray-300 rounded-lg flex items-center justify-center">
@@ -347,128 +499,220 @@ export default function ModeloForm({ inicial, rotuloSalvar, rotuloSalvando, salv
                   valor={form.projeto_escopo}
                   onChange={(html) => set('projeto_escopo', html)}
                   erro={erros.projeto_escopo}
+                  rotulo={registro.rotuloEscopo}
                 />
               </Suspense>
               <p className="text-sm text-gray-500 mt-1">
-                Aparece na seção Escopo do Projeto da proposta. Deixe em branco para não exibir a seção.
+                Aparece na seção {registro.rotuloEscopo} da proposta. Deixe em branco para não exibir a seção.
               </p>
               <Erro msg={erros.projeto_escopo} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Garantia (meses)</label>
-                <input
-                  value={form.garantia_meses}
-                  onChange={(e) => set('garantia_meses', e.target.value.replace(/\D/g, '').slice(0, 3))}
-                  className={inputCls(erros.garantia_meses)}
-                  inputMode="numeric"
-                />
-                <Erro msg={erros.garantia_meses} />
-              </div>
-              <div>
-                <label className={labelCls}>Validade</label>
-                <input
-                  type="date"
-                  value={form.validade}
-                  min={somarDias(hojeSP(), 1)}
-                  onChange={(e) => {
-                    set('validade', e.target.value);
-                    setErros((er) => ({ ...er, data_proposta: undefined }));
-                  }}
-                  className={inputCls(erros.validade)}
-                />
-                <Erro msg={erros.validade} />
-              </div>
             </div>
           </section>
 
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Investimento</h2>
-            <div className="flex flex-wrap gap-4">
-              {TIPOS.map(({ tipo, rotulo }) => (
-                <label key={tipo} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={form.investimentos[tipo].ativo}
-                    onChange={(e) => setInv(tipo, { ativo: e.target.checked })}
-                    className="h-4 w-4 rounded border-gray-300 text-ocean-700 focus:ring-ocean-600"
-                  />
-                  {rotulo}
-                </label>
-              ))}
-            </div>
-            <Erro msg={erros.investimentos} />
-
-            {TIPOS.filter(({ tipo }) => form.investimentos[tipo].ativo).map(({ tipo, rotulo }) => {
-              const inv = form.investimentos[tipo];
-              const entrada = parseEntrada(inv.entrada);
+            <h2 className="font-semibold text-gray-900">Projetos</h2>
+            {form.projetos.map((projeto, i) => {
+              const p = `projeto.${i}`;
               return (
-                <div key={tipo} className="border border-gray-200 rounded-lg p-4 space-y-3">
-                  <h3 className="font-medium text-gray-900">{rotulo}</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className={labelCls}>Taxa</label>
-                      <div className="flex gap-2">
-                        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden shrink-0">
-                          {(['percentual', 'valor'] as TaxaTipo[]).map((t) => (
-                            <button
-                              key={t}
-                              type="button"
-                              onClick={() => setInv(tipo, { taxa_tipo: t })}
-                              className={`px-3 text-sm font-medium transition ${
-                                inv.taxa_tipo === t ? 'bg-ocean-700 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
-                              }`}
-                            >
-                              {t === 'percentual' ? '%' : PREFIXO_MOEDA[form.moeda]}
-                            </button>
-                          ))}
-                        </div>
-                        <input
-                          value={inv.taxa}
-                          onChange={(e) => setInv(tipo, { taxa: e.target.value.replace(/[^\d.,]/g, '') })}
-                          className={inputCls(erros[`${tipo}.taxa`])}
-                          inputMode="decimal"
-                          placeholder={inv.taxa_tipo === 'percentual' ? '15' : '50.000,00'}
-                        />
-                      </div>
-                      <Erro msg={erros[`${tipo}.taxa`]} />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Entrada (%) — opcional</label>
-                      <input
-                        value={inv.entrada}
-                        onChange={(e) => setInv(tipo, { entrada: e.target.value.replace(/\D/g, '').slice(0, 2) })}
-                        className={inputCls(erros[`${tipo}.entrada`])}
-                        inputMode="numeric"
-                        placeholder="0"
-                      />
-                      <Erro msg={erros[`${tipo}.entrada`]} />
+                <div key={projeto.chave} className="border border-gray-200 rounded-lg p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-medium text-gray-900">Projeto {i + 1}</h3>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moverProjeto(i, i - 1)}
+                        disabled={i === 0}
+                        className={botaoProjetoCls}
+                      >
+                        Subir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moverProjeto(i, i + 1)}
+                        disabled={i === form.projetos.length - 1}
+                        className={botaoProjetoCls}
+                      >
+                        Descer
+                      </button>
+                      {form.projetos.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removerProjeto(i)}
+                          className={`${botaoProjetoCls} text-red-700 border-red-200 hover:bg-red-50`}
+                        >
+                          Remover
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600">
-                    Após conclusão: {entrada === undefined ? '—' : `${100 - (entrada ?? 0)}%`}
-                  </p>
+                  <div>
+                    <label className={labelCls}>Nome do projeto</label>
+                    <input
+                      value={projeto.nome}
+                      onChange={(e) => setProjeto(i, { nome: e.target.value })}
+                      className={inputCls(erros[`${p}.nome`])}
+                      maxLength={255}
+                    />
+                    <Erro msg={erros[`${p}.nome`]} />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap gap-4">
+                      {TIPOS.map(({ tipo, rotulo }) => (
+                        <label key={tipo} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={projeto.investimentos[tipo].ativo}
+                            onChange={(e) => setInv(i, tipo, { ativo: e.target.checked })}
+                            className="h-4 w-4 rounded border-gray-300 text-ocean-700 focus:ring-ocean-600"
+                          />
+                          {rotulo}
+                        </label>
+                      ))}
+                    </div>
+                    <Erro msg={erros[`${p}.investimentos`]} />
+                  </div>
+
+                  {TIPOS.filter(({ tipo }) => projeto.investimentos[tipo].ativo).map(({ tipo, rotulo }) => {
+                    const inv = projeto.investimentos[tipo];
+                    const entrada = parseEntrada(inv.entrada);
+                    return (
+                      <div key={tipo} className="border border-gray-100 bg-gray-50 rounded-lg p-4 space-y-3">
+                        <h4 className="font-medium text-gray-900">{rotulo}</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className={labelCls}>Taxa</label>
+                            <div className="flex gap-2">
+                              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden shrink-0">
+                                {(['percentual', 'valor'] as TaxaTipo[]).map((t) => (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => setInv(i, tipo, { taxa_tipo: t })}
+                                    className={`px-3 text-sm font-medium transition ${
+                                      inv.taxa_tipo === t
+                                        ? 'bg-ocean-700 text-white'
+                                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    {t === 'percentual' ? '%' : PREFIXO_MOEDA[form.moeda]}
+                                  </button>
+                                ))}
+                              </div>
+                              <input
+                                value={inv.taxa}
+                                onChange={(e) => setInv(i, tipo, { taxa: e.target.value.replace(/[^\d.,]/g, '') })}
+                                className={`${inputCls(erros[`${p}.${tipo}.taxa`])} bg-white`}
+                                inputMode="decimal"
+                                placeholder={inv.taxa_tipo === 'percentual' ? '15' : '50.000,00'}
+                              />
+                            </div>
+                            <Erro msg={erros[`${p}.${tipo}.taxa`]} />
+                          </div>
+                          <div>
+                            <label className={labelCls}>Entrada (%) — opcional</label>
+                            <input
+                              value={inv.entrada}
+                              onChange={(e) =>
+                                setInv(i, tipo, { entrada: e.target.value.replace(/\D/g, '').slice(0, 2) })
+                              }
+                              className={`${inputCls(erros[`${p}.${tipo}.entrada`])} bg-white`}
+                              inputMode="numeric"
+                              placeholder="0"
+                            />
+                            <Erro msg={erros[`${p}.${tipo}.entrada`]} />
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          Após conclusão: {entrada === undefined ? '—' : `${100 - (entrada ?? 0)}%`}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={adicionarProjeto}
+                disabled={form.projetos.length >= LIMITE_PROJETOS}
+                className="px-4 py-2 rounded-lg border border-ocean-700 text-ocean-700 font-medium hover:bg-ocean-50 disabled:border-gray-300 disabled:text-gray-400 disabled:hover:bg-transparent transition"
+              >
+                Adicionar projeto
+              </button>
+              {form.projetos.length >= LIMITE_PROJETOS && (
+                <span className="text-sm text-gray-500">Limite de {LIMITE_PROJETOS} projetos</span>
+              )}
+            </div>
+          </section>
+
+          <section className={secaoCls}>
+            <h2 className="font-semibold text-gray-900">Garantias e condições</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {condicao('shortlist', 'Shortlist', TEXTOS_PADRAO_GARANTIAS[form.idioma].shortlist)}
+              {condicao('sla', 'SLA', TEXTOS_PADRAO_GARANTIAS[form.idioma].sla)}
+              {condicao('garantia', 'Garantia', form.idioma === 'en-US' ? '4 months' : '4 meses')}
+            </div>
+            <p className="text-sm text-gray-500">
+              Campos vazios não aparecem na proposta.{' '}
+              {registro.garantiasSempreVisivel
+                ? 'As Observações do modelo continuam aparecendo.'
+                : 'Se os três ficarem vazios, a seção não aparece.'}
+            </p>
+          </section>
+
+          <section className={secaoCls}>
+            <h2 className="font-semibold text-gray-900">Validade</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+              <div>
+                <label className={labelCls}>Validade (dias)</label>
+                <input
+                  value={form.validade_dias}
+                  onChange={(e) => set('validade_dias', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                  className={inputCls(erros.validade_dias)}
+                  inputMode="numeric"
+                />
+                <Erro msg={erros.validade_dias} />
+              </div>
+              <p className="text-sm text-gray-700 sm:pt-8">
+                {validade ? `Válida até ${formatarData(validade)}` : '—'}
+              </p>
+            </div>
           </section>
         </div>
 
         <aside className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 h-fit space-y-3 lg:sticky lg:top-6">
           <h2 className="font-semibold text-gray-900">Resumo</h2>
-          {resumo.length === 0 && <p className="text-sm text-gray-500">Nenhum modelo de investimento selecionado.</p>}
-          {resumo.map(({ tipo, rotulo, inv }) => (
-            <div key={tipo} className="text-sm text-gray-700 border-b border-gray-100 pb-2">
-              <div className="flex justify-between font-medium text-gray-900">
-                <span>{rotulo}</span>
-                <span>{inv ? formatarTaxa(inv, { moeda: form.moeda }) : '—'}</span>
+          {form.projetos.map((projeto, i) => {
+            const ativos = TIPOS.filter(({ tipo }) => projeto.investimentos[tipo].ativo);
+            return (
+              <div key={projeto.chave} className="space-y-2 border-b border-gray-100 pb-3">
+                <div className="text-sm font-semibold text-gray-900">{projeto.nome.trim() || `Projeto ${i + 1}`}</div>
+                {ativos.length === 0 && (
+                  <p className="text-sm text-gray-500">Nenhum modelo de investimento selecionado.</p>
+                )}
+                {ativos.map(({ tipo, rotulo }) => {
+                  const inv = investimentoDoForm(tipo, projeto.investimentos[tipo]);
+                  return (
+                    <div key={tipo} className="text-sm text-gray-700">
+                      <div className="flex justify-between font-medium text-gray-800">
+                        <span>{rotulo}</span>
+                        <span>{inv ? formatarTaxa(inv, { moeda: form.moeda }) : '—'}</span>
+                      </div>
+                      <div className="text-gray-600">{inv ? formatarPagamento(inv.entrada) : 'Preencha a taxa'}</div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="text-gray-600">{inv ? formatarPagamento(inv.entrada) : 'Preencha a taxa'}</div>
-            </div>
-          ))}
-          <div className="flex justify-between text-sm text-gray-700">
+            );
+          })}
+          <div className="flex justify-between gap-4 text-sm text-gray-700">
             <span>Garantia</span>
-            <span>{garantia >= 1 ? formatarGarantia(garantia) : '—'}</span>
+            <span className="text-right">{garantiaResumo || '—'}</span>
+          </div>
+          <div className="flex justify-between gap-4 text-sm text-gray-700">
+            <span>Válida até</span>
+            <span>{validade ? formatarData(validade) : '—'}</span>
           </div>
           <button
             type="submit"

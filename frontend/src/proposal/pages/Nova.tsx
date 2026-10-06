@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import ModeloForm, { FormModelo, formDeModelo, formModeloInicial } from '../components/ModeloForm';
 import ProposalLayout from '../components/ProposalLayout';
 import { modelosDisponiveis } from '../modelos';
+import { resumoProjetos } from '../modelos/formatoProposta';
 import {
   criarProposta,
   mensagemErro,
@@ -28,7 +29,7 @@ export default function Nova() {
   const [modelo, setModelo] = useState<ModeloId>(MODELO_PADRAO);
   const [perfil, setPerfil] = useState<PerfilConsultor | null>(null);
   const [copiando, setCopiando] = useState(false);
-  const [inicial, setInicial] = useState<FormModelo>(() => formModeloInicial(null, MODELO_PADRAO));
+  const [inicial, setInicial] = useState<FormModelo>(() => formModeloInicial(null));
   const [versaoForm, setVersaoForm] = useState(0);
   const [salvando, setSalvando] = useState(false);
   const [carregando, setCarregando] = useState(true);
@@ -53,7 +54,7 @@ export default function Nova() {
           if (origem.modelo !== 'simples') {
             setModelo(origem.modelo);
             setCopiando(true);
-            reiniciarForm(formDeModelo(origem, { dataHoje: true, validadePadrao: true }));
+            reiniciarForm(formDeModelo(origem, { copia: true }));
             return;
           }
           toast.error('Esta proposta não pode ser copiada');
@@ -64,18 +65,12 @@ export default function Nova() {
       if (!ativo) return;
       setModelo(MODELO_PADRAO);
       setCopiando(false);
-      reiniciarForm(formModeloInicial(perfilAtual, MODELO_PADRAO));
+      reiniciarForm(formModeloInicial(perfilAtual));
     })().finally(() => ativo && setCarregando(false));
     return () => {
       ativo = false;
     };
   }, [copiarId]);
-
-  const trocarModelo = (novo: ModeloId) => {
-    setModelo(novo);
-    setCopiando(false);
-    reiniciarForm(formModeloInicial(perfil, novo));
-  };
 
   const salvar = async (payload: PropostaModeloPayload) => {
     setSalvando(true);
@@ -93,7 +88,7 @@ export default function Nova() {
   const novaProposta = () => {
     setCriada(null);
     setCopiando(false);
-    reiniciarForm(formModeloInicial(perfil, modelo));
+    reiniciarForm(formModeloInicial(perfil));
     if (copiarId) setParams({});
   };
 
@@ -110,7 +105,8 @@ export default function Nova() {
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Proposta criada</h1>
             <p className="text-sm text-gray-600 mt-1">
-              {criada.cliente_nome} · {criada.projeto_nome} · válida até {formatarData(criada.validade)}
+              {criada.cliente_nome} · {resumoProjetos(criada.projeto_nome, criada.projetos_total)} · válida até{' '}
+              {formatarData(criada.validade)}
             </p>
           </div>
           <div>
@@ -172,7 +168,7 @@ export default function Nova() {
         <label className="block text-sm font-medium text-gray-700 mb-1">Modelo (divisão)</label>
         <select
           value={modelo}
-          onChange={(e) => trocarModelo(e.target.value as ModeloId)}
+          onChange={(e) => setModelo(e.target.value as ModeloId)}
           disabled={carregando}
           className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-ocean-600 disabled:bg-gray-50"
         >
@@ -192,6 +188,7 @@ export default function Nova() {
         <ModeloForm
           key={versaoForm}
           inicial={inicial}
+          modelo={modelo}
           rotuloSalvar="Gerar proposta"
           rotuloSalvando="Gerando..."
           salvando={salvando}

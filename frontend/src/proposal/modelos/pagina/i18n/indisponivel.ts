@@ -1,4 +1,4 @@
-import type { Idioma } from '../../../../services/proposalApi';
+import type { Idioma } from '../../../services/proposalApi';
 
 export interface TextosIndisponivel {
   moldura: string;

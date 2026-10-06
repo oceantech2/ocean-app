@@ -366,15 +366,23 @@ class UsuarioApp(Base):
 
 
 # ==================== PROPOSAL ====================
+# Dois formatos de proposta por modelo: antigo (projeto único, ES v1/v2) e novo (lista de projetos)
 CK_PROPOSTAS_CAMPOS_MODELO = (
     "(modelo = 'simples' AND cnpj IS NOT NULL AND valor IS NOT NULL AND total IS NOT NULL) "
     "OR (modelo <> 'simples' "
     "AND modelo_versao IS NOT NULL AND data_proposta IS NOT NULL AND setor IS NOT NULL "
     "AND consultor_nome IS NOT NULL AND consultor_cargo IS NOT NULL "
     "AND consultor_telefone IS NOT NULL AND consultor_email IS NOT NULL "
-    "AND projeto_nome IS NOT NULL AND garantia_meses > 0 "
+    "AND ((projetos IS NULL AND projeto_nome IS NOT NULL AND garantia_meses > 0 "
     "AND jsonb_typeof(investimentos) = 'array' "
-    "AND jsonb_array_length(investimentos) BETWEEN 1 AND 3)"
+    "AND jsonb_array_length(investimentos) BETWEEN 1 AND 3) "
+    "OR (jsonb_typeof(projetos) = 'array' "
+    "AND jsonb_array_length(projetos) BETWEEN 1 AND 10 "
+    "AND validade_dias >= 0)))"
+)
+CK_PROPOSTAS_IDIOMA = (
+    "(modelo = 'simples' AND idioma IS NULL) "
+    "OR (modelo <> 'simples' AND idioma IN ('pt-BR', 'en-US'))"
 )
 CK_PROPOSTAS_DATA_VALIDADE = "data_proposta IS NULL OR data_proposta <= validade"
 CK_PROPOSTAS_MOEDA = (
@@ -388,13 +396,15 @@ class Proposta(Base):
     """Proposta comercial emitida no Proposal; editável até ser assinada ou cancelada.
 
     `modelo = 'simples'` são as propostas da feature 077 (CNPJ, valor e imposto); os demais
-    modelos (ex.: `executive-search`) usam os campos do modelo e `investimentos`.
+    modelos (ex.: `executive-search`) usam os campos do modelo. Com `projetos` preenchido a
+    proposta está no formato novo (feature 083); sem ele, no formato antigo de projeto único.
     """
     __tablename__ = "propostas"
     __table_args__ = (
-        CheckConstraint(CK_PROPOSTAS_CAMPOS_MODELO, name="ck_propostas_campos_modelo"),
+        CheckConstraint(CK_PROPOSTAS_CAMPOS_MODELO, name="ck_propostas_campos_modelo_v2"),
         CheckConstraint(CK_PROPOSTAS_DATA_VALIDADE, name="ck_propostas_data_validade"),
         CheckConstraint(CK_PROPOSTAS_MOEDA, name="ck_propostas_moeda"),
+        CheckConstraint(CK_PROPOSTAS_IDIOMA, name="ck_propostas_idioma"),
         CheckConstraint(CK_PROPOSTAS_ESCOPO, name="ck_propostas_escopo"),
         CheckConstraint("valor > 0", name="ck_propostas_valor_positivo"),
         CheckConstraint(
@@ -438,13 +448,23 @@ class Proposta(Base):
     consultor_cargo = Column(String(255), nullable=True)
     consultor_telefone = Column(String(30), nullable=True)
     consultor_email = Column(String(255), nullable=True)
+    # projeto_nome, garantia_meses e investimentos: só no formato antigo
     projeto_nome = Column(String(255), nullable=True)
     # HTML canônico restrito (p, ol, ul, li, strong, br) gerado por normalizar_escopo; NULL = sem escopo
     projeto_escopo = Column(Text, nullable=True)
     garantia_meses = Column(SmallInteger, nullable=True)
     investimentos = Column(JSONB, nullable=True)
-    # BRL → página em português; USD → página em inglês. Nula nas propostas simples.
+    # Símbolo dos valores (BRL/USD). Nula nas propostas simples.
     moeda = Column(String(3), nullable=True)
+    # Idioma da página do cliente (pt-BR/en-US), independente da moeda. Nulo nas propostas simples.
+    idioma = Column(String(5), nullable=True)
+    # Formato novo: [{"nome": str, "investimentos": [...]}], de 1 a 10, na ordem de exibição
+    projetos = Column(JSONB, nullable=True)
+    shortlist = Column(String(255), nullable=True)
+    sla = Column(String(255), nullable=True)
+    garantia_texto = Column(String(255), nullable=True)
+    # validade = data_proposta + validade_dias ao salvar
+    validade_dias = Column(SmallInteger, nullable=True)
 
     assinatura = relationship(
         "PropostaAssinatura", back_populates="proposta", uselist=False, passive_deletes=True

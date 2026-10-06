@@ -1,4 +1,5 @@
 import type { Idioma, Investimento, Moeda } from '../services/proposalApi';
+import { mesesPorExtenso } from './formatoProposta';
 import { PREFIXO_MOEDA } from './idioma';
 
 const TZ_SP = 'America/Sao_Paulo';
@@ -30,7 +31,7 @@ export function formatarPagamento(entrada: number | null | undefined): string {
 
 export function formatarGarantia(meses: number | null | undefined): string {
   if (!meses) return '—';
-  return meses === 1 ? '1 mês' : `${meses} meses`;
+  return mesesPorExtenso(meses);
 }
 
 export function formatarDataISO(isoData: string | null | undefined, idioma: Idioma = 'pt-BR'): string {

@@ -15,7 +15,8 @@ from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
 from app.models import (
-    CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_MOEDA,
+    CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_IDIOMA,
+    CK_PROPOSTAS_MOEDA,
 )
 
 # Criar tabelas
@@ -549,8 +550,8 @@ def _migrar():
                 conn.execute(text(f"ALTER TABLE propostas ADD COLUMN IF NOT EXISTS {coluna}"))
             for coluna in ("cnpj", "valor", "total"):
                 conn.execute(text(f"ALTER TABLE propostas ALTER COLUMN {coluna} DROP NOT NULL"))
+            # A constraint de campos do modelo é criada no bloco da feature 083 (ck_propostas_campos_modelo_v2)
             for nome, expressao in (
-                ("ck_propostas_campos_modelo", CK_PROPOSTAS_CAMPOS_MODELO),
                 ("ck_propostas_data_validade", CK_PROPOSTAS_DATA_VALIDADE),
             ):
                 conn.execute(text(
@@ -627,9 +628,49 @@ def _migrar():
         except Exception:
             conn.rollback()
 
-    # Pendentes passam para a versão vigente do modelo; o hash precisa ser regravado, senão o aceite é recusado.
-    # Assinadas e canceladas ficam na versão com que foram emitidas.
+    # Proposal (feature 083): idioma independente da moeda, vários projetos, Garantias e condições e validade em dias
+    with engine.connect() as conn:
+        try:
+            for coluna in (
+                "idioma VARCHAR(5)",
+                "projetos JSONB",
+                "shortlist VARCHAR(255)",
+                "sla VARCHAR(255)",
+                "garantia_texto VARCHAR(255)",
+                "validade_dias SMALLINT",
+            ):
+                conn.execute(text(f"ALTER TABLE propostas ADD COLUMN IF NOT EXISTS {coluna}"))
+            conn.execute(text(
+                "UPDATE propostas SET idioma = CASE WHEN moeda = 'USD' THEN 'en-US' ELSE 'pt-BR' END "
+                "WHERE modelo <> 'simples' AND idioma IS NULL"
+            ))
+            for nome, expressao in (
+                ("ck_propostas_campos_modelo_v2", CK_PROPOSTAS_CAMPOS_MODELO),
+                ("ck_propostas_idioma", CK_PROPOSTAS_IDIOMA),
+            ):
+                conn.execute(text(
+                    f"""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint
+                            WHERE conname = '{nome}' AND conrelid = 'propostas'::regclass
+                        ) THEN
+                            ALTER TABLE propostas ADD CONSTRAINT {nome} CHECK ({expressao});
+                        END IF;
+                    END $$
+                    """
+                ))
+            conn.execute(text("ALTER TABLE propostas DROP CONSTRAINT IF EXISTS ck_propostas_campos_modelo"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 083)")
+
+    # Pendentes passam para a versão vigente do modelo (formato novo); o hash precisa ser regravado,
+    # senão o aceite é recusado. Assinadas e canceladas ficam na versão com que foram emitidas.
     from app.models import Proposta
+    from app.services.proposta_modelos import MODELOS, converter_para_formato_novo
     from app.services.propostas import STATUS_PENDENTES, calcular_hash
 
     db = SessionLocal()
@@ -638,19 +679,19 @@ def _migrar():
             db.query(Proposta)
             .filter(
                 Proposta.modelo == "executive-search",
-                Proposta.modelo_versao == 1,
+                Proposta.projetos.is_(None),
                 Proposta.status.in_(STATUS_PENDENTES),
             )
             .with_for_update()
             .all()
         )
         for p in pendentes:
-            p.modelo_versao = 2
+            converter_para_formato_novo(p, MODELOS["executive-search"]["versao_atual"])
             p.conteudo_hash = calcular_hash(p)
         db.commit()
     except Exception:
         db.rollback()
-        logging.getLogger("ocean.migracao").exception("Falha ao migrar propostas pendentes para a versão 2")
+        logging.getLogger("ocean.migracao").exception("Falha ao migrar propostas pendentes para o formato novo")
     finally:
         db.close()
 

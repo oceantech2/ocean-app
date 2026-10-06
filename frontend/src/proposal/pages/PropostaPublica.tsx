@@ -2,8 +2,8 @@ import { ReactNode, Suspense, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { componenteDoModelo } from '../modelos';
-import { textosIndisponivel } from '../modelos/executive-search/v1/i18n/indisponivel';
-import { idiomaDaMoeda } from '../modelos/idioma';
+import { idiomaDaProposta } from '../modelos/idioma';
+import { textosIndisponivel } from '../modelos/pagina/i18n/indisponivel';
 import { assinarPublica, consultarPublica, mensagemErro, PropostaPublicaData } from '../services/proposalApi';
 import { formatarAliquota, formatarData, formatarDataHora, formatarMoeda } from '../utils/propostaCalculo';
 
@@ -125,7 +125,7 @@ export default function PropostaPublica() {
   }
 
   if (dados.status === 'cancelada' || dados.status === 'expirada') {
-    if (dados.moeda === 'USD') {
+    if (idiomaDaProposta(dados) === 'en-US') {
       const indisponivel = textosIndisponivel('en-US');
       const texto = dados.status === 'cancelada' ? indisponivel.cancelada : indisponivel.expirada;
       return <Mensagem texto={texto} titulo={indisponivel.moldura} />;
@@ -137,7 +137,7 @@ export default function PropostaPublica() {
     const Pagina = componenteDoModelo(dados.modelo, dados.modelo_versao);
     if (!Pagina) return <Mensagem texto="Não foi possível exibir esta proposta" />;
     return (
-      <Suspense fallback={telaCarregando(textosIndisponivel(idiomaDaMoeda(dados.moeda)).carregando)}>
+      <Suspense fallback={telaCarregando(textosIndisponivel(idiomaDaProposta(dados)).carregando)}>
         <Pagina dados={dados} codigo={codigo} onRecarregar={recarregarSilencioso} />
       </Suspense>
     );

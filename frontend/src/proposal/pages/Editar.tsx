@@ -57,7 +57,10 @@ export default function Editar() {
     <div className="mb-6 space-y-2">
       {proposta?.status === 'expirada' && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Esta proposta está expirada. Defina uma nova validade para que o cliente possa assinar.
+          Esta proposta está expirada.{' '}
+          {proposta.modelo === 'simples'
+            ? 'Defina uma nova validade para que o cliente possa assinar.'
+            : 'Ajuste a data ou os dias de validade para que o cliente possa assinar.'}
         </div>
       )}
       <div className="rounded-lg border border-gray-200 bg-ocean-50 p-4 text-sm text-ocean-900">
@@ -106,12 +109,13 @@ export default function Editar() {
       ) : (
         <ModeloForm
           inicial={formDeModelo(proposta)}
+          modelo={proposta.modelo}
           rotuloSalvar="Salvar alterações"
           rotuloSalvando="Salvando..."
           salvando={salvando}
           onSubmit={salvar}
           aviso={aviso}
-          moedaFixa
+          idiomaMoedaFixos
         />
       )}
     </ProposalLayout>

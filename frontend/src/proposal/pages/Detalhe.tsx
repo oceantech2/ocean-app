@@ -7,10 +7,21 @@ import { formatarCNPJ } from '../../utils/documento';
 import { formatarDataISO, formatarGarantia, formatarPagamento, formatarTaxa } from '../modelos/formatacao';
 import EscopoRico from '../modelos/EscopoRico';
 import { escopoParaTexto } from '../modelos/escopo';
-import { rotuloMoedaDetalhe } from '../modelos/idioma';
+import { registroDoModelo } from '../modelos';
+import { garantiaDaProposta, projetosDaProposta, resumoProjetos } from '../modelos/formatoProposta';
+import { rotuloIdiomaMoeda } from '../modelos/idioma';
 import { rotuloTipo } from '../modelos/investimentos';
 import { rotuloSetor } from '../modelos/setores';
-import { AlteracaoCampo, cancelarProposta, mensagemErro, Moeda, obterProposta, Proposta } from '../services/proposalApi';
+import {
+  AlteracaoCampo,
+  cancelarProposta,
+  Investimento,
+  mensagemErro,
+  Moeda,
+  obterProposta,
+  Projeto,
+  Proposta,
+} from '../services/proposalApi';
 import {
   copiarTexto,
   formatarAliquota,
@@ -45,19 +56,37 @@ const ROTULOS_CAMPO: Record<string, string> = {
   consultor_telefone: 'Consultor: telefone',
   consultor_email: 'Consultor: e-mail',
   projeto_nome: 'Projeto',
-  projeto_escopo: 'Escopo do Projeto',
   garantia_meses: 'Garantia',
+  shortlist: 'Shortlist',
+  sla: 'SLA',
+  garantia_texto: 'Garantia',
+  validade_dias: 'Validade (dias)',
 };
 
-function rotuloCampo(campo: string, porModelo: boolean): string {
+function rotuloCampo(campo: string, p: Proposta): string {
+  const porModelo = p.modelo !== 'simples';
   if (campo === 'cliente_nome' && porModelo) return 'Empresa';
+  if (campo === 'projeto_escopo') return registroDoModelo(p.modelo).rotuloEscopo;
+  if (campo.startsWith('projeto.')) return `Projeto ${campo.slice('projeto.'.length)}`;
   if (campo.startsWith('investimento.')) return `Investimento ${rotuloTipo(campo.slice('investimento.'.length))}`;
   return ROTULOS_CAMPO[campo] || campo;
 }
 
+const formatarInvestimento = (inv: Investimento, moeda: Moeda) =>
+  `${formatarTaxa(inv, { moeda })} · ${formatarPagamento(inv.entrada)}`;
+
+function formatarProjeto(projeto: Projeto, moeda: Moeda): string {
+  const investimentos = projeto.investimentos
+    .map((inv) => `${rotuloTipo(inv.tipo)} ${formatarTaxa(inv, { moeda })} (${formatarPagamento(inv.entrada)})`)
+    .join('; ');
+  return `${projeto.nome} — ${investimentos}`;
+}
+
 function formatarValorCampo(campo: string, valor: AlteracaoCampo['novo'], moeda: Moeda): string {
   if (valor === null || valor === '') return '—';
-  if (typeof valor === 'object') return `${formatarTaxa(valor, { moeda })} · ${formatarPagamento(valor.entrada)}`;
+  if (typeof valor === 'object') {
+    return 'investimentos' in valor ? formatarProjeto(valor, moeda) : formatarInvestimento(valor, moeda);
+  }
   switch (campo) {
     case 'data_proposta':
       return formatarDataISO(String(valor));
@@ -65,6 +94,8 @@ function formatarValorCampo(campo: string, valor: AlteracaoCampo['novo'], moeda:
       return rotuloSetor(String(valor));
     case 'garantia_meses':
       return formatarGarantia(Number(valor));
+    case 'validade_dias':
+      return Number(valor) === 1 ? '1 dia' : `${valor} dias`;
     case 'cnpj':
       return formatarCNPJ(String(valor));
     case 'valor':
@@ -89,6 +120,9 @@ const STATUS_EDITAVEIS = ['aguardando', 'visualizada', 'expirada'];
 const cartao = 'bg-white rounded-xl shadow-sm border border-gray-200 p-6';
 
 function SecoesModelo({ p }: { p: Proposta }) {
+  const moeda = p.moeda ?? 'BRL';
+  const projetos = projetosDaProposta(p);
+  const dias = p.validade_dias ?? null;
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -110,16 +144,20 @@ function SecoesModelo({ p }: { p: Proposta }) {
           </dl>
         </section>
         <section className={cartao}>
-          <h2 className="font-semibold text-gray-900 mb-4">Projeto</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">Condições</h2>
           <dl className="space-y-4">
-            <Campo label="Nome do projeto">{p.projeto_nome}</Campo>
-            <Campo label="Garantia">{formatarGarantia(p.garantia_meses)}</Campo>
-            <Campo label="Validade">{formatarData(p.validade)}</Campo>
+            <Campo label="Shortlist">{p.shortlist || '—'}</Campo>
+            <Campo label="SLA">{p.sla || '—'}</Campo>
+            <Campo label="Garantia">{garantiaDaProposta(p) ?? '—'}</Campo>
+            <Campo label="Validade">
+              {formatarData(p.validade)}
+              {dias !== null && ` (${dias === 1 ? '1 dia' : `${dias} dias`})`}
+            </Campo>
           </dl>
         </section>
       </div>
       <section className={cartao}>
-        <h2 className="font-semibold text-gray-900 mb-4">Escopo do Projeto</h2>
+        <h2 className="font-semibold text-gray-900 mb-4">{registroDoModelo(p.modelo).rotuloEscopo}</h2>
         {p.projeto_escopo ? (
           <div className="text-gray-900 break-words space-y-2 [&_ol]:list-decimal [&_ul]:list-disc [&_ol]:pl-6 [&_ul]:pl-6 [&_ol]:space-y-2 [&_ul]:space-y-1 [&_ul]:mt-1 [&_strong]:font-semibold">
             <EscopoRico html={p.projeto_escopo} />
@@ -130,12 +168,19 @@ function SecoesModelo({ p }: { p: Proposta }) {
       </section>
       <section className={cartao}>
         <h2 className="font-semibold text-gray-900 mb-4">Investimento</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(p.investimentos ?? []).map((inv) => (
-            <div key={inv.tipo} className="rounded-lg border border-gray-200 border-t-4 border-t-ocean-700 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">{rotuloTipo(inv.tipo)}</p>
-              <p className="mt-2 text-2xl font-semibold text-gray-900">{formatarTaxa(inv, { moeda: p.moeda ?? 'BRL' })}</p>
-              <p className="mt-1 text-sm text-gray-600">{formatarPagamento(inv.entrada)}</p>
+        <div className="space-y-6">
+          {projetos.map((projeto, i) => (
+            <div key={i}>
+              <h3 className="font-medium text-gray-900 mb-3">{projeto.nome}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {projeto.investimentos.map((inv) => (
+                  <div key={inv.tipo} className="rounded-lg border border-gray-200 border-t-4 border-t-ocean-700 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">{rotuloTipo(inv.tipo)}</p>
+                    <p className="mt-2 text-2xl font-semibold text-gray-900">{formatarTaxa(inv, { moeda })}</p>
+                    <p className="mt-1 text-sm text-gray-600">{formatarPagamento(inv.entrada)}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -212,8 +257,10 @@ export default function Detalhe() {
               <h1 className="text-2xl font-semibold text-gray-900">{proposta.cliente_nome}</h1>
               <p className="text-sm text-gray-600">
                 {proposta.modelo_nome}
-                {porModelo && proposta.moeda && ` · ${rotuloMoedaDetalhe(proposta.moeda)}`}
-                {porModelo && proposta.projeto_nome && ` · ${proposta.projeto_nome}`}
+                {porModelo && proposta.moeda && ` · ${rotuloIdiomaMoeda(proposta)}`}
+                {porModelo &&
+                  proposta.projeto_nome &&
+                  ` · ${resumoProjetos(proposta.projeto_nome, proposta.projetos_total)}`}
               </p>
               <div className="mt-1">
                 <StatusBadge status={proposta.status} />
@@ -301,7 +348,7 @@ export default function Detalhe() {
                       {edicao.alteracoes.map((a) =>
                         a.campo === 'projeto_escopo' ? (
                           <li key={a.campo}>
-                            <span className="font-medium">{rotuloCampo(a.campo, porModelo)}:</span>
+                            <span className="font-medium">{rotuloCampo(a.campo, proposta)}:</span>
                             <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <p className="whitespace-pre-wrap rounded-md bg-gray-50 p-2 text-gray-500 line-through">
                                 {formatarValorCampo(a.campo, a.anterior, proposta.moeda ?? 'BRL')}
@@ -313,7 +360,7 @@ export default function Detalhe() {
                           </li>
                         ) : (
                           <li key={a.campo}>
-                            <span className="font-medium">{rotuloCampo(a.campo, porModelo)}:</span>{' '}
+                            <span className="font-medium">{rotuloCampo(a.campo, proposta)}:</span>{' '}
                             <span className="text-gray-500 line-through">
                               {formatarValorCampo(a.campo, a.anterior, proposta.moeda ?? 'BRL')}
                             </span>

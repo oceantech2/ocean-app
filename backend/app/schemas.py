@@ -549,6 +549,10 @@ class InvestimentoIn(BaseModel):
     taxa: Optional[Decimal] = None
     entrada: Optional[int] = None
 
+class ProjetoIn(BaseModel):
+    nome: str = ""
+    investimentos: Optional[List[InvestimentoIn]] = None
+
 class PropostaCreate(BaseModel):
     cliente_nome: str = ""
     cnpj: str = ""
@@ -569,6 +573,13 @@ class PropostaCreate(BaseModel):
     garantia_meses: Optional[int] = None
     investimentos: Optional[List[InvestimentoIn]] = None
     moeda: Optional[str] = None
+    # Formato novo (feature 083)
+    idioma: Optional[str] = None
+    projetos: Optional[List[ProjetoIn]] = None
+    shortlist: Optional[str] = None
+    sla: Optional[str] = None
+    garantia: Optional[str] = None
+    validade_dias: Optional[int] = None
 
 
 class PerfilConsultorIn(BaseModel):

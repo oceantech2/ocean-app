@@ -14,7 +14,6 @@ from app.services.documento import formatar_cnpj, normalizar_cnpj, validar_cnpj,
 from app.services.proposta_modelos import (
     MODELO_SIMPLES,
     MOEDA_PADRAO,
-    TIPOS_INVESTIMENTO,
     nome_modelo,
     telefone_whatsapp,
 )
@@ -119,11 +118,42 @@ def eh_simples(p: Proposta) -> bool:
     return (p.modelo or MODELO_SIMPLES) == MODELO_SIMPLES
 
 
+def formato_novo(p: Proposta) -> bool:
+    """Propostas por modelo com lista de projetos (feature 083); as demais estão no formato antigo."""
+    return not eh_simples(p) and p.projetos is not None
+
+
 def _json_canonico(dados: dict) -> str:
     return json.dumps(dados, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def conteudo_canonico(p: Proposta) -> str:
+    if formato_novo(p):
+        return _json_canonico({
+            "codigo": p.codigo,
+            "emitida_em": p.emitida_em.replace(microsecond=0).isoformat(),
+            "modelo": p.modelo,
+            "modelo_versao": p.modelo_versao,
+            "idioma": p.idioma,
+            "moeda": p.moeda,
+            "cliente_nome": p.cliente_nome,
+            "data_proposta": _data(p.data_proposta),
+            "setor": p.setor,
+            "consultor": {
+                "nome": p.consultor_nome,
+                "cargo": p.consultor_cargo,
+                "telefone": p.consultor_telefone,
+                "email": p.consultor_email,
+            },
+            "projeto_escopo": p.projeto_escopo,
+            "projetos": p.projetos,
+            "shortlist": p.shortlist,
+            "sla": p.sla,
+            "garantia": p.garantia_texto,
+            "validade_dias": p.validade_dias,
+            "validade": p.validade.isoformat(),
+        })
+    # Formato antigo congelado: assinaturas das versões 1 e 2 do Executive Search dependem dele
     if not eh_simples(p):
         dados = {
             "codigo": p.codigo,
@@ -178,7 +208,8 @@ CAMPOS_EDITAVEIS = (
 
 CAMPOS_MODELO = (
     "cliente_nome", "data_proposta", "setor", "consultor_nome", "consultor_cargo",
-    "consultor_telefone", "consultor_email", "projeto_nome", "projeto_escopo", "garantia_meses", "validade",
+    "consultor_telefone", "consultor_email", "projeto_escopo", "shortlist", "sla", "garantia_texto",
+    "validade_dias", "validade",
 )
 
 
@@ -189,7 +220,7 @@ def _canonico(campo: str, valor):
         return _dec_str(valor)
     if campo in ("validade", "data_proposta"):
         return valor.isoformat()
-    if campo == "garantia_meses":
+    if campo in ("garantia_meses", "validade_dias"):
         return int(valor)
     if campo == "imposto_ativo":
         return bool(valor)
@@ -212,13 +243,6 @@ def diff_campos(p: Proposta, dados: dict) -> list[dict]:
     return alteracoes
 
 
-def _investimentos_por_tipo(itens) -> dict:
-    return {
-        item["tipo"]: {"taxa_tipo": item["taxa_tipo"], "taxa": item["taxa"], "entrada": item.get("entrada")}
-        for item in (itens or [])
-    }
-
-
 def _diff_modelo(p: Proposta, dados: dict) -> list[dict]:
     alteracoes = []
     for campo in CAMPOS_MODELO:
@@ -226,12 +250,14 @@ def _diff_modelo(p: Proposta, dados: dict) -> list[dict]:
         novo = _canonico(campo, dados[campo])
         if anterior != novo:
             alteracoes.append({"campo": campo, "anterior": anterior, "novo": novo})
-    atuais = _investimentos_por_tipo(p.investimentos)
-    novos = _investimentos_por_tipo(dados["investimentos"])
-    for tipo in TIPOS_INVESTIMENTO:
-        anterior, novo = atuais.get(tipo), novos.get(tipo)
+    # Projetos não têm identificador: a comparação é por posição (inclusão, remoção, renomeação e reordenação)
+    atuais = list(p.projetos or [])
+    novos = list(dados["projetos"] or [])
+    for i in range(max(len(atuais), len(novos))):
+        anterior = atuais[i] if i < len(atuais) else None
+        novo = novos[i] if i < len(novos) else None
         if anterior != novo:
-            alteracoes.append({"campo": f"investimento.{tipo}", "anterior": anterior, "novo": novo})
+            alteracoes.append({"campo": f"projeto.{i + 1}", "anterior": anterior, "novo": novo})
     return alteracoes
 
 
@@ -278,14 +304,18 @@ def _data(d: Optional[date]) -> Optional[str]:
 
 
 def serializar_item(p: Proposta) -> dict:
+    projetos = p.projetos if formato_novo(p) else None
     return {
         "id": p.id,
         "codigo": p.codigo,
         "modelo": p.modelo,
         "modelo_nome": nome_modelo(p.modelo),
         "moeda": p.moeda,
+        "idioma": p.idioma,
         "cliente_nome": p.cliente_nome,
-        "projeto_nome": p.projeto_nome,
+        # Formato novo: nome do primeiro projeto
+        "projeto_nome": projetos[0]["nome"] if projetos else p.projeto_nome,
+        "projetos_total": len(projetos) if projetos else (0 if eh_simples(p) else 1),
         "data_proposta": _data(p.data_proposta),
         "cnpj": formatar_cnpj(p.cnpj) if p.cnpj else None,
         "total": _dec_str(p.total),
@@ -309,6 +339,11 @@ def serializar_detalhe(p: Proposta) -> dict:
         "projeto_escopo": p.projeto_escopo,
         "garantia_meses": p.garantia_meses,
         "investimentos": p.investimentos,
+        "projetos": p.projetos if formato_novo(p) else None,
+        "shortlist": p.shortlist,
+        "sla": p.sla,
+        "garantia": p.garantia_texto,
+        "validade_dias": p.validade_dias,
         "valor": _dec_str(p.valor),
         "imposto_ativo": bool(p.imposto_ativo),
         "aliquota": _dec_str(p.aliquota) if p.imposto_ativo else None,
@@ -346,6 +381,7 @@ def serializar_publica(p: Proposta) -> dict:
         indisponivel = {"status": status, "pode_assinar": False, "mensagem": mensagem}
         if not eh_simples(p):
             indisponivel["moeda"] = p.moeda
+            indisponivel["idioma"] = p.idioma
         return indisponivel
     assinatura = None
     if status == "assinada" and p.assinatura is not None:
@@ -357,6 +393,7 @@ def serializar_publica(p: Proposta) -> dict:
             "modelo": p.modelo,
             "modelo_versao": p.modelo_versao,
             "moeda": p.moeda,
+            "idioma": p.idioma,
             "cliente_nome": p.cliente_nome,
             "data_proposta": _data(p.data_proposta),
             "setor": p.setor,
@@ -371,6 +408,10 @@ def serializar_publica(p: Proposta) -> dict:
             "projeto_escopo": p.projeto_escopo,
             "garantia_meses": p.garantia_meses,
             "investimentos": p.investimentos,
+            "projetos": p.projetos if formato_novo(p) else None,
+            "shortlist": p.shortlist,
+            "sla": p.sla,
+            "garantia": p.garantia_texto,
             "validade": p.validade.isoformat(),
             "versao": p.versao,
             "atualizada_em": _iso(p.atualizada_em),
