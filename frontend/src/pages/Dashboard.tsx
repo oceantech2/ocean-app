@@ -63,6 +63,7 @@ import type { ContaCorrente, ContaPagar, NF } from '../types';
 import axios from 'axios';
 import { mensagemErro } from '../utils/erros';
 import { PAGE_HEADER_COMBINED_STICKY_CLASS } from '../utils/pageHeaderSticky';
+import { ChevronRightIcon } from '../components/navIcons';
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -468,6 +469,7 @@ export default function Dashboard() {
   const [receitaCaixaErro, setReceitaCaixaErro] = useState<string | null>(null);
   const [aging, setAging] = useState<AgingRecebiveis>(AGING_VAZIO);
   const [agingErro, setAgingErro] = useState<string | null>(null);
+  const [agingAberto, setAgingAberto] = useState(false);
   const [proximoRecebimento, setProximoRecebimento] = useState<ProximoRecebimento>(PROXIMO_VAZIO);
   const [proximoErro, setProximoErro] = useState<string | null>(null);
   const [limiarAlerta, setLimiarAlerta] = useState(LIMIAR_ALERTA_DEFAULT);
@@ -1436,61 +1438,74 @@ export default function Dashboard() {
           {/* Previsão de Recebíveis — estoque global (independente do mês/ano) */}
           <section className="space-y-3">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-gray-800 dark:text-gray-100 text-base font-semibold">
-                    Previsão de Recebíveis
-                  </h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    Estoque total em aberto · independente do período
-                    {aging.referencia ? ` · ref. ${aging.referencia}` : ''}
-                    {' · '}
-                    {rotuloVisao(visaoReceita)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              <button
+                type="button"
+                onClick={() => setAgingAberto((v) => !v)}
+                aria-expanded={agingAberto}
+                aria-controls="previsao-recebiveis-conteudo"
+                className="w-full flex flex-wrap items-start justify-between gap-3 text-left rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <span className="flex items-start gap-2">
+                  <ChevronRightIcon
+                    className={`w-5 h-5 mt-0.5 shrink-0 text-gray-500 dark:text-gray-400 transition-transform ${agingAberto ? 'rotate-90' : ''}`}
+                  />
+                  <span>
+                    <span className="block text-gray-800 dark:text-gray-100 text-base font-semibold">
+                      Previsão de Recebíveis
+                    </span>
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Estoque total em aberto · independente do período
+                      {aging.referencia ? ` · ref. ${aging.referencia}` : ''}
+                      {' · '}
+                      {rotuloVisao(visaoReceita)}
+                    </span>
+                  </span>
+                </span>
+                <span className="block text-right">
+                  <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                     Total em aberto
-                  </p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  </span>
+                  <span className="block text-2xl font-bold text-gray-900 dark:text-gray-100">
                     {fmt(valorAging(aging.total_aberto, visaoReceita))}
-                  </p>
-                </div>
-              </div>
-              {agingErro ? (
-                <p className="text-sm text-red-600 dark:text-red-400">{agingErro}</p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {AGING_BUCKETS.map((b) => {
-                    const dados = aging[b.key];
-                    const valor = valorAging(dados, visaoReceita);
-                    const pct = pctAging(dados, visaoReceita);
-                    return (
-                      <div
-                        key={b.key}
-                        className={`rounded-lg border p-4 ${b.borderClass}`}
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                            {b.rotulo}
-                          </span>
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${b.badgeClass}`}
-                          >
-                            {b.acao}
-                          </span>
+                  </span>
+                </span>
+              </button>
+              <div id="previsao-recebiveis-conteudo" hidden={!agingAberto}>
+                {agingErro ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">{agingErro}</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {AGING_BUCKETS.map((b) => {
+                      const dados = aging[b.key];
+                      const valor = valorAging(dados, visaoReceita);
+                      const pct = pctAging(dados, visaoReceita);
+                      return (
+                        <div
+                          key={b.key}
+                          className={`rounded-lg border p-4 ${b.borderClass}`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                              {b.rotulo}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${b.badgeClass}`}
+                            >
+                              {b.acao}
+                            </span>
+                          </div>
+                          <p className={`text-xl font-bold mt-2 ${b.valorClass}`}>
+                            {fmt(valor)}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {fmtAgingPct(pct)}
+                          </p>
                         </div>
-                        <p className={`text-xl font-bold mt-2 ${b.valorClass}`}>
-                          {fmt(valor)}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          {fmtAgingPct(pct)}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 
