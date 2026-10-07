@@ -317,6 +317,11 @@ export default function NFs() {
     }
   };
 
+  const verAnexoNf = (nf: NF) => {
+    nfsService.downloadAnexo(nf.id, nf.anexo_nome)
+      .catch((e) => toast.error(mensagemErro(e, 'Não foi possível abrir a nota fiscal')));
+  };
+
   const abrirUploadAnexo = (nf: NF) => {
     setUploadingAnexo(nf.id);
     anexoInputRef.current?.click();
@@ -1028,7 +1033,7 @@ export default function NFs() {
                         <div className="flex flex-col gap-0.5 items-start">
                           <button
                             type="button"
-                            onClick={() => nfsService.downloadAnexo(nf.id)}
+                            onClick={() => verAnexoNf(nf)}
                             className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline max-w-full"
                             title={nf.anexo_nome}
                           >
@@ -1304,7 +1309,7 @@ export default function NFs() {
                   <div className="flex items-center gap-2 mb-1">
                     <button
                       type="button"
-                      onClick={() => nfsService.downloadAnexo(editando.id)}
+                      onClick={() => verAnexoNf(editando)}
                       className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                     >
                       {editando.anexo_nome}

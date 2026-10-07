@@ -63,6 +63,37 @@ api.interceptors.response.use(
   }
 );
 
+// A aba precisa ser aberta de forma síncrona no clique; abrir depois do await faz o navegador bloquear como pop-up.
+async function abrirArquivoEmNovaAba(path: string, nomeArquivo?: string | null) {
+  const janela = window.open('', '_blank');
+  try {
+    const res = await api.get(path, { responseType: 'blob' });
+    const type = (res.headers['content-type'] as string) || 'application/octet-stream';
+    const url = URL.createObjectURL(new Blob([res.data], { type }));
+    if (janela) {
+      janela.location.href = url;
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nomeArquivo || 'arquivo';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  } catch (e: any) {
+    janela?.close();
+    const data = e?.response?.data;
+    if (data instanceof Blob) {
+      try {
+        e.response.data = JSON.parse(await data.text());
+      } catch {
+        // corpo não é JSON; mantém o erro original
+      }
+    }
+    throw e;
+  }
+}
+
 // Auth Service
 export const authService = {
   login: async (username: string, password: string, totpCode?: string): Promise<LoginResponse> => {
@@ -248,12 +279,8 @@ export const nfsService = {
     return api.post(`/nfs/${nfId}/anexo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
 
-  downloadAnexo: async (nfId: number) => {
-    const res = await api.get(`/nfs/${nfId}/anexo`, { responseType: 'blob' });
-    const type = (res.headers['content-type'] as string) || 'application/octet-stream';
-    const url = URL.createObjectURL(new Blob([res.data], { type }));
-    window.open(url, '_blank');
-  },
+  downloadAnexo: (nfId: number, nome?: string | null) =>
+    abrirArquivoEmNovaAba(`/nfs/${nfId}/anexo`, nome),
 
   deleteAnexo: (nfId: number) =>
     api.delete(`/nfs/${nfId}/anexo`),
@@ -350,12 +377,8 @@ export const contasService = {
     return api.post(`/contas/${contaId}/comprovante`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
 
-  downloadComprovante: async (contaId: number, _nome?: string) => {
-    const res = await api.get(`/contas/${contaId}/comprovante`, { responseType: 'blob' });
-    const type = (res.headers['content-type'] as string) || 'application/octet-stream';
-    const url = URL.createObjectURL(new Blob([res.data], { type }));
-    window.open(url, '_blank');
-  },
+  downloadComprovante: (contaId: number, nome?: string | null) =>
+    abrirArquivoEmNovaAba(`/contas/${contaId}/comprovante`, nome),
 
   removerComprovante: (contaId: number) =>
     api.delete(`/contas/${contaId}/comprovante`),

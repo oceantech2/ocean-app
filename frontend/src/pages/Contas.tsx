@@ -271,6 +271,11 @@ export default function Contas() {
     buscaDescricao, dataInicio, dataFim,
   ]);
 
+  const verComprovante = (conta: ContaPagar) => {
+    contasService.downloadComprovante(conta.id, conta.comprovante_nome)
+      .catch((e) => toast.error(mensagemErro(e, 'Não foi possível abrir o comprovante')));
+  };
+
   const toggleSelecionado = (id: number) => {
     setSelecionados((prev) => {
       const next = new Set(prev);
@@ -1154,7 +1159,7 @@ export default function Contas() {
                     {conta.comprovante_nome ? (
                       <div className="flex flex-col gap-1 items-start">
                         <button
-                          onClick={() => contasService.downloadComprovante(conta.id, conta.comprovante_nome)}
+                          onClick={() => verComprovante(conta)}
                           className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
                           title={conta.comprovante_nome}
                         >
@@ -1531,7 +1536,7 @@ export default function Contas() {
                   <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
                     <button
                       type="button"
-                      onClick={() => contasService.downloadComprovante(editando.id, editando.comprovante_nome)}
+                      onClick={() => verComprovante(editando)}
                       className="text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[200px]"
                     >
                       {editando.comprovante_nome}

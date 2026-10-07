@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/app/uploads")
     UPLOAD_MAX_MB: int = int(os.getenv("UPLOAD_MAX_MB", "10"))
 
+    # Supabase Storage para anexos de NF e comprovantes; sem URL/chave, grava em UPLOAD_DIR.
+    # O disco do Render (plano free) é apagado a cada deploy/reinício.
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    SUPABASE_STORAGE_BUCKET: str = os.getenv("SUPABASE_STORAGE_BUCKET", "anexos")
+
     # Redis (para cache)
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
 

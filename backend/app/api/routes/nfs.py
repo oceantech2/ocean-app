@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, extract
 from sqlalchemy.exc import IntegrityError
 from typing import List, Set, Optional, Literal, Tuple
 from datetime import date, datetime
 import io
-import os
 from app.database import get_db
 from app.models import NF, StatusNF, TipoFechamento
 from app.schemas import NFCreate, NFResponse, NFUpdate
@@ -579,14 +578,7 @@ def download_anexo_nf(
     db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
     if not db_nf.anexo_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
-    if not os.path.exists(db_nf.anexo_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado no servidor")
-    return FileResponse(
-        db_nf.anexo_path,
-        filename=db_nf.anexo_nome or "nota-fiscal",
-        media_type=anexo_nf.media_type(db_nf.anexo_path, db_nf.anexo_nome),
-        content_disposition_type="inline",
-    )
+    return anexo_nf.resposta_inline(db_nf.anexo_path, db_nf.anexo_nome, "nota-fiscal")
 
 
 @router.delete("/{nf_id}/anexo", status_code=status.HTTP_204_NO_CONTENT)

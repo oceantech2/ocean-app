@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import extract
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import io
-import os
 from app.database import get_db
 from app.models import ContaPagar, Colaborador
 from app.schemas import (
@@ -734,14 +733,7 @@ def download_comprovante(
     db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
     if not db_conta or not db_conta.comprovante_path:
         raise HTTPException(status_code=404, detail="Comprovante não encontrado")
-    if not os.path.exists(db_conta.comprovante_path):
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado no servidor")
-    return FileResponse(
-        db_conta.comprovante_path,
-        filename=db_conta.comprovante_nome or "comprovante",
-        media_type=anexo_nf.media_type(db_conta.comprovante_path, db_conta.comprovante_nome),
-        content_disposition_type="inline",
-    )
+    return anexo_nf.resposta_inline(db_conta.comprovante_path, db_conta.comprovante_nome, "comprovante")
 
 
 @router.delete("/{conta_id}/comprovante", status_code=status.HTTP_204_NO_CONTENT)

@@ -31,6 +31,7 @@ from app.models import (
     UsuarioApp,
     UsuarioAuth,
 )
+from app.services import anexo_nf
 
 FRASE_CONFIRMACAO = "ZERAR DADOS OCEAN"
 
@@ -74,6 +75,8 @@ def baseline_counts(db: Session) -> dict:
 def _resolver_path(raw: Optional[str], upload_dir: str) -> Optional[str]:
     if not raw:
         return None
+    if anexo_nf.eh_storage(raw):
+        return raw
     p = Path(raw)
     if p.is_file():
         return str(p)
@@ -164,7 +167,9 @@ def remover_arquivos(paths: Sequence[str]) -> List[str]:
     avisos: List[str] = []
     for p in paths:
         try:
-            if os.path.isfile(p):
+            if anexo_nf.eh_storage(p):
+                anexo_nf.remover_arquivo(p)
+            elif os.path.isfile(p):
                 os.remove(p)
         except OSError as exc:
             avisos.append(f"{p}: {exc}")
