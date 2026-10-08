@@ -166,7 +166,14 @@ html{scroll-behavior:smooth}
 }
 @media print{
   .tpl-es nav,.tpl-es .next .cta{display:none}
-  .tpl-es section,.tpl-es .card,.tpl-es .step,.tpl-es .svc{break-inside:avoid}
+  /* Seções que crescem com o conteúdo (investimento, escopo, metodologia/serviços) ficam sem avoid:
+     dentro de um avoid maior que a página o Chrome corta no último ponto possível, até no meio de um projeto */
+  .tpl-es #servico,.tpl-es #garantias,.tpl-es .next,.tpl-es .contact,
+  .tpl-es .card,.tpl-es .step,.tpl-es .svc,.tpl-es .pos,.tpl-es .plan,.tpl-es .notes,
+  .tpl-es .info div,.tpl-es .scope li{break-inside:avoid}
+  .tpl-es .head,.tpl-es .pos h3,.tpl-es .notes h4{break-after:avoid}
+  /* O footer precisa ser irmão do .contact (dentro do main): o Chrome só recua a quebra entre irmãos */
+  .tpl-es footer{break-before:avoid}
   .tpl-es .cover,.tpl-es .contact,.tpl-es th{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   /* Neutraliza o CSS global de impressão do ERP (frontend/src/index.css) */
   .tpl-es header.cover{display:block !important}

@@ -14,8 +14,9 @@ import { naturezaDespesa } from './dashboardDespesas';
 
 export type RecorteSaldo = {
   ano: number;
-  /** Mês concreto 1–12, ou null = jan..mesAte */
+  /** Mês concreto 1–12, ou null = mesDe..mesAte */
   mes: number | null;
+  mesDe?: number;
   mesAte?: number;
 };
 
@@ -36,8 +37,9 @@ function contaManual(conta: string | null | undefined, padrao: string): FluxoCon
 function noRecortePagamento(data: { ano: number; mes: number }, recorte: RecorteSaldo): boolean {
   if (data.ano !== recorte.ano) return false;
   if (recorte.mes != null) return data.mes === recorte.mes;
+  const de = recorte.mesDe ?? 1;
   const ate = recorte.mesAte ?? 12;
-  return data.mes >= 1 && data.mes <= ate;
+  return data.mes >= de && data.mes <= ate;
 }
 
 /**

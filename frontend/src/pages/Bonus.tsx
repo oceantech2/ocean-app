@@ -11,6 +11,10 @@ import ImportCSV from '../components/ImportCSV';
 import { exportarCSV } from '../utils/export';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
+import Modal from '../components/Modal';
+import {
+  StatusLiberacaoFiltro, filtrarPorStatusLiberacao, elegiveisParaLiberar, elegiveisParaPagar, somaValores,
+} from '../utils/bonusSelecao';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
@@ -53,9 +57,12 @@ export default function BonusPage() {
   const [importAberto, setImportAberto] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
   const [processando, setProcessando] = useState(false);
+  const [statusLiberacao, setStatusLiberacao] = useState<StatusLiberacaoFiltro>('todos');
+  const [acaoMassa, setAcaoMassa] = useState<'liberar' | 'pagar' | null>(null);
 
   const eBonus = aba === 'bonus';
   const rotulo = eBonus ? 'bônus' : 'comissão';
+  const rotuloPlural = eBonus ? 'bônus' : 'comissões';
 
   useEffect(() => { carregarColaboradores(); }, []);
   useEffect(() => {
@@ -63,7 +70,7 @@ export default function BonusPage() {
     setPagina(0);
     setSelecionados(new Set());
   }, [bonusColaboradorId, bonusAno, aba]);
-  useEffect(() => { setPagina(0); setSelecionados(new Set()); }, [bonusRecorte, bonusMes, bonusTrimestre]);
+  useEffect(() => { setPagina(0); setSelecionados(new Set()); }, [bonusRecorte, bonusMes, bonusTrimestre, statusLiberacao]);
 
   const carregarColaboradores = async () => {
     try {
@@ -93,8 +100,11 @@ export default function BonusPage() {
   };
 
   const bonusFiltrado = useMemo(
-    () => bonus.filter((b) => comissaoNoRecorte(b.mes, bonusRecorte, bonusMes, bonusTrimestre)),
-    [bonus, bonusRecorte, bonusMes, bonusTrimestre],
+    () => filtrarPorStatusLiberacao(
+      bonus.filter((b) => comissaoNoRecorte(b.mes, bonusRecorte, bonusMes, bonusTrimestre)),
+      statusLiberacao,
+    ),
+    [bonus, bonusRecorte, bonusMes, bonusTrimestre, statusLiberacao],
   );
 
   const porColaborador = useMemo(() => {
@@ -185,37 +195,39 @@ export default function BonusPage() {
     }
   };
 
-  const liberarLote = async () => {
-    const ids = Array.from(selecionados);
-    if (!ids.length) return;
-    if (!confirm(`Liberar ${ids.length} ${rotulo} selecionado(s)?`)) return;
-    try {
-      setProcessando(true);
-      const res = await bonusService.liberarLote(ids);
-      toast.success(`${res.data.processados} liberado(s), ${res.data.ignorados} ignorado(s)`);
-      setSelecionados(new Set());
-      carregarBonus();
-    } catch (e: any) {
-      toast.error(mensagemErro(e, 'Erro na liberação em massa'));
-    } finally {
-      setProcessando(false);
-    }
-  };
+  const paraLiberar = useMemo(() => elegiveisParaLiberar(bonus, selecionados), [bonus, selecionados]);
+  const paraPagar = useMemo(() => elegiveisParaPagar(bonus, selecionados), [bonus, selecionados]);
+  const itensAcaoMassa = acaoMassa === 'pagar' ? paraPagar : paraLiberar;
 
-  const pagarLote = async () => {
-    const ids = Array.from(selecionados);
-    if (!ids.length) return;
-    if (!confirm(`Pagar ${ids.length} ${rotulo} selecionado(s)?`)) return;
+  useEffect(() => {
+    if (!acaoMassa || processando) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAcaoMassa(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [acaoMassa, processando]);
+
+  // Confirmação no modal do sistema: window.confirm pode ser bloqueado pelo navegador e falhar em silêncio.
+  const executarAcaoMassa = async () => {
+    if (!acaoMassa) return;
+    const liberando = acaoMassa === 'liberar';
+    const ids = itensAcaoMassa.map((b) => b.id);
+    if (!ids.length) {
+      setAcaoMassa(null);
+      return;
+    }
     try {
       setProcessando(true);
-      const res = await bonusService.pagarLote(ids);
-      toast.success(`${res.data.processados} pago(s), ${res.data.ignorados} ignorado(s)`);
+      const res = liberando ? await bonusService.liberarLote(ids) : await bonusService.pagarLote(ids);
+      const { processados, ignorados } = res.data;
+      const verbo = liberando ? 'liberado(s)' : 'pago(s)';
+      toast.success(`${processados} ${verbo}${ignorados ? ` · ${ignorados} ignorado(s) (já processados)` : ''}`);
       setSelecionados(new Set());
       carregarBonus();
     } catch (e: any) {
-      toast.error(mensagemErro(e, 'Erro no pagamento em massa'));
+      toast.error(mensagemErro(e, liberando ? 'Erro na liberação em massa' : 'Erro no pagamento em massa'));
     } finally {
       setProcessando(false);
+      setAcaoMassa(null);
     }
   };
 
@@ -246,6 +258,13 @@ export default function BonusPage() {
   const colunasComissao = ['Mês/Ano', 'Atividade', 'Cliente / Posição', 'NF Ref.', 'Percentual', 'Valor', 'Liberado', 'Pago', ''];
   const colunasBonus = ['Mês/Ano', 'Cliente / Posição', 'NF Ref.', 'Valor', 'Liberado', 'Pago', ''];
   const colunas = eBonus ? colunasBonus : colunasComissao;
+  const idsExibidos = colsPaginados.flatMap(({ bonus: bList }) => bList.map((b) => b.id));
+  const todosExibidosMarcados = idsExibidos.length > 0 && idsExibidos.every((id) => selecionados.has(id));
+  const statusVazio = statusLiberacao === 'liberados'
+    ? (eBonus ? ' liberado' : ' liberada')
+    : statusLiberacao === 'nao_liberados'
+      ? (eBonus ? ' não liberado' : ' não liberada')
+      : '';
 
   return (
     <div className="space-y-6">
@@ -303,6 +322,14 @@ export default function BonusPage() {
             </select>
           </div>
         )}
+        <div>
+          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Status</label>
+          <select className={SELECT} value={statusLiberacao} onChange={(e) => setStatusLiberacao(e.target.value as StatusLiberacaoFiltro)}>
+            <option value="todos">Todos</option>
+            <option value="liberados">Liberados</option>
+            <option value="nao_liberados">Não liberados</option>
+          </select>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 dark:border-gray-700 pb-0">
@@ -330,18 +357,6 @@ export default function BonusPage() {
         </button>
       </div>
 
-      {isAdmin && selecionadosCount > 0 && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex flex-wrap items-center gap-3">
-          <span className="text-sm text-blue-800 dark:text-blue-300">{selecionadosCount} selecionada(s)</span>
-          <button onClick={liberarLote} disabled={processando} className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm disabled:opacity-50">
-            Liberar em massa
-          </button>
-          <button onClick={pagarLote} disabled={processando} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50">
-            Pagar em massa
-          </button>
-        </div>
-      )}
-
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">
           Evolução de {eBonus ? 'Bônus' : 'Comissões'} por Mês — {bonusAno}
@@ -362,7 +377,17 @@ export default function BonusPage() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
       ) : (
         <>
-          <div className="space-y-4">
+          <div className={`space-y-4 ${isAdmin && selecionadosCount > 0 ? 'pb-24' : ''}`}>
+            {isAdmin && idsExibidos.length > 0 && (
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 px-1 cursor-pointer w-fit">
+                <input
+                  type="checkbox"
+                  checked={todosExibidosMarcados}
+                  onChange={() => toggleGrupo(idsExibidos)}
+                />
+                Selecionar todos exibidos ({idsExibidos.length})
+              </label>
+            )}
             {colsPaginados.map(({ colaborador, bonus: bList, liberadoTotal }) => {
               const totalCol = somaValida(bList);
               const idsGrupo = bList.map((b) => b.id);
@@ -465,7 +490,7 @@ export default function BonusPage() {
             })}
             {colsList.length === 0 && (
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-400 dark:text-gray-500">
-                {eBonus ? 'Nenhum bônus encontrado' : 'Nenhuma comissão encontrada'}
+                {eBonus ? `Nenhum bônus${statusVazio} encontrado` : `Nenhuma comissão${statusVazio} encontrada`}
               </div>
             )}
           </div>
@@ -483,6 +508,82 @@ export default function BonusPage() {
             </div>
           )}
         </>
+      )}
+
+      {isAdmin && selecionadosCount > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-3xl bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 rounded-xl shadow-2xl p-4 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-blue-800 dark:text-blue-300">{selecionadosCount} selecionada(s)</span>
+          <div className="flex flex-wrap gap-2 ml-auto">
+            <button
+              type="button"
+              onClick={() => setAcaoMassa('liberar')}
+              disabled={processando || paraLiberar.length === 0}
+              title={paraLiberar.length === 0 ? 'Nenhum item selecionado a liberar' : undefined}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Liberar em massa ({paraLiberar.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setAcaoMassa('pagar')}
+              disabled={processando || paraPagar.length === 0}
+              title={paraPagar.length === 0 ? 'Nenhum item selecionado a pagar' : undefined}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Pagar em massa ({paraPagar.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelecionados(new Set())}
+              disabled={processando}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm disabled:opacity-50"
+            >
+              Limpar seleção
+            </button>
+          </div>
+        </div>
+      )}
+
+      {acaoMassa && (
+        <Modal
+          titulo={acaoMassa === 'liberar' ? 'Liberar em massa' : 'Pagar em massa'}
+          onBackdropClick={() => { if (!processando) setAcaoMassa(null); }}
+          footer={(
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAcaoMassa(null)}
+                disabled={processando}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={executarAcaoMassa}
+                disabled={processando || itensAcaoMassa.length === 0}
+                autoFocus
+                className={`px-4 py-2 text-white rounded-lg text-sm disabled:opacity-50 flex items-center gap-2 ${acaoMassa === 'liberar' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}
+              >
+                {processando && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                Confirmar
+              </button>
+            </div>
+          )}
+        >
+          <div className="text-sm text-gray-700 dark:text-gray-300 space-y-2">
+            <p>
+              {acaoMassa === 'liberar' ? 'Liberar' : 'Marcar como pago'}{' '}
+              <strong>{itensAcaoMassa.length}</strong> {itensAcaoMassa.length === 1 ? rotulo : rotuloPlural} no valor total de{' '}
+              <strong>{fmt(somaValores(itensAcaoMassa))}</strong>?
+            </p>
+            {selecionadosCount > itensAcaoMassa.length && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {selecionadosCount - itensAcaoMassa.length} item(ns) selecionado(s) já {acaoMassa === 'liberar' ? 'liberado(s)' : 'pago(s) ou não liberado(s)'} não será(ão) enviado(s).
+              </p>
+            )}
+          </div>
+        </Modal>
       )}
 
       {importAberto && !eBonus && (

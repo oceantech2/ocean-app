@@ -32,8 +32,10 @@ export type ContaParaDespesa = {
 
 export type RecorteDespesa = {
   ano: number;
-  /** Mês concreto 1–12, ou null = jan..mesAte (ano completo quando mesAte=12) */
+  /** Mês concreto 1–12, ou null = mesDe..mesAte (ano completo por padrão) */
   mes: number | null;
+  /** Primeiro mês inclusivo quando mes === null. Default 1. */
+  mesDe?: number;
   /** Último mês inclusivo quando mes === null. Default 12. */
   mesAte?: number;
 };
@@ -51,8 +53,9 @@ function parseAnoMes(s?: string | null): { ano: number; mes: number } | null {
 function noRecorte(data: { ano: number; mes: number }, recorte: RecorteDespesa): boolean {
   if (data.ano !== recorte.ano) return false;
   if (recorte.mes != null) return data.mes === recorte.mes;
+  const de = recorte.mesDe ?? 1;
   const ate = recorte.mesAte ?? 12;
-  return data.mes >= 1 && data.mes <= ate;
+  return data.mes >= de && data.mes <= ate;
 }
 
 function tipoDespesaCanonico(tipo?: string | null): 'fixo' | 'variavel' {
@@ -99,9 +102,19 @@ export function mesAnterior(ano: number, mes: number): { ano: number; mes: numbe
 
 /**
  * Texto de origem do card Impostos Pagos (085): impostos recolhidos do mês anterior;
- * só-ano = janela Dez/A−1..Nov/A.
+ * trimestre = os 3 meses anteriores a cada mês do trimestre; só-ano = janela Dez/A−1..Nov/A.
  */
-export function rotuloImpostosPagos(ano: number, mes: number | null, mesesNome: readonly string[]): string {
+export function rotuloImpostosPagos(
+  ano: number,
+  mes: number | null,
+  mesesNome: readonly string[],
+  faixa?: { de: number; ate: number } | null,
+): string {
+  if (mes == null && faixa) {
+    const ini = mesAnterior(ano, faixa.de);
+    const fim = mesAnterior(ano, faixa.ate);
+    return `Recolhidos de ${mesesNome[ini.mes - 1]}/${ini.ano} a ${mesesNome[fim.mes - 1]}/${fim.ano}`;
+  }
   if (mes == null) return `Recolhidos de ${mesesNome[11]}/${ano - 1} a ${mesesNome[10]}/${ano}`;
   const ant = mesAnterior(ano, mes);
   return `Recolhidos em ${mesesNome[ant.mes - 1]}/${ant.ano}`;

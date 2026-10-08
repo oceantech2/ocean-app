@@ -59,6 +59,7 @@ import {
   valorPorVisao,
   type VisaoReceita,
 } from '../utils/metaPeriodo';
+import { mesesDoTrimestre, trimestreDoMes } from '../utils/comissoesPeriodo';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import type { ContaCorrente, ContaPagar, NF } from '../types';
@@ -324,6 +325,35 @@ function mesesPermitidos(anoSelecionado: number): number[] {
   return Array.from({ length: max }, (_, i) => i + 1);
 }
 
+/** Trimestres já iniciados no ano (ano corrente: até o trimestre do mês atual). */
+function trimestresPermitidos(anoSelecionado: number): number[] {
+  const max = trimestreDoMes(maxMesPermitido(anoSelecionado));
+  return Array.from({ length: max }, (_, i) => i + 1);
+}
+
+function faixaTrimestre(trimestre: number): { de: number; ate: number } {
+  const meses = mesesDoTrimestre(trimestre);
+  return { de: meses[0], ate: meses[2] };
+}
+
+const rotuloTrimestre = (trimestre: number, ano: number) => `${trimestre}º Tri/${ano}`;
+
+type MetaTrimestre = { liquida: number; bruta: number; mesesComMeta: number };
+
+/** Meta trimestral = soma das metas mensais configuradas (com alíquota) nos 3 meses. */
+function somarMetasMensais(respostas: any[]): MetaTrimestre {
+  let liquida = 0;
+  let bruta = 0;
+  let mesesComMeta = 0;
+  for (const m of respostas) {
+    if (!m?.tem_meta || !(m.valor_meta > 0) || m.aliquota_periodo == null) continue;
+    liquida += Number(m.valor_meta) || 0;
+    bruta += Number(m.meta_bruta ?? metaBruta(m.valor_meta, m.aliquota_periodo)) || 0;
+    mesesComMeta += 1;
+  }
+  return { liquida, bruta, mesesComMeta };
+}
+
 /** Último mês do recorte anual do donut (YTD no ano corrente; jan–dez em anos anteriores). */
 function mesAteAno(anoSelecionado: number): number | null {
   if (anoSelecionado > ANO_ATUAL) return null;
@@ -439,11 +469,14 @@ export default function Dashboard() {
   const papel = useAuthStore((s) => s.papel);
   const [ano, setAno] = useState(ANO_ATUAL);
   const [mes, setMes] = useState<number | null>(MES_ATUAL);
+  /** Exclusivo com `mes`: trimestre selecionado implica mes === null. */
+  const [trimestre, setTrimestre] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [drlSerie, setDrlSerie] = useState<DrlPonto[]>([]);
 
   // Configuração do Período (meta mensal + alíquota)
   const [meta, setMeta] = useState<any>(null);
+  const [metaTrimestre, setMetaTrimestre] = useState<MetaTrimestre | null>(null);
   const [editandoMeta, setEditandoMeta] = useState(false);
   const [valorMeta, setValorMeta] = useState('');
   const [valorAliquota, setValorAliquota] = useState('');
@@ -503,12 +536,25 @@ export default function Dashboard() {
 
   useEffect(() => {
     carregarDados();
-  }, [ano, mes]);
+  }, [ano, mes, trimestre]);
 
   const alterarAno = (novoAno: number) => {
     const max = maxMesPermitido(novoAno);
     setAno(novoAno);
     if (mes !== null && mes > max) setMes(max);
+    const maxTri = trimestreDoMes(max);
+    if (trimestre !== null && trimestre > maxTri) setTrimestre(maxTri);
+  };
+
+  const alterarPeriodo = (valor: string) => {
+    if (valor.startsWith('T')) {
+      setMes(null);
+      setTrimestre(parseInt(valor.slice(1), 10));
+    } else {
+      setTrimestre(null);
+      setMes(valor === '' ? null : parseInt(valor, 10));
+    }
+    setEditandoMeta(false);
   };
 
   const carregarDados = async () => {
@@ -524,6 +570,8 @@ export default function Dashboard() {
       setProximoErro(null);
 
       const temMes = mes !== null;
+      const faixa = !temMes && trimestre !== null ? faixaTrimestre(trimestre) : null;
+      const temPeriodo = temMes || faixa !== null;
       const mesAteAnual = mesAteAno(ano);
       const carregarCusto = mesAteAnual !== null;
 
@@ -538,18 +586,30 @@ export default function Dashboard() {
               });
 
       const custoMesPromise =
-        !temMes || !carregarCusto
+        !temPeriodo || !carregarCusto
           ? Promise.resolve({ data: null as any })
           : relatoriosService
-              .custoPorCategoria(ano, mes, mes)
+              .custoPorCategoria(ano, faixa ? faixa.ate : mes!, faixa ? faixa.de : mes!)
               .catch(() => {
-                setCustoMesErro('Não foi possível carregar o custo por categoria do mês');
+                setCustoMesErro(
+                  faixa
+                    ? 'Não foi possível carregar o custo por categoria do trimestre'
+                    : 'Não foi possível carregar o custo por categoria do mês',
+                );
                 return { data: null };
               });
 
       const metaMesPromise = temMes
         ? metasService.progresso(mes, ano).catch(() => ({ data: null }))
         : Promise.resolve({ data: null });
+
+      const metaTrimestrePromise: Promise<MetaTrimestre | null> = faixa
+        ? Promise.all(
+            mesesDoTrimestre(trimestre!).map((m) =>
+              metasService.progresso(m, ano).then((r) => r.data).catch(() => null),
+            ),
+          ).then(somarMetasMensais)
+        : Promise.resolve(null);
 
       const anosDrl = Array.from(
         { length: ANO_ATUAL - DRL_ANO_INICIO + 1 },
@@ -560,14 +620,14 @@ export default function Dashboard() {
       );
 
       const pipelinePromise = relatoriosService
-        .pipelineReceita(ano, mes)
+        .pipelineReceita(ano, mes, faixa)
         .catch(() => {
           setPipelineErro('Não foi possível carregar a Receita Por Competência');
           return { data: null };
         });
 
       const receitaCaixaPromise = relatoriosService
-        .receitaCaixa(ano, mes)
+        .receitaCaixa(ano, mes, faixa)
         .catch(() => {
           setReceitaCaixaErro('Não foi possível carregar a Receita Por Caixa');
           return { data: null };
@@ -582,6 +642,13 @@ export default function Dashboard() {
       const impostosPagosPromise: Promise<number | null> = (
         mesAnt
           ? impostosRecolhidos(mesAnt.ano, mesAnt.mes)
+          : faixa
+          ? Promise.all(
+              mesesDoTrimestre(trimestre!).map((m) => {
+                const ant = mesAnterior(ano, m);
+                return impostosRecolhidos(ant.ano, ant.mes);
+              }),
+            ).then((vals) => Math.round(vals.reduce((s, v) => s + v, 0) * 100) / 100)
           : Promise.all([
               impostosRecolhidos(ano - 1, 12),
               impostosRecolhidos(ano, null),
@@ -603,7 +670,7 @@ export default function Dashboard() {
         return { data: null };
       });
 
-      const [metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, pipelineRes, receitaCaixaRes, agingRes, limiarRes, proximoRes, impostosPagosRes, ...drlRespostas] = await Promise.all([
+      const [metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, pipelineRes, receitaCaixaRes, agingRes, limiarRes, proximoRes, impostosPagosRes, metaTrimestreRes, ...drlRespostas] = await Promise.all([
         metaMesPromise,
         metasService.progresso(0, ano).catch(() => ({ data: null })),
         contasService.listar(0, 500, 'recursos_humanos', undefined, 'retirada_socios').catch(() => ({ data: [] })),
@@ -624,6 +691,7 @@ export default function Dashboard() {
         limiarPromise,
         proximoPromise,
         impostosPagosPromise,
+        metaTrimestrePromise,
         ...drlPromises,
       ]);
 
@@ -638,6 +706,7 @@ export default function Dashboard() {
         ),
       );
       setMeta(temMes ? metaRes.data : null);
+      setMetaTrimestre(metaTrimestreRes);
       setValorMeta(temMes && metaRes.data?.valor_meta ? String(metaRes.data.valor_meta) : '');
       setValorAliquota(
         temMes && metaRes.data?.aliquota_periodo != null ? String(metaRes.data.aliquota_periodo) : '',
@@ -652,7 +721,7 @@ export default function Dashboard() {
       setTotalRetiradas(retiradas.reduce((s: number, c: any) => s + c.valor, 0));
 
       const saldosLista: any[] = saldosRes.data || [];
-      const limiteMes = mes ?? (mesAteAnual ?? 12);
+      const limiteMes = mes ?? faixa?.ate ?? mesAteAnual ?? 12;
       const saldosAteMes = saldosLista.filter((s) => s.ano === ano && s.mes <= limiteMes);
       const contasCc: ContaCorrente[] = contasCcRes.data || [];
       const nfsLista: NF[] = Array.isArray(nfsRes.data) ? nfsRes.data : [];
@@ -663,7 +732,8 @@ export default function Dashboard() {
       const recorteSaldo = {
         ano,
         mes,
-        mesAte: mes == null ? (mesAteAnual ?? 12) : undefined,
+        mesDe: faixa?.de,
+        mesAte: mes == null ? (faixa?.ate ?? mesAteAnual ?? 12) : undefined,
       };
       const slotsCc: Array<{ rotulo: string; saldo: number | null }> = [1, 2, 3].map((n) => {
         const cc = contasCc[n - 1];
@@ -684,8 +754,10 @@ export default function Dashboard() {
       const investimento = [...saldosAteMes].filter((s) => s.conta === CODIGO_INVESTIMENTO).sort((a, b) => b.mes - a.mes)[0] || null;
       setSaldoInvestimento(investimento);
 
-      // Seção 07: modo mês = mês; só-ano = ano civil completo (não YTD)
-      setDespesasTotais(totaisDespesa(contasPagarLista, { ano, mes, mesAte: 12 }));
+      // Seção 07: modo mês = mês; trimestre = 3 meses; só-ano = ano civil completo (não YTD)
+      setDespesasTotais(
+        totaisDespesa(contasPagarLista, { ano, mes, mesDe: faixa?.de, mesAte: faixa?.ate ?? 12 }),
+      );
       setImpostosPagos(impostosPagosRes);
 
       if (pipelineRes.data) {
@@ -740,7 +812,7 @@ export default function Dashboard() {
       });
       setDre(cortarEixoDre(dreBruto, ano));
 
-      if (!temMes || !carregarCusto || !custoMesRes.data) {
+      if (!temPeriodo || !carregarCusto || !custoMesRes.data) {
         setCustoMesFatias([]);
         setCustoMesTotal(0);
       } else {
@@ -883,12 +955,27 @@ export default function Dashboard() {
       : 0;
   const pctMetaMensalDisplay = Math.round(pctMetaMensal * 10) / 10;
   const rotuloBarraMensal = rotuloNumeradorBarra(abaReceita);
-  const rotuloCustoMes = mes === null
+  const faixaSelecionada = mes === null && trimestre !== null ? faixaTrimestre(trimestre) : null;
+  const rotuloPeriodo = mes !== null
+    ? `${MESES_NOME[mes - 1]}/${ano}`
+    : trimestre !== null
+    ? rotuloTrimestre(trimestre, ano)
+    : null;
+  const metaTrimestreExibida = metaTrimestre && metaTrimestre.mesesComMeta > 0
+    ? (visaoReceita === 'bruto' ? metaTrimestre.bruta : metaTrimestre.liquida)
+    : null;
+  const pctMetaTrimestre =
+    metaTrimestreExibida != null && metaTrimestreExibida > 0
+      ? Math.min((realizadoMeta / metaTrimestreExibida) * 100, 100)
+      : 0;
+  const pctMetaTrimestreDisplay = Math.round(pctMetaTrimestre * 10) / 10;
+  const corBarraTrimestre = pctMetaTrimestre >= 100 ? 'bg-green-500' : pctMetaTrimestre >= 60 ? 'bg-blue-500' : 'bg-orange-500';
+  const rotuloCustoMes = rotuloPeriodo === null
     ? 'Despesas — mês'
-    : `Despesas — ${MESES_NOME[mes - 1]}/${ano}`;
-  const rotuloCustoMesVazio = mes === null
+    : `Despesas — ${rotuloPeriodo}`;
+  const rotuloCustoMesVazio = rotuloPeriodo === null
     ? MSG_SELECIONE_MES
-    : `Sem despesas por categoria para ${MESES_NOME[mes - 1]}/${ano}`;
+    : `Sem despesas por categoria para ${rotuloPeriodo}`;
   const rotuloCustoAno = `Despesas — ${ano}`;
   const rotuloCustoAnoVazio = `Sem despesas por categoria para ${ano}`;
 
@@ -910,7 +997,7 @@ export default function Dashboard() {
     p == null
       ? '—'
       : `${p.toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 0 })}%`;
-  const rotuloDespesaResultado = mes === null ? String(ano) : null;
+  const rotuloDespesaResultado = mes === null ? (rotuloPeriodo ?? String(ano)) : null;
 
   const pct = metaMensalValida ? Math.min(pctMetaMensal, 100) : 0;
   const corBarra = pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-blue-500' : 'bg-orange-500';
@@ -981,20 +1068,28 @@ export default function Dashboard() {
               Bruto
             </button>
           </div>
-          <label className="text-sm text-gray-500 dark:text-gray-400">Mês:</label>
+          <label className="text-sm text-gray-500 dark:text-gray-400">Período:</label>
           <select
-            value={mes ?? ''}
-            onChange={(e) => {
-              const v = e.target.value;
-              setMes(v === '' ? null : parseInt(v, 10));
-              setEditandoMeta(false);
-            }}
+            value={mes !== null ? String(mes) : trimestre !== null ? `T${trimestre}` : ''}
+            onChange={(e) => alterarPeriodo(e.target.value)}
             className="border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
           >
             <option value="">Todos os meses</option>
-            {mesesPermitidos(ano).map((m) => (
-              <option key={m} value={m}>{MESES_NOME[m - 1]}</option>
-            ))}
+            <optgroup label="Trimestres">
+              {trimestresPermitidos(ano).map((t) => {
+                const f = faixaTrimestre(t);
+                return (
+                  <option key={`T${t}`} value={`T${t}`}>
+                    {t}º Tri ({MESES_NOME[f.de - 1]}–{MESES_NOME[f.ate - 1]})
+                  </option>
+                );
+              })}
+            </optgroup>
+            <optgroup label="Meses">
+              {mesesPermitidos(ano).map((m) => (
+                <option key={m} value={m}>{MESES_NOME[m - 1]}</option>
+              ))}
+            </optgroup>
           </select>
           <label className="text-sm text-gray-500 dark:text-gray-400">Ano:</label>
           <select
@@ -1138,7 +1233,51 @@ export default function Dashboard() {
           {/* Metas — Mensal antes de Anual; anual em largura total sem mês */}
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Metas</h2>
-            <div className={mes === null ? 'w-full' : 'grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch'}>
+            <div className={rotuloPeriodo === null ? 'w-full' : 'grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch'}>
+              {/* Meta Trimestral — soma das metas mensais (somente leitura) */}
+              {trimestre !== null && mes === null && (
+              <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
+                <div className="flex items-start gap-2 mb-4">
+                  <span className="text-lg font-semibold text-gray-700 dark:text-gray-200">
+                    Meta de Receita Trimestral — {rotuloPeriodo}
+                  </span>
+                </div>
+                {metaTrimestre && metaTrimestreExibida != null ? (
+                  <div className="mt-auto space-y-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Meta ({rotuloVisao(visaoReceita)}) · soma de {metaTrimestre.mesesComMeta} de 3 metas mensais
+                      {' · '}
+                      aba {abaReceita === 'caixa' ? 'Por Caixa' : 'Por Competência'}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                        {fmt(realizadoMeta)}
+                      </span>
+                      <div className="flex-1 h-5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden min-w-0">
+                        <div
+                          className={`h-full ${corBarraTrimestre} transition-all flex items-center justify-end pr-2`}
+                          style={{ width: `${pctMetaTrimestre}%` }}
+                        >
+                          {pctMetaTrimestre >= 18 && (
+                            <span className="text-xs font-bold text-white">{pctMetaTrimestreDisplay}%</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0">
+                        {fmt(metaTrimestreExibida)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {fmt(realizadoMeta)} {rotuloBarraMensal}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-auto text-sm text-gray-400 dark:text-gray-500 text-center py-2">
+                    Sem metas mensais configuradas no trimestre — selecione um mês para configurar
+                  </p>
+                )}
+              </div>
+              )}
               {/* Meta de Receita Mensal — só com mês concreto */}
               {mes !== null && (
               <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 h-full flex flex-col">
@@ -1360,9 +1499,7 @@ export default function Dashboard() {
                   Por Competência
                 </button>
                 <p className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
-                  {mes != null
-                    ? `${MESES_NOME[mes - 1]}/${ano}`
-                    : String(ano)}
+                  {rotuloPeriodo ?? String(ano)}
                   {' · '}
                   {abaReceita === 'caixa' ? 'quanto entrou no caixa' : 'quanto fechamos'}
                 </p>
@@ -1530,7 +1667,7 @@ export default function Dashboard() {
             </div>
           </section>
 
-          {/* Despesa | Resultado (Seção 07) */}
+          {/* Despesa (Seção 07) */}
           <div className="space-y-6">
             <section className="space-y-3">
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Despesa</h2>
@@ -1582,7 +1719,7 @@ export default function Dashboard() {
                   </p>
                   {impostosPagos != null ? (
                     <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
-                      {rotuloImpostosPagos(ano, mes, MESES_NOME)}
+                      {rotuloImpostosPagos(ano, mes, MESES_NOME, faixaSelecionada)}
                     </p>
                   ) : (
                     <p className="text-red-600 dark:text-red-400 text-xs mt-2">Não foi possível carregar</p>
@@ -1590,6 +1727,10 @@ export default function Dashboard() {
                 </div>
               </div>
             </section>
+          </div>
+
+          {/* Resultado | Saldo */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             <section className="space-y-3">
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Resultado</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1622,42 +1763,40 @@ export default function Dashboard() {
                 </div>
               </div>
             </section>
-          </div>
-
-          {/* Saldo */}
-          <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Saldo</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {saldosCorrentes.map((slot, i) => (
-                <div
-                  key={`cc-${i}`}
-                  className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5"
-                >
-                  <h3 className="text-green-600 dark:text-green-400 text-sm font-medium">{slot.rotulo}</h3>
-                  <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-2">
-                    {slot.saldo != null ? fmt(slot.saldo) : '—'}
+            <section className="space-y-3 xl:col-span-2">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Saldo</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {saldosCorrentes.map((slot, i) => (
+                  <div
+                    key={`cc-${i}`}
+                    className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5"
+                  >
+                    <h3 className="text-green-600 dark:text-green-400 text-sm font-medium">{slot.rotulo}</h3>
+                    <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-2">
+                      {slot.saldo != null ? fmt(slot.saldo) : '—'}
+                    </p>
+                    <p className="text-xs text-green-500 mt-1">
+                      {slot.saldo != null ? 'Saldo calculado' : 'Sem conta'}
+                    </p>
+                  </div>
+                ))}
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5">
+                  <h3 className="text-blue-600 dark:text-blue-400 text-sm font-medium">Conta Investimento</h3>
+                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-2">
+                    {saldoInvestimento ? fmt(saldoInvestimento.saldo) : '—'}
                   </p>
-                  <p className="text-xs text-green-500 mt-1">
-                    {slot.saldo != null ? 'Saldo calculado' : 'Sem conta'}
+                  <p className="text-xs text-blue-500 mt-1">
+                    {saldoInvestimento ? `${MESES_NOME[saldoInvestimento.mes - 1]}/${saldoInvestimento.ano}` : 'Sem registro'}
                   </p>
                 </div>
-              ))}
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5">
-                <h3 className="text-blue-600 dark:text-blue-400 text-sm font-medium">Conta Investimento</h3>
-                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-2">
-                  {saldoInvestimento ? fmt(saldoInvestimento.saldo) : '—'}
-                </p>
-                <p className="text-xs text-blue-500 mt-1">
-                  {saldoInvestimento ? `${MESES_NOME[saldoInvestimento.mes - 1]}/${saldoInvestimento.ano}` : 'Sem registro'}
-                </p>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
 
           {/* Centro de Despesa */}
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Centro de Despesa</h2>
-            {mes !== null ? (
+            {rotuloPeriodo !== null ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <DonutCustoBloco
                   titulo={rotuloCustoMes}

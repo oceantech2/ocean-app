@@ -481,15 +481,18 @@ export const relatoriosService = {
   dreMensal: (ano: number) =>
     api.get('/relatorios/dre-mensal', { params: { ano } }),
 
-  pipelineReceita: (ano: number, mes?: number | null) => {
+  /** `faixa` (ex.: trimestre) só é usada quando `mes` é null. */
+  pipelineReceita: (ano: number, mes?: number | null, faixa?: { de: number; ate: number } | null) => {
     const params: Record<string, number> = { ano };
     if (mes != null) params.mes = mes;
+    else if (faixa) Object.assign(params, { mes_de: faixa.de, mes_ate: faixa.ate });
     return api.get('/relatorios/pipeline-receita', { params });
   },
 
-  receitaCaixa: (ano: number, mes?: number | null) => {
+  receitaCaixa: (ano: number, mes?: number | null, faixa?: { de: number; ate: number } | null) => {
     const params: Record<string, number> = { ano };
     if (mes != null) params.mes = mes;
+    else if (faixa) Object.assign(params, { mes_de: faixa.de, mes_ate: faixa.ate });
     return api.get('/relatorios/receita-caixa', { params });
   },
 

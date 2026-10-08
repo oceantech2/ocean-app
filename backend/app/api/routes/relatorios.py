@@ -30,6 +30,24 @@ def status_ciclo_nf(data_emissao: Optional[date], data_pagamento: Optional[date]
     return "a_faturar"
 
 
+def _faixa_meses(
+    mes: Optional[int], mes_de: Optional[int], mes_ate: Optional[int]
+) -> Optional[tuple[int, int]]:
+    """`mes` prevalece; senão `mes_de`..`mes_ate` (ex.: trimestre); None = ano inteiro."""
+    if mes is not None:
+        return (mes, mes)
+    if mes_de is None and mes_ate is None:
+        return None
+    de = mes_de or 1
+    ate = mes_ate or 12
+    if de > ate:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="mes_de deve ser menor ou igual a mes_ate",
+        )
+    return (de, ate)
+
+
 def _totais_estagio(
     valor_liquido: float,
     valor_bruto: float,
@@ -54,6 +72,8 @@ def _totais_estagio(
 def pipeline_receita(
     ano: int = Query(..., ge=2000, le=2100),
     mes: Optional[int] = Query(None, ge=1, le=12),
+    mes_de: Optional[int] = Query(None, ge=1, le=12),
+    mes_ate: Optional[int] = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
@@ -61,14 +81,15 @@ def pipeline_receita(
     Pipeline de Receita: Contas a Receber (NFs) por data de fechamento (data_ent_pgto).
     Exclui canceladas e soft-delete; inclui arquivadas. Dual-base bruto/líquido.
     """
+    faixa = _faixa_meses(mes, mes_de, mes_ate)
     query = db.query(NF).filter(
         NF.excluida_em.is_(None),
         NF.status != StatusNF.CANCELADA,
         NF.data_ent_pgto.isnot(None),
         extract("year", NF.data_ent_pgto) == ano,
     )
-    if mes is not None:
-        query = query.filter(extract("month", NF.data_ent_pgto) == mes)
+    if faixa is not None:
+        query = query.filter(extract("month", NF.data_ent_pgto).between(*faixa))
 
     nfs = query.all()
 
@@ -135,6 +156,8 @@ def _totais_caixa(valor_liquido: float, valor_bruto: float, contagem: int) -> di
 def receita_caixa(
     ano: int = Query(..., ge=2000, le=2100),
     mes: Optional[int] = Query(None, ge=1, le=12),
+    mes_de: Optional[int] = Query(None, ge=1, le=12),
+    mes_ate: Optional[int] = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
@@ -143,6 +166,7 @@ def receita_caixa(
     pendentes (A Receber / A Faturar) por data_ent_pgto no período.
     Exclui canceladas e soft-delete; inclui arquivadas.
     """
+    faixa = _faixa_meses(mes, mes_de, mes_ate)
     exclusoes = (
         NF.excluida_em.is_(None),
         NF.status != StatusNF.CANCELADA,
@@ -153,8 +177,8 @@ def receita_caixa(
         NF.data_pagamento.isnot(None),
         extract("year", NF.data_pagamento) == ano,
     )
-    if mes is not None:
-        q_recebido = q_recebido.filter(extract("month", NF.data_pagamento) == mes)
+    if faixa is not None:
+        q_recebido = q_recebido.filter(extract("month", NF.data_pagamento).between(*faixa))
 
     recebido_liq = recebido_bru = 0.0
     cont_recebido = 0
@@ -168,8 +192,8 @@ def receita_caixa(
         NF.data_emissao.isnot(None),
         extract("year", NF.data_emissao) == ano,
     )
-    if mes is not None:
-        q_impostos = q_impostos.filter(extract("month", NF.data_emissao) == mes)
+    if faixa is not None:
+        q_impostos = q_impostos.filter(extract("month", NF.data_emissao).between(*faixa))
 
     impostos = 0.0
     for nf in q_impostos.all():
@@ -181,8 +205,8 @@ def receita_caixa(
         NF.data_pagamento.is_(None),
         extract("year", NF.data_ent_pgto) == ano,
     )
-    if mes is not None:
-        q_pend = q_pend.filter(extract("month", NF.data_ent_pgto) == mes)
+    if faixa is not None:
+        q_pend = q_pend.filter(extract("month", NF.data_ent_pgto).between(*faixa))
 
     a_receber = {"valor_liquido": 0.0, "valor_bruto": 0.0, "contagem": 0}
     a_faturar = {"valor_liquido": 0.0, "valor_bruto": 0.0, "contagem": 0}

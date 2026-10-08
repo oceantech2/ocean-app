@@ -378,11 +378,9 @@ export default function PaginaModelo({ dados, codigo, onRecarregar, divisao, rec
             </li>
           </ul>
         </div>
-      </main>
 
-      <footer>
-        <div className="wrap">{t.rodape.texto(data)}</div>
-      </footer>
+        <footer>{t.rodape.texto(data)}</footer>
+      </main>
 
       <dialog id="accept-dialog" aria-labelledby="accept-title" ref={dialogo} onClose={aoFecharDialogo}>
         <h3 id="accept-title">{t.aceite.titulo}</h3>
