@@ -92,6 +92,21 @@ export function totaisDespesa(
   return { fixas, variaveis, pendentes };
 }
 
+/** Mês anterior (Janeiro → Dezembro do ano anterior). */
+export function mesAnterior(ano: number, mes: number): { ano: number; mes: number } {
+  return mes <= 1 ? { ano: ano - 1, mes: 12 } : { ano, mes: mes - 1 };
+}
+
+/**
+ * Texto de origem do card Impostos Pagos (085): impostos recolhidos do mês anterior;
+ * só-ano = janela Dez/A−1..Nov/A.
+ */
+export function rotuloImpostosPagos(ano: number, mes: number | null, mesesNome: readonly string[]): string {
+  if (mes == null) return `Recolhidos de ${mesesNome[11]}/${ano - 1} a ${mesesNome[10]}/${ano}`;
+  const ant = mesAnterior(ano, mes);
+  return `Recolhidos em ${mesesNome[ant.mes - 1]}/${ant.ano}`;
+}
+
 export type ResultadoCard = {
   valor: number;
   /** null se receita <= 0 (não inventar %). */

@@ -9,6 +9,8 @@ import { codigoPadrao, CODIGO_INVESTIMENTO } from '../utils/fluxoCaixaMovimentos
 import {
   calcularResultado,
   filtrarCustoSemImpostos,
+  mesAnterior,
+  rotuloImpostosPagos,
   totaisDespesa,
 } from '../utils/dashboardDespesas';
 import { saldoCorrenteDashboard } from '../utils/dashboardSaldo';
@@ -463,6 +465,7 @@ export default function Dashboard() {
 
   // Impostos + Despesas + Resultado (cards Seção 07)
   const [despesasTotais, setDespesasTotais] = useState({ fixas: 0, variaveis: 0, pendentes: 0 });
+  const [impostosPagos, setImpostosPagos] = useState<number | null>(0);
   const [pipeline, setPipeline] = useState<PipelineReceita>(PIPELINE_VAZIO);
   const [pipelineErro, setPipelineErro] = useState<string | null>(null);
   const [receitaCaixa, setReceitaCaixa] = useState<ReceitaCaixa>(RECEITA_CAIXA_VAZIA);
@@ -570,6 +573,22 @@ export default function Dashboard() {
           return { data: null };
         });
 
+      // Impostos Pagos (085): impostos recolhidos do mês anterior; só-ano = Dez/A−1..Nov/A
+      const impostosRecolhidos = (a: number, m: number | null) =>
+        relatoriosService
+          .receitaCaixa(a, m)
+          .then((r) => Number(r.data?.impostos_recolhidos) || 0);
+      const mesAnt = temMes ? mesAnterior(ano, mes) : null;
+      const impostosPagosPromise: Promise<number | null> = (
+        mesAnt
+          ? impostosRecolhidos(mesAnt.ano, mesAnt.mes)
+          : Promise.all([
+              impostosRecolhidos(ano - 1, 12),
+              impostosRecolhidos(ano, null),
+              impostosRecolhidos(ano, 12),
+            ]).then(([dezAnterior, anoTodo, dez]) => Math.round((dezAnterior + anoTodo - dez) * 100) / 100)
+      ).catch(() => null);
+
       const agingPromise = relatoriosService.agingRecebiveis().catch(() => {
         setAgingErro('Não foi possível carregar a Previsão de Recebíveis');
         return { data: null };
@@ -584,7 +603,7 @@ export default function Dashboard() {
         return { data: null };
       });
 
-      const [metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, pipelineRes, receitaCaixaRes, agingRes, limiarRes, proximoRes, ...drlRespostas] = await Promise.all([
+      const [metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, pipelineRes, receitaCaixaRes, agingRes, limiarRes, proximoRes, impostosPagosRes, ...drlRespostas] = await Promise.all([
         metaMesPromise,
         metasService.progresso(0, ano).catch(() => ({ data: null })),
         contasService.listar(0, 500, 'recursos_humanos', undefined, 'retirada_socios').catch(() => ({ data: [] })),
@@ -604,6 +623,7 @@ export default function Dashboard() {
         agingPromise,
         limiarPromise,
         proximoPromise,
+        impostosPagosPromise,
         ...drlPromises,
       ]);
 
@@ -666,6 +686,7 @@ export default function Dashboard() {
 
       // Seção 07: modo mês = mês; só-ano = ano civil completo (não YTD)
       setDespesasTotais(totaisDespesa(contasPagarLista, { ano, mes, mesAte: 12 }));
+      setImpostosPagos(impostosPagosRes);
 
       if (pipelineRes.data) {
         setPipeline(normalizePipelineReceita(pipelineRes.data));
@@ -1510,10 +1531,20 @@ export default function Dashboard() {
           </section>
 
           {/* Despesa | Resultado (Seção 07) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-            <section className="space-y-3 lg:col-span-2">
+          <div className="space-y-6">
+            <section className="space-y-3">
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Despesa</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                  <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Total de Despesas</h3>
+                  <p className="text-2xl font-bold text-red-700 dark:text-red-400 mt-2">
+                    {fmt(despesasTotaisResultado)}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Fixas + Variáveis pagas no período</p>
+                  {rotuloDespesaResultado && (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
+                  )}
+                </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
                   <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Despesas Fixas</h3>
                   <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-2">
@@ -1542,6 +1573,19 @@ export default function Dashboard() {
                   <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">Vencimento no período sem pagamento</p>
                   {rotuloDespesaResultado && (
                     <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{rotuloDespesaResultado}</p>
+                  )}
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                  <h3 className="text-gray-600 dark:text-gray-400 text-sm font-medium">Impostos Pagos</h3>
+                  <p className={`text-2xl font-bold mt-2 ${LABELS_CAIXA.impostos.valorClass}`}>
+                    {impostosPagos != null ? fmt(impostosPagos) : '—'}
+                  </p>
+                  {impostosPagos != null ? (
+                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+                      {rotuloImpostosPagos(ano, mes, MESES_NOME)}
+                    </p>
+                  ) : (
+                    <p className="text-red-600 dark:text-red-400 text-xs mt-2">Não foi possível carregar</p>
                   )}
                 </div>
               </div>
