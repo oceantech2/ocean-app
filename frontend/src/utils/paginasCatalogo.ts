@@ -15,8 +15,6 @@ export const PAGINAS_CATALOGO: PaginaCatalogo[] = [
   { key: 'nfs', label: 'Contas a Receber', path: '/nfs', desc: 'Valores a receber (Maggo)', ocultavel: true, notifKey: 'nfsVencidas' },
   { key: 'contas', label: 'Contas a Pagar', path: '/contas', desc: 'Despesas por categorias', ocultavel: true, notifKey: 'contasAlertasTotal' },
   { key: 'fluxo_caixa', label: 'Fluxo de Caixa', path: '/fluxo-caixa', desc: 'Contas correntes e investimento', ocultavel: true },
-  { key: 'impostos', label: 'Impostos', path: '/impostos', desc: 'Acompanhamento mensal de impostos', ocultavel: true },
-  { key: 'retiradas', label: 'Retiradas (Sócios)', path: '/retiradas', desc: 'Retiradas de lucro dos sócios', ocultavel: true },
   { key: 'bonus', label: 'Bônus e Comissão', path: '/comissoes', desc: 'Bônus e comissões por fornecedor', ocultavel: true },
   { key: 'dh', label: 'DH', path: '/dh', desc: 'Documentos de Horas', ocultavel: true },
   { key: 'colaboradores', label: 'Fornecedores', path: '/fornecedores', desc: 'Cadastro de fornecedores', ocultavel: true },

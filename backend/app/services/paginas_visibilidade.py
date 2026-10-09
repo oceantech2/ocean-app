@@ -13,8 +13,6 @@ PAGINAS_VISIBILIDADE_DEFAULT: Dict[str, bool] = {
     "nfs": True,
     "contas": True,
     "fluxo_caixa": True,
-    "impostos": True,
-    "retiradas": True,
     "bonus": True,
     "dh": False,
     "colaboradores": True,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
+  BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService, configuracoesService } from '../services/api';
@@ -70,7 +70,6 @@ import { ChevronRightIcon } from '../components/navIcons';
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
-const DRL_ANO_INICIO = 2024;
 const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const ANOS = Array.from({ length: 2100 - 2024 + 1 }, (_, i) => 2024 + i);
 
@@ -247,36 +246,6 @@ const FALLBACK_CORES = ['#6366F1', '#84CC16', '#F97316', '#06B6D4', '#A855F7'];
 const centroLabel = (v: string) => CENTRO_LABEL[v] ?? v;
 const centroCor = (v: string, i: number) =>
   CENTRO_COR[v.toLowerCase()] ?? FALLBACK_CORES[i % FALLBACK_CORES.length];
-
-type DrlPonto = {
-  mesLabel: string;
-  valor: number;
-  ano: number;
-  mes: number;
-};
-
-function buildSerieDrl(
-  porAno: Array<{ ano: number; dados: Array<{ mes: number; valor: number }> }>,
-): DrlPonto[] {
-  const pontos: DrlPonto[] = [];
-  for (const { ano: y, dados } of porAno) {
-    for (const d of dados) {
-      const mes = Number(d.mes);
-      const valor = Number(d.valor) || 0;
-      if (valor <= 0) continue;
-      if (y < DRL_ANO_INICIO) continue;
-      if (y > ANO_ATUAL) continue;
-      if (y === ANO_ATUAL && mes > MES_ATUAL) continue;
-      pontos.push({
-        mesLabel: `${MESES_NOME[mes - 1]}/${String(y).slice(-2)}`,
-        valor,
-        ano: y,
-        mes,
-      });
-    }
-  }
-  return pontos.sort((a, b) => (a.ano !== b.ano ? a.ano - b.ano : a.mes - b.mes));
-}
 
 type DrePonto = {
   mes: string;
@@ -472,8 +441,6 @@ export default function Dashboard() {
   /** Exclusivo com `mes`: trimestre selecionado implica mes === null. */
   const [trimestre, setTrimestre] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [drlSerie, setDrlSerie] = useState<DrlPonto[]>([]);
-
   // Configuração do Período (meta mensal + alíquota)
   const [meta, setMeta] = useState<any>(null);
   const [metaTrimestre, setMetaTrimestre] = useState<MetaTrimestre | null>(null);
@@ -611,14 +578,6 @@ export default function Dashboard() {
           ).then(somarMetasMensais)
         : Promise.resolve(null);
 
-      const anosDrl = Array.from(
-        { length: ANO_ATUAL - DRL_ANO_INICIO + 1 },
-        (_, i) => DRL_ANO_INICIO + i,
-      );
-      const drlPromises = anosDrl.map((y) =>
-        relatoriosService.faturamentoLiquidoMes(y).catch(() => ({ data: { dados: [] } })),
-      );
-
       const pipelinePromise = relatoriosService
         .pipelineReceita(ano, mes, faixa)
         .catch(() => {
@@ -670,7 +629,7 @@ export default function Dashboard() {
         return { data: null };
       });
 
-      const [metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, pipelineRes, receitaCaixaRes, agingRes, limiarRes, proximoRes, impostosPagosRes, metaTrimestreRes, ...drlRespostas] = await Promise.all([
+      const [metaRes, metaAnualRes, retiradasRes, saldosRes, dreRes, custoMesRes, custoAnoRes, contasCcRes, nfsRes, contasPagarRes, manuaisRes, pipelineRes, receitaCaixaRes, agingRes, limiarRes, proximoRes, impostosPagosRes, metaTrimestreRes] = await Promise.all([
         metaMesPromise,
         metasService.progresso(0, ano).catch(() => ({ data: null })),
         contasService.listar(0, 500, 'recursos_humanos', undefined, 'retirada_socios').catch(() => ({ data: [] })),
@@ -692,19 +651,10 @@ export default function Dashboard() {
         proximoPromise,
         impostosPagosPromise,
         metaTrimestrePromise,
-        ...drlPromises,
       ]);
 
       if (idCarga !== cargaSeq.current) return;
 
-      setDrlSerie(
-        buildSerieDrl(
-          drlRespostas.map((res, i) => ({
-            ano: anosDrl[i],
-            dados: res.data?.dados || [],
-          })),
-        ),
-      );
       setMeta(temMes ? metaRes.data : null);
       setMetaTrimestre(metaTrimestreRes);
       setValorMeta(temMes && metaRes.data?.valor_meta ? String(metaRes.data.valor_meta) : '');
@@ -1918,28 +1868,6 @@ export default function Dashboard() {
                       Meses com prejuízo: Lucro negativo aparece no tooltip (sem segmento empilhado).
                     </p>
                   )}
-                </div>
-              )}
-            </div>
-
-            <div className="w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 overflow-x-auto">
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">DRL</h3>
-              {drlSerie.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                  Sem receita líquida registrada de {DRL_ANO_INICIO} até o momento
-                </p>
-              ) : (
-                <div className="min-w-[480px]">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={drlSerie}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-                      <XAxis dataKey="mesLabel" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <Tooltip formatter={(value: number) => fmt(Number(value))} />
-                      <Legend />
-                      <Line type="monotone" dataKey="valor" stroke="#3B82F6" dot={{ r: 3 }} name="Receita Líquida" />
-                    </LineChart>
-                  </ResponsiveContainer>
                 </div>
               )}
             </div>

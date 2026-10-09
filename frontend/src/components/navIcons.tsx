@@ -67,23 +67,6 @@ export function FluxoCaixaIcon(p: IconProps) {
   );
 }
 
-export function ImpostosIcon(p: IconProps) {
-  return (
-    <IconBase {...p}>
-      <path d="M12 2L2 7l10 5 10-5-10-5z" />
-      <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
-    </IconBase>
-  );
-}
-
-export function RetiradasIcon(p: IconProps) {
-  return (
-    <IconBase {...p}>
-      <path d="M17 8l4 4-4 4M3 12h18M7 16l-4-4 4-4" />
-    </IconBase>
-  );
-}
-
 export function BonusIcon(p: IconProps) {
   return (
     <IconBase {...p}>
@@ -187,8 +170,6 @@ const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   '/nfs': NfIcon,
   '/contas': ContasIcon,
   '/fluxo-caixa': FluxoCaixaIcon,
-  '/impostos': ImpostosIcon,
-  '/retiradas': RetiradasIcon,
   '/comissoes': BonusIcon,
   '/dh': DhIcon,
   '/colaboradores': ColaboradoresIcon,

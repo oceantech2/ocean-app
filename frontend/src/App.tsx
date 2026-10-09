@@ -19,8 +19,6 @@ const Auditoria = lazy(() => import('./pages/Auditoria'));
 const Seguranca = lazy(() => import('./pages/Seguranca'));
 const Configuracoes = lazy(() => import('./pages/Configuracoes'));
 const FluxoCaixa = lazy(() => import('./pages/FluxoCaixa'));
-const Impostos = lazy(() => import('./pages/Impostos'));
-const Retiradas = lazy(() => import('./pages/Retiradas'));
 const Patrimonio = lazy(() => import('./pages/Patrimonio'));
 const Contratos = lazy(() => import('./pages/Contratos'));
 
@@ -36,8 +34,6 @@ const PAGE_COMPONENTS: Record<string, React.LazyExoticComponent<() => JSX.Elemen
   auditoria: Auditoria,
   seguranca: Seguranca,
   fluxo_caixa: FluxoCaixa,
-  impostos: Impostos,
-  retiradas: Retiradas,
   patrimonio: Patrimonio,
   contratos: Contratos,
 };
@@ -96,6 +92,8 @@ export default function App() {
           <Route path="/colaboradores" element={<Navigate to="/fornecedores" replace />} />
           <Route path="/contas-receber" element={<Navigate to="/nfs" replace />} />
           <Route path="/relatorios" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/impostos" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/retiradas" element={<Navigate to="/dashboard" replace />} />
           <Route path="/configuracoes" element={<Protected><Configuracoes /></Protected>} />
           <Route path="/" element={<Navigate to="/dashboard" />} />
         </Routes>
