@@ -1,11 +1,18 @@
 import { ReactNode, useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuthStore, useUIStore, usePageFilters } from '../store';
 import { useNotificacoes } from '../hooks/useNotificacoes';
-import { getNavIcon, ChevronLeftIcon, ChevronRightIcon } from './navIcons';
+import { getNavIcon, ChevronLeftIcon, ChevronRightIcon, ProposalIcon } from './navIcons';
 import { PAGINAS_MENU, paginaVisivelGlobal } from '../utils/paginasCatalogo';
+import { authService } from '../services/api';
+import { mensagemErro } from '../utils/erros';
+import { urlEntradaProposal } from '../utils/proposalUrl';
 import DevToolsSlot from '../dev/DevToolsSlot';
 import Modal from './Modal';
+
+// Sessões abertas antes do campo existir (ou com acesso revogado) atualizam o item Proposal uma vez por carga
+let acessoProposalVerificado = false;
 
 interface LayoutProps {
   children: ReactNode;
@@ -18,6 +25,8 @@ export default function Layout({ children }: LayoutProps) {
   const papel = useAuthStore((s) => s.papel);
   const permissoes = useAuthStore((s) => s.permissoes);
   const paginasVisibilidade = useAuthStore((s) => s.paginasVisibilidade);
+  const acessoProposal = useAuthStore((s) => s.acessoProposal);
+  const setAcessoProposal = useAuthStore((s) => s.setAcessoProposal);
   const logout = useAuthStore((s) => s.logout);
   const darkMode = useUIStore((s) => s.darkMode);
   const toggleDarkMode = useUIStore((s) => s.toggleDarkMode);
@@ -40,6 +49,34 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     hydrateSidebarCollapsed(usuario);
   }, [usuario, hydrateSidebarCollapsed]);
+
+  useEffect(() => {
+    if (acessoProposalVerificado || !usuario) return;
+    acessoProposalVerificado = true;
+    authService
+      .getCurrentUser()
+      .then((me) => setAcessoProposal(!!me?.acesso_proposal))
+      .catch(() => {
+        acessoProposalVerificado = false;
+      });
+  }, [usuario, setAcessoProposal]);
+
+  const abrirProposal = async () => {
+    const aba = window.open('', '_blank');
+    try {
+      const { codigo } = await authService.proposalSso();
+      if (!aba) {
+        toast.error('Permita pop-ups para abrir o Proposal em nova aba');
+        return;
+      }
+      aba.opener = null;
+      aba.location.href = urlEntradaProposal(codigo);
+    } catch (e) {
+      aba?.close();
+      toast.error(mensagemErro(e, 'Não foi possível abrir o Proposal'));
+      if ((e as any)?.response?.status === 403) setAcessoProposal(false);
+    }
+  };
 
   useEffect(() => {
     if (buscaAberta) {
@@ -312,6 +349,22 @@ export default function Layout({ children }: LayoutProps) {
                 </Link>
               );
             })}
+            {acessoProposal && (
+              <div className="pt-1 mt-1 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={abrirProposal}
+                  title={sidebarCollapsed ? 'Proposal' : 'Abrir o Proposal em nova aba'}
+                  aria-label={sidebarCollapsed ? 'Proposal' : undefined}
+                  className={`w-full flex items-center gap-3 rounded-lg text-sm transition text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                    sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'
+                  }`}
+                >
+                  <ProposalIcon className="w-5 h-5 shrink-0" />
+                  {!sidebarCollapsed && <span className="flex-1 truncate text-left text-sm">Proposal</span>}
+                </button>
+              </div>
+            )}
           </nav>
 
           <div className="p-2 border-t border-gray-200 dark:border-gray-700">

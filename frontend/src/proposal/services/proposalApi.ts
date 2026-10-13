@@ -230,6 +230,21 @@ export async function login(username: string, password: string, totpCode?: strin
   return data;
 }
 
+export async function entrarSso(codigo: string): Promise<LoginResponse> {
+  const { data } = await publicHttp.post<LoginResponse>('/proposal/auth/sso', { codigo });
+  return data;
+}
+
+export async function consultarConvite(token: string): Promise<{ usuario: string }> {
+  const { data } = await publicHttp.post<{ usuario: string }>('/proposal/auth/convite/consultar', { token });
+  return data;
+}
+
+export async function aceitarConvite(token: string, senha: string): Promise<LoginResponse> {
+  const { data } = await publicHttp.post<LoginResponse>('/proposal/auth/convite/aceitar', { token, senha });
+  return data;
+}
+
 export async function criarProposta(payload: PropostaModeloPayload): Promise<Proposta> {
   const { data } = await proposalHttp.post<Proposta>('/proposal/propostas/', payload);
   return data;

@@ -9,6 +9,8 @@ import Detalhe from './pages/Detalhe';
 import Editar from './pages/Editar';
 import Perfil from './pages/Perfil';
 import PropostaPublica from './pages/PropostaPublica';
+import Entrar from './pages/Entrar';
+import Convite from './pages/Convite';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const isAuthenticated = useProposalAuthStore((s) => s.isAuthenticated);
@@ -27,6 +29,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/p/:codigo" element={<PropostaPublica />} />
+        <Route path="/entrar" element={<Entrar />} />
+        <Route path="/convite" element={<Convite />} />
         <Route path="/" element={<ProtectedRoute><Lista /></ProtectedRoute>} />
         <Route path="/nova" element={<ProtectedRoute><Nova /></ProtectedRoute>} />
         <Route path="/propostas/:id" element={<ProtectedRoute><Detalhe /></ProtectedRoute>} />

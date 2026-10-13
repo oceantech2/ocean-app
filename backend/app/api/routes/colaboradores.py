@@ -9,6 +9,7 @@ from app.models import Colaborador, Ferias
 from app.schemas import ColaboradorCreate, ColaboradorResponse, ColaboradorUpdate
 from app.api.routes.auth import get_current_user, require_admin
 from app.services.audit import registrar_auditoria
+from app.services.acesso_proposal import revogar_acesso_fornecedor
 from app.services import excel_io
 from app.services import documento as doc
 
@@ -472,6 +473,8 @@ def atualizar_colaborador(
     for campo, valor in dados_atualizacao.items():
         setattr(db_colaborador, campo, valor)
 
+    if dados_atualizacao.get("ativo") is False:
+        revogar_acesso_fornecedor(db, db_colaborador.id)
     reativando = dados_atualizacao.get("ativo") is True
     desc = "reativou" if reativando else f"campos: {', '.join(dados_atualizacao.keys())}"
     registrar_auditoria(db, current_user, "editar", "Colaborador", db_colaborador.id, f"{db_colaborador.nome} — {desc}")
@@ -493,6 +496,7 @@ def deletar_colaborador(
     db_colaborador.ativo = False
     if db_colaborador.elegivel_equipe:
         db_colaborador.data_desligamento = datetime.utcnow()
+    revogar_acesso_fornecedor(db, db_colaborador.id)
     registrar_auditoria(db, current_user, "deletar", "Colaborador", db_colaborador.id, f"Desativou {db_colaborador.nome}")
     db.commit()
     return None
@@ -509,6 +513,7 @@ def excluir_colaborador_permanente(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fornecedor não encontrado")
 
     nome = db_colaborador.nome
+    revogar_acesso_fornecedor(db, colaborador_id)
     registrar_auditoria(db, current_user, "deletar", "Colaborador", colaborador_id, f"Exclusão permanente: {nome}")
     db.delete(db_colaborador)
     db.commit()

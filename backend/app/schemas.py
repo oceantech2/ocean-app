@@ -420,6 +420,7 @@ class ContaPagarCreate(ContaPagarBase):
     fornecedor_id: Optional[int] = None
     caixa: Optional[str] = None
     tipo_despesa: Literal["fixo", "variavel", "imposto_das"] = "variavel"
+    repetir_meses: Optional[int] = Field(None, ge=1, le=24)
 
     @field_validator("tipo_despesa")
     @classmethod

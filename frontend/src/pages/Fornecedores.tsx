@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { colaboradoresService, historicoService } from '../services/api';
+import { colaboradoresService, historicoService, proposalAcessosService } from '../services/api';
 import { mensagemErro } from '../utils/erros';
-import { Colaborador } from '../types';
+import { AcessoProposalFornecedor, Colaborador, LiberacaoProposalResultado, StatusAcessoProposal } from '../types';
+import { urlConviteProposal } from '../utils/proposalUrl';
 import { useAuthStore } from '../store';
 import Pagination from '../components/Pagination';
 import ImportCSV from '../components/ImportCSV';
@@ -53,6 +54,25 @@ function emailOk(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 
+const STATUS_PROPOSAL: Record<StatusAcessoProposal, { rotulo: string; classe: string }> = {
+  sem_acesso: { rotulo: 'Sem acesso', classe: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' },
+  convite_pendente: { rotulo: 'Convite pendente', classe: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' },
+  convite_expirado: { rotulo: 'Convite expirado', classe: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400' },
+  ativo: { rotulo: 'Ativo', classe: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' },
+};
+
+const RESULTADO_PROPOSAL: Record<LiberacaoProposalResultado['resultado'], string> = {
+  convite: 'Convite gerado',
+  religado: 'Acesso religado — usa a senha que já tinha',
+  vinculado: 'Usuário já existia — acesso liberado com a senha atual',
+  ignorado: 'Não liberado',
+};
+
+function fmtValidade(iso?: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
 const FORM_INICIAL = {
   nome: '', tipo_documento: 'cpf' as 'cpf' | 'cnpj', documento: '', razao_social: '',
   tipo_fornecedor: 'fixo' as 'fixo' | 'spot',
@@ -84,8 +104,78 @@ export default function Fornecedores() {
   const [salvandoHistorico, setSalvandoHistorico] = useState(false);
   const [importandoXlsx, setImportandoXlsx] = useState(false);
   const xlsxInputRef = useRef<HTMLInputElement>(null);
+  const [acessosProposal, setAcessosProposal] = useState<Record<number, AcessoProposalFornecedor>>({});
+  const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
+  const [resultadosProposal, setResultadosProposal] = useState<LiberacaoProposalResultado[] | null>(null);
+  const [processandoProposal, setProcessandoProposal] = useState(false);
 
   useEffect(() => { carregarFornecedores(); }, [mostrarInativos]);
+  useEffect(() => { if (papel === 'admin') carregarAcessosProposal(); }, [papel]);
+
+  const carregarAcessosProposal = async () => {
+    try {
+      const res = await proposalAcessosService.listar();
+      setAcessosProposal(Object.fromEntries(res.data.map((a) => [a.fornecedor_id, a])));
+    } catch { toast.error('Erro ao carregar acessos ao Proposal'); }
+  };
+
+  const statusProposal = (col: Colaborador): StatusAcessoProposal =>
+    acessosProposal[col.id]?.status ?? 'sem_acesso';
+
+  const emailLiberavel = (col: Colaborador) => !!col.email?.trim() && emailOk(col.email);
+
+  const liberarProposal = async (ids: number[]) => {
+    if (ids.length === 0) return;
+    if (ids.length > 1 && !confirm(`Liberar o acesso ao Proposal para ${ids.length} fornecedor(es) selecionado(s)?`)) return;
+    try {
+      setProcessandoProposal(true);
+      const res = await proposalAcessosService.liberar(ids);
+      setResultadosProposal(res.data.resultados);
+      setSelecionados(new Set());
+      carregarAcessosProposal();
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao liberar acesso ao Proposal')); }
+    finally { setProcessandoProposal(false); }
+  };
+
+  const novoConviteProposal = async (col: Colaborador) => {
+    const aviso = statusProposal(col) === 'ativo'
+      ? `Gerar um novo convite para ${col.nome}? Ele poderá redefinir a senha pelo link.`
+      : `Gerar um novo convite para ${col.nome}? O link anterior deixará de funcionar.`;
+    if (!confirm(aviso)) return;
+    try {
+      setProcessandoProposal(true);
+      const res = await proposalAcessosService.novoConvite(col.id);
+      setResultadosProposal([{ fornecedor_id: col.id, nome: col.nome, resultado: 'convite', ...res.data }]);
+      carregarAcessosProposal();
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao gerar convite')); }
+    finally { setProcessandoProposal(false); }
+  };
+
+  const revogarProposal = async (col: Colaborador) => {
+    if (!confirm(`Revogar o acesso de ${col.nome} ao Proposal? Convites pendentes deixarão de funcionar.`)) return;
+    try {
+      setProcessandoProposal(true);
+      await proposalAcessosService.revogar(col.id);
+      toast.success('Acesso ao Proposal revogado');
+      carregarAcessosProposal();
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao revogar acesso')); }
+    finally { setProcessandoProposal(false); }
+  };
+
+  const copiarLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link copiado');
+    } catch { toast.error('Não foi possível copiar; selecione o link e copie manualmente'); }
+  };
+
+  const alternarSelecao = (id: number) => {
+    setSelecionados((s) => {
+      const novo = new Set(s);
+      if (novo.has(id)) novo.delete(id); else novo.add(id);
+      return novo;
+    });
+  };
 
   const carregarFornecedores = async () => {
     try {
@@ -252,6 +342,7 @@ export default function Fornecedores() {
       await colaboradoresService.deletar(col.id);
       toast.success('Fornecedor desativado');
       carregarFornecedores();
+      if (papel === 'admin') carregarAcessosProposal();
     } catch { toast.error('Erro ao desativar'); }
   };
 
@@ -267,6 +358,7 @@ export default function Fornecedores() {
       await colaboradoresService.excluirPermanente(col.id);
       toast.success(`${col.nome} removido permanentemente`);
       carregarFornecedores();
+      carregarAcessosProposal();
     } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao excluir')); }
   };
 
@@ -343,6 +435,15 @@ export default function Fornecedores() {
             )}
             <ActionButton variant="exportar-xlsx" context="header" label="Exportar Excel (.xlsx)" onClick={exportarXlsx} />
             <ActionButton variant="exportar-pdf" context="header" label="Exportar PDF" onClick={() => window.print()} />
+            {papel === 'admin' && selecionados.size > 0 && (
+              <ActionButton
+                variant="liberar"
+                context="header"
+                label={`Liberar Proposal (${selecionados.size})`}
+                onClick={() => liberarProposal([...selecionados])}
+                disabled={processandoProposal}
+              />
+            )}
             {papel === 'admin' && (
               <ActionButton variant="criar" context="header" label="Novo Fornecedor" onClick={abrirCriar} />
             )}
@@ -406,24 +507,103 @@ export default function Fornecedores() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 dark:border-gray-600">
                 <tr>
-                  {['Nome', 'Tipo', 'Documento', 'Telefone', 'Email', 'Status', '', ''].map((h, i) => (
-                    <th key={i} className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium text-left`}>{h}</th>
+                  {papel === 'admin' && (
+                    <th className={`${TH_STICKY_CLASS} px-4 py-3 w-8`}>
+                      <input
+                        type="checkbox"
+                        className="rounded"
+                        title="Selecionar fornecedores ativos desta página"
+                        aria-label="Selecionar fornecedores ativos desta página"
+                        checked={paginados.some((c) => c.ativo) && paginados.filter((c) => c.ativo).every((c) => selecionados.has(c.id))}
+                        onChange={(e) => {
+                          const ids = paginados.filter((c) => c.ativo).map((c) => c.id);
+                          setSelecionados((s) => {
+                            const novo = new Set(s);
+                            ids.forEach((id) => (e.target.checked ? novo.add(id) : novo.delete(id)));
+                            return novo;
+                          });
+                        }}
+                      />
+                    </th>
+                  )}
+                  {['Nome', 'Tipo', 'Documento', 'Telefone', 'Email', 'Salário', 'Status', ...(papel === 'admin' ? ['Proposal'] : []), '', ''].map((h, i) => (
+                    <th key={i} className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Salário' ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {paginados.map((col) => (
                   <tr key={col.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${!col.ativo ? 'opacity-60' : ''}`}>
+                    {papel === 'admin' && (
+                      <td className="px-4 py-3 w-8">
+                        {col.ativo && (
+                          <input
+                            type="checkbox"
+                            className="rounded"
+                            aria-label={`Selecionar ${col.nome}`}
+                            checked={selecionados.has(col.id)}
+                            onChange={() => alternarSelecao(col.id)}
+                          />
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{col.nome}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{labelTipo(col.tipo_fornecedor)}</td>
                     <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-400">{col.cpf || col.documento}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{col.telefone || '—'}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{col.email || '—'}</td>
+                    <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300 tabular-nums whitespace-nowrap">
+                      {col.salario != null ? formatBRL(col.salario) : '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${col.ativo ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>
                         {col.ativo ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
+                    {papel === 'admin' && (() => {
+                      const st = statusProposal(col);
+                      const expira = acessosProposal[col.id]?.convite_expira_em;
+                      return (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1 flex-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_PROPOSAL[st].classe}`}
+                              title={st === 'convite_pendente' && expira ? `Convite válido até ${fmtValidade(expira)}` : acessosProposal[col.id]?.usuario}
+                            >
+                              {STATUS_PROPOSAL[st].rotulo}
+                            </span>
+                            {col.ativo && st === 'sem_acesso' && (
+                              <ActionButton
+                                variant="liberar"
+                                context="row"
+                                label="Liberar Proposal"
+                                title={emailLiberavel(col) || acessosProposal[col.id] ? 'Liberar Proposal' : 'Cadastre um e-mail válido para liberar o Proposal'}
+                                disabled={processandoProposal || (!emailLiberavel(col) && !acessosProposal[col.id])}
+                                onClick={() => liberarProposal([col.id])}
+                              />
+                            )}
+                            {col.ativo && st !== 'sem_acesso' && (
+                              <>
+                                <ActionButton
+                                  variant="auxiliar"
+                                  context="row"
+                                  label={st === 'ativo' ? 'Novo convite (redefinir senha)' : 'Novo convite'}
+                                  disabled={processandoProposal}
+                                  onClick={() => novoConviteProposal(col)}
+                                />
+                                <ActionButton
+                                  variant="rejeitar"
+                                  context="row"
+                                  label="Revogar Proposal"
+                                  disabled={processandoProposal}
+                                  onClick={() => revogarProposal(col)}
+                                />
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })()}
                     <td className="px-4 py-3 w-8">
                       {col.observacao && (
                         <button onClick={() => setObsAberta(col)} title="Ver observação" className="text-yellow-500 hover:text-yellow-400 dark:text-yellow-400 dark:hover:text-yellow-300 transition">
@@ -469,6 +649,64 @@ export default function Fornecedores() {
           </>
         )}
       </div>
+
+      {resultadosProposal && (
+        <Modal
+          maxWidth="max-w-2xl"
+          titulo="Acesso ao Proposal"
+          footerClassName="p-6 border-t dark:border-gray-700 flex justify-end text-sm"
+          footer={(
+            <button onClick={() => setResultadosProposal(null)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              Fechar
+            </button>
+          )}
+        >
+          {resultadosProposal.some((r) => r.resultado === 'convite') && (
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Envie o link a cada fornecedor (WhatsApp, e-mail…). Ele criará a própria senha e entrará no Proposal
+              com o e-mail como usuário. Cada link funciona uma única vez.
+            </p>
+          )}
+          <ul className="space-y-3">
+            {resultadosProposal.map((r) => {
+              const link = r.token ? urlConviteProposal(r.token) : null;
+              return (
+                <li key={r.fornecedor_id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                  <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                    <span className="font-medium text-gray-800 dark:text-gray-200">{r.nome ?? `#${r.fornecedor_id}`}</span>
+                    {r.usuario && <span className="text-xs text-gray-500 dark:text-gray-400">Usuário: {r.usuario}</span>}
+                  </div>
+                  <p className={`text-sm mt-1 ${r.resultado === 'ignorado' ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                    {RESULTADO_PROPOSAL[r.resultado]}{r.motivo ? `: ${r.motivo}` : ''}
+                  </p>
+                  {link && (
+                    <div className="mt-2 space-y-1">
+                      <div className="flex gap-2">
+                        <input
+                          readOnly
+                          value={link}
+                          onFocus={(e) => e.target.select()}
+                          className="flex-1 min-w-0 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-1.5 text-xs font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => copiarLink(link)}
+                          className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 shrink-0"
+                        >
+                          Copiar
+                        </button>
+                      </div>
+                      {r.expira_em && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Válido até {fmtValidade(r.expira_em)}</p>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Modal>
+      )}
 
       {modalAberto && (
         <Modal

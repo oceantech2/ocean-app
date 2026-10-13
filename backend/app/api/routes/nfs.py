@@ -7,7 +7,7 @@ from typing import List, Set, Optional, Literal, Tuple
 from datetime import date, datetime
 import io
 from app.database import get_db
-from app.models import NF, StatusNF, TipoFechamento
+from app.models import NF, Bonus, StatusNF, TipoFechamento
 from app.schemas import NFCreate, NFResponse, NFUpdate
 from app.api.routes.auth import get_current_user, require_admin
 from app.services.audit import registrar_auditoria
@@ -229,10 +229,14 @@ def listar_nfs(
     ano: int = Query(None),
     status_filtro: str = Query(None),
     incluir_arquivadas: bool = Query(False),
+    fornecedor_id: int = Query(None),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
-    """Listar Contas a Receber (sync Maggo + registros locais)."""
+    """Listar Contas a Receber (sync Maggo + registros locais).
+
+    `fornecedor_id` mantém só NFs com comissão ou bônus desse fornecedor.
+    """
     colisoes: List[str] = []
     try:
         _, colisoes = _sync_maggo_stub(db)
@@ -253,6 +257,13 @@ def listar_nfs(
 
     if status_filtro:
         query = query.filter(NF.status == status_filtro)
+
+    if fornecedor_id:
+        nfs_do_fornecedor = db.query(Bonus.nf_id).filter(
+            Bonus.colaborador_id == fornecedor_id,
+            Bonus.nf_id.isnot(None),
+        )
+        query = query.filter(NF.id.in_(nfs_do_fornecedor))
 
     nfs = query.offset(skip).limit(limit).all()
 

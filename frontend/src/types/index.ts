@@ -283,6 +283,27 @@ export interface LoginResponse {
   papel?: string;
   permissoes?: string | null;
   paginas_visibilidade?: Record<string, boolean>;
+  acesso_proposal?: boolean;
+}
+
+export type StatusAcessoProposal = 'sem_acesso' | 'convite_pendente' | 'convite_expirado' | 'ativo';
+
+export interface AcessoProposalFornecedor {
+  fornecedor_id: number;
+  usuario_id: number;
+  usuario: string;
+  status: StatusAcessoProposal;
+  convite_expira_em: string | null;
+}
+
+export interface LiberacaoProposalResultado {
+  fornecedor_id: number;
+  nome: string | null;
+  resultado: 'convite' | 'religado' | 'vinculado' | 'ignorado';
+  usuario?: string;
+  token?: string;
+  expira_em?: string | null;
+  motivo?: string;
 }
 
 // API Response

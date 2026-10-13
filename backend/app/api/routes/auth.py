@@ -9,6 +9,7 @@ import pyotp
 from app.database import get_db
 from app.config import settings
 from app.models import UsuarioAuth, UsuarioApp
+from app.services.acesso_proposal import TIPO_SSO, emitir_token
 from app.services.paginas_visibilidade import ler_paginas_visibilidade
 
 router = APIRouter()
@@ -137,7 +138,7 @@ async def login(
 
     permissoes = None
     if usuario_db:
-        if not pwd_context.verify(form_data.password, usuario_db.senha_hash):
+        if usuario_db.senha_pendente or not pwd_context.verify(form_data.password, usuario_db.senha_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos")
         papel = usuario_db.papel
         permissoes = usuario_db.permissoes
@@ -166,6 +167,7 @@ async def login(
         "twofa_ativo": bool(auth and auth.twofa_ativo),
         "permissoes": permissoes,
         "paginas_visibilidade": ler_paginas_visibilidade(db),
+        "acesso_proposal": bool(usuario_db and usuario_db.acesso_proposal),
     }
 
 
@@ -186,7 +188,22 @@ async def read_users_me(
         "twofa_ativo": bool(auth and auth.twofa_ativo),
         "permissoes": permissoes,
         "paginas_visibilidade": ler_paginas_visibilidade(db),
+        "acesso_proposal": bool(usuario_db and usuario_db.ativo and usuario_db.acesso_proposal),
     }
+
+
+@router.post("/proposal-sso")
+def emitir_proposal_sso(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Código de uso único e curta duração para abrir o Proposal já autenticado."""
+    usuario_db = db.query(UsuarioApp).filter(UsuarioApp.usuario == current_user).first()
+    if not usuario_db or not usuario_db.ativo or not usuario_db.acesso_proposal:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuário sem acesso ao Proposal")
+    codigo, expira = emitir_token(db, usuario_db.id, TIPO_SSO)
+    db.commit()
+    return {"codigo": codigo, "expira_em": expira.replace(microsecond=0).isoformat() + "Z"}
 
 
 # ==================== 2FA ====================

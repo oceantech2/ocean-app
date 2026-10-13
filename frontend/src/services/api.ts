@@ -1,5 +1,12 @@
 import axios from 'axios';
-import { CancelamentoIgnorado, LoginResponse, UsuarioAppCreatePayload, UsuarioAppUpdatePayload } from '../types';
+import {
+  AcessoProposalFornecedor,
+  CancelamentoIgnorado,
+  LiberacaoProposalResultado,
+  LoginResponse,
+  UsuarioAppCreatePayload,
+  UsuarioAppUpdatePayload,
+} from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 
@@ -29,6 +36,7 @@ const AUTH_STORAGE_KEYS = [
   'papel',
   'permissoes',
   'paginas_visibilidade',
+  'acesso_proposal',
 ] as const;
 
 function clearAuthStorage() {
@@ -123,6 +131,21 @@ export const authService = {
     const response = await api.get('/auth/me');
     return response.data;
   },
+
+  proposalSso: async (): Promise<{ codigo: string; expira_em: string }> => {
+    const response = await api.post('/auth/proposal-sso');
+    return response.data;
+  },
+};
+
+// Acesso de fornecedores ao Proposal (admin)
+export const proposalAcessosService = {
+  listar: () => api.get<AcessoProposalFornecedor[]>('/proposal-acessos/'),
+  liberar: (fornecedorIds: number[]) =>
+    api.post<{ resultados: LiberacaoProposalResultado[] }>('/proposal-acessos/liberar', { fornecedor_ids: fornecedorIds }),
+  novoConvite: (fornecedorId: number) =>
+    api.post<{ token: string; expira_em: string; usuario: string }>(`/proposal-acessos/${fornecedorId}/convite`),
+  revogar: (fornecedorId: number) => api.post(`/proposal-acessos/${fornecedorId}/revogar`),
 };
 
 // Colaboradores
@@ -213,8 +236,8 @@ function normalizarPayloadNf(dados: Record<string, unknown>) {
 }
 
 export const nfsService = {
-  listar: (skip = 0, limit = 100, mes?: number, ano?: number, status?: string, incluir_arquivadas = false) =>
-    api.get('/nfs', { params: { skip, limit, mes, ano, status_filtro: status, incluir_arquivadas } }),
+  listar: (skip = 0, limit = 100, mes?: number, ano?: number, status?: string, incluir_arquivadas = false, fornecedor_id?: number) =>
+    api.get('/nfs', { params: { skip, limit, mes, ano, status_filtro: status, incluir_arquivadas, fornecedor_id } }),
 
   arquivar: (id: number, arquivada: boolean) =>
     api.put(`/nfs/${id}`, { arquivada }),
@@ -297,9 +320,10 @@ export type ContaPagarCreatePayload = {
   fornecedor_id?: number | null;
   caixa?: string | null;
   tipo_despesa?: 'fixo' | 'variavel' | 'imposto_das';
+  repetir_meses?: number | null;
 };
 
-export type ContaPagarUpdatePayload = Partial<ContaPagarCreatePayload> & {
+export type ContaPagarUpdatePayload = Partial<Omit<ContaPagarCreatePayload, 'repetir_meses'>> & {
   pago?: boolean;
 };
 

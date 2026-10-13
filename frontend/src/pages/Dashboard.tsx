@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  BarChart, Bar, PieChart, Pie, Cell, Label, LabelList,
+  LineChart, Line, ReferenceLine, PieChart, Pie, Cell, Label,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { relatoriosService, metasService, contasService, saldosService, nfsService, fluxoMovimentosService, contasCorrentesService, configuracoesService } from '../services/api';
@@ -74,34 +74,23 @@ const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set
 const ANOS = Array.from({ length: 2100 - 2024 + 1 }, (_, i) => 2024 + i);
 
 const fmt = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const fmtPct = (parte: number, total: number) => {
-  if (!total || !Number.isFinite(parte) || parte === 0) return null;
-  return `${((parte / total) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
-};
+const DRE_PASSO_EIXO = 50_000;
 
-/** % pré-calculada (dataKey) centrada no segmento da barra */
-function DrePctLabel(props: {
-  viewBox?: { x?: number; y?: number; width?: number; height?: number };
-  value?: string | number | null;
-}) {
-  const { viewBox, value } = props;
-  if (value == null || value === '' || !viewBox) return null;
-  const { x = 0, y = 0, width = 0, height = 0 } = viewBox;
-  if (height < 12 || width < 14) return null;
-  return (
-    <text
-      x={x + width / 2}
-      y={y + height / 2}
-      fill="#fff"
-      textAnchor="middle"
-      dominantBaseline="central"
-      fontSize={10}
-      fontWeight={700}
-      style={{ pointerEvents: 'none' }}
-    >
-      {String(value)}
-    </text>
-  );
+/** Marcas do eixo Y do DRE em múltiplos de R$ 50 mil, sempre incluindo o zero. */
+function ticksDre(valores: number[]): number[] {
+  const min = Math.min(0, ...valores);
+  const max = Math.max(0, ...valores);
+  const inicio = Math.floor(min / DRE_PASSO_EIXO) * DRE_PASSO_EIXO;
+  const fim = Math.max(Math.ceil(max / DRE_PASSO_EIXO) * DRE_PASSO_EIXO, inicio + DRE_PASSO_EIXO);
+  const ticks: number[] = [];
+  for (let v = inicio; v <= fim; v += DRE_PASSO_EIXO) ticks.push(v);
+  return ticks;
+}
+
+function rotuloEixoDre(v: number): string {
+  if (v === 0) return 'R$ 0';
+  const sinal = v < 0 ? '-' : '';
+  return `${sinal}R$ ${(Math.abs(v) / 1000).toLocaleString('pt-BR')} mil`;
 }
 
 /** Tooltip do DRE via portal — flutuante no viewport, sem scroll interno do card */
@@ -116,7 +105,6 @@ function DreFloatingTooltip({
     name?: string;
     value?: number;
     color?: string;
-    payload?: { lucro?: number };
     dataKey?: string;
   }>;
   label?: string;
@@ -152,8 +140,7 @@ function DreFloatingTooltip({
       <ul className="space-y-1">
         {payload.map((item) => {
           const nome = item.name ?? '';
-          const lucroReal = nome === 'Lucro' ? item.payload?.lucro : undefined;
-          const valor = lucroReal != null ? lucroReal : Number(item.value) || 0;
+          const valor = Number(item.value) || 0;
           return (
             <li key={String(item.dataKey ?? nome)} className="flex items-center gap-2">
               <span
@@ -249,14 +236,7 @@ const centroCor = (v: string, i: number) =>
 
 type DrePonto = {
   mes: string;
-  receita_bruta: number;
-  despesa: number;
-  impostos: number;
-  lucro: number;
-  lucro_empilhado: number;
-  despesa_pct: string | null;
-  impostos_pct: string | null;
-  lucro_pct: string | null;
+  resultado: number;
 };
 
 type CustoFatia = {
@@ -484,10 +464,6 @@ export default function Dashboard() {
   // DRE
   const [dre, setDre] = useState<DrePonto[]>([]);
   const [dreErro, setDreErro] = useState<string | null>(null);
-  const [mostrarReceita, setMostrarReceita] = useState(true);
-  const [mostrarDespesa, setMostrarDespesa] = useState(true);
-  const [mostrarImpostos, setMostrarImpostos] = useState(true);
-  const [mostrarLucro, setMostrarLucro] = useState(true);
   const dreMousePos = useRef({ x: 0, y: 0 });
   const dreRaf = useRef(0);
   const [dreTipPos, setDreTipPos] = useState({ x: 0, y: 0 });
@@ -743,23 +719,10 @@ export default function Dashboard() {
         setProximoRecebimento({ ...PROXIMO_VAZIO });
       }
 
-      const dreBruto: DrePonto[] = (dreRes.data?.dados || []).map((d: any) => {
-        const receita_bruta = Number(d.receita_bruta) || 0;
-        const despesa = Number(d.despesa) || 0;
-        const impostos = Number(d.impostos) || 0;
-        const lucro = Number(d.lucro) || 0;
-        return {
-          mes: MESES_NOME[d.mes - 1] || String(d.mes),
-          receita_bruta,
-          despesa,
-          impostos,
-          lucro,
-          lucro_empilhado: Math.max(0, lucro),
-          despesa_pct: fmtPct(despesa, receita_bruta),
-          impostos_pct: fmtPct(impostos, receita_bruta),
-          lucro_pct: fmtPct(Math.max(0, lucro), receita_bruta),
-        };
-      });
+      const dreBruto: DrePonto[] = (dreRes.data?.dados || []).map((d: any) => ({
+        mes: MESES_NOME[d.mes - 1] || String(d.mes),
+        resultado: Number(d.lucro) || 0,
+      }));
       setDre(cortarEixoDre(dreBruto, ano));
 
       if (!temPeriodo || !carregarCusto || !custoMesRes.data) {
@@ -901,7 +864,7 @@ export default function Dashboard() {
   const realizadoMeta = numeradorBarraMeta(abaReceita, receitaCaixa, pipeline, visaoReceita);
   const pctMetaMensal =
     metaExibida != null && metaExibida > 0
-      ? Math.min((realizadoMeta / metaExibida) * 100, 100)
+      ? (realizadoMeta / metaExibida) * 100
       : 0;
   const pctMetaMensalDisplay = Math.round(pctMetaMensal * 10) / 10;
   const rotuloBarraMensal = rotuloNumeradorBarra(abaReceita);
@@ -914,11 +877,12 @@ export default function Dashboard() {
   const metaTrimestreExibida = metaTrimestre && metaTrimestre.mesesComMeta > 0
     ? (visaoReceita === 'bruto' ? metaTrimestre.bruta : metaTrimestre.liquida)
     : null;
-  const pctMetaTrimestre =
+  const pctMetaTrimestreReal =
     metaTrimestreExibida != null && metaTrimestreExibida > 0
-      ? Math.min((realizadoMeta / metaTrimestreExibida) * 100, 100)
+      ? (realizadoMeta / metaTrimestreExibida) * 100
       : 0;
-  const pctMetaTrimestreDisplay = Math.round(pctMetaTrimestre * 10) / 10;
+  const pctMetaTrimestre = Math.min(pctMetaTrimestreReal, 100);
+  const pctMetaTrimestreDisplay = Math.round(pctMetaTrimestreReal * 10) / 10;
   const corBarraTrimestre = pctMetaTrimestre >= 100 ? 'bg-green-500' : pctMetaTrimestre >= 60 ? 'bg-blue-500' : 'bg-orange-500';
   const rotuloCustoMes = rotuloPeriodo === null
     ? 'Despesas — mês'
@@ -973,24 +937,15 @@ export default function Dashboard() {
     ? null
     : valorAging(aging.d60_90, visaoReceita);
   const totalAnualRealizado = numeradorBarraMeta(abaReceita, receitaCaixa, pipeline, visaoReceita);
-  const pctAnual = metaAnualValida
-    ? Math.min((totalAnualRealizado / metaAnual.valor_meta) * 100, 100)
+  const pctAnualReal = metaAnualValida
+    ? (totalAnualRealizado / metaAnual.valor_meta) * 100
     : 0;
-  const pctAnualDisplay = Math.round(pctAnual * 10) / 10;
+  const pctAnual = Math.min(pctAnualReal, 100);
+  const pctAnualDisplay = Math.round(pctAnualReal * 10) / 10;
   const corBarraAnual = pctAnual >= 100 ? 'bg-green-500' : pctAnual >= 60 ? 'bg-blue-500' : 'bg-orange-500';
   const rotuloBarraAnual = rotuloNumeradorBarra(abaReceita);
-  const dreTemValores = dre.some(
-    (d) => d.receita_bruta || d.despesa || d.impostos || d.lucro
-  );
-  const algumaSerieDre =
-    mostrarReceita || mostrarDespesa || mostrarImpostos || mostrarLucro;
-
-  const toggleSerieDre = (dataKey: string) => {
-    if (dataKey === 'receita_bruta') setMostrarReceita((v) => !v);
-    else if (dataKey === 'despesa') setMostrarDespesa((v) => !v);
-    else if (dataKey === 'impostos') setMostrarImpostos((v) => !v);
-    else if (dataKey === 'lucro_empilhado') setMostrarLucro((v) => !v);
-  };
+  const dreTemValores = dre.some((d) => d.resultado);
+  const dreTicks = ticksDre(dre.map((d) => d.resultado));
 
   return (
     <div className="space-y-6">
@@ -1785,10 +1740,6 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
                   Sem dados de DRE para {ano}
                 </p>
-              ) : !algumaSerieDre ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                  Nenhum aspecto selecionado — use a legenda para exibir séries
-                </p>
               ) : (
                 <div
                   className="min-w-[320px]"
@@ -1802,72 +1753,36 @@ export default function Dashboard() {
                   }}
                 >
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={dre} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <LineChart data={dre} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                       <XAxis dataKey="mes" tick={{ fontSize: 11 }} interval={0} />
                       <YAxis
                         tick={{ fontSize: 11 }}
-                        width={72}
-                        tickFormatter={(v) =>
-                          Number(v).toLocaleString('pt-BR', { notation: 'compact', maximumFractionDigits: 1 })
-                        }
+                        width={88}
+                        ticks={dreTicks}
+                        domain={[dreTicks[0], dreTicks[dreTicks.length - 1]]}
+                        interval={0}
+                        tickFormatter={(v) => rotuloEixoDre(Number(v))}
                       />
                       <Tooltip
-                        cursor={{ fill: 'rgba(156, 163, 175, 0.12)' }}
+                        cursor={{ stroke: '#9CA3AF', strokeDasharray: '3 3' }}
                         wrapperStyle={{ visibility: 'hidden', pointerEvents: 'none' }}
                         content={<DreFloatingTooltip mousePos={dreTipPos} />}
                       />
-                      <Legend
-                        onClick={(e: any) => {
-                          if (e?.dataKey) toggleSerieDre(String(e.dataKey));
-                        }}
-                        wrapperStyle={{ cursor: 'pointer' }}
-                      />
-                      <Bar
-                        dataKey="receita_bruta"
-                        name="Receita bruta"
-                        stackId="receita"
-                        fill="#3B82F6"
-                        hide={!mostrarReceita}
+                      <Legend />
+                      {dreTicks[0] < 0 && <ReferenceLine y={0} stroke="#9CA3AF" />}
+                      <Line
+                        type="monotone"
+                        dataKey="resultado"
+                        name="Resultado da competência por mês"
+                        stroke="#22C55E"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
                         isAnimationActive={false}
                       />
-                      <Bar
-                        dataKey="impostos"
-                        name="Impostos"
-                        stackId="composicao"
-                        fill="#9CA3AF"
-                        hide={!mostrarImpostos}
-                        isAnimationActive={false}
-                      >
-                        <LabelList dataKey="impostos_pct" content={DrePctLabel} />
-                      </Bar>
-                      <Bar
-                        dataKey="despesa"
-                        name="Despesa"
-                        stackId="composicao"
-                        fill="#EF4444"
-                        hide={!mostrarDespesa}
-                        isAnimationActive={false}
-                      >
-                        <LabelList dataKey="despesa_pct" content={DrePctLabel} />
-                      </Bar>
-                      <Bar
-                        dataKey="lucro_empilhado"
-                        name="Lucro"
-                        stackId="composicao"
-                        fill="#22C55E"
-                        hide={!mostrarLucro}
-                        isAnimationActive={false}
-                      >
-                        <LabelList dataKey="lucro_pct" content={DrePctLabel} />
-                      </Bar>
-                    </BarChart>
+                    </LineChart>
                   </ResponsiveContainer>
-                  {dre.some((d) => d.lucro < 0) && mostrarLucro && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                      Meses com prejuízo: Lucro negativo aparece no tooltip (sem segmento empilhado).
-                    </p>
-                  )}
                 </div>
               )}
             </div>

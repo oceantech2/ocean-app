@@ -3,23 +3,33 @@ import { useSearchParams } from 'react-router-dom';
 import { nfsService, contasCorrentesService, impostosService, bonusService, colaboradoresService } from '../services/api';
 import { mensagemErro, detalheObjeto } from '../utils/erros';
 import {
-  ContaCorrente, NF, Bonus, ComissaoLinhaForm, BonusLinhaForm, Colaborador, CancelamentoIgnorado, SituacaoNF,
+  ContaCorrente, NF, Bonus, ComissaoLinhaForm, Colaborador, CancelamentoIgnorado, SituacaoNF,
 } from '../types';
 import { caixaInicialForm, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
 import { aplicarCalculoFiscal, calcularImpostoLiquido, codigoSlot1, validarAliquota } from '../utils/nfValores';
 import { anosCompetencia, mapaAliquotas, textoTooltipAliquota } from '../utils/aliquotaMes';
+import type { VisaoReceita } from '../utils/metaPeriodo';
+import { cardsResumoReceber, type ChaveCardReceber } from '../utils/resumoReceber';
 import { usePageFilters, useAuthStore, useNotifStore } from '../store';
 import Pagination from '../components/Pagination';
 import ComissoesLinhasForm from '../components/ComissoesLinhasForm';
-import BonusLinhasForm from '../components/BonusLinhasForm';
 import { exportarCSV } from '../utils/export';
 import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
-import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
+import BarraFiltros, {
+  CampoFiltro, FILTRO_INPUT, FiltroIntervaloData, FiltroIntervaloValor, SecaoFiltros, type ChipFiltro,
+} from '../components/BarraFiltros';
+import {
+  INTERVALO_VALOR_VAZIO, SEM_VALOR, dentroDoIntervaloData, dentroDoIntervaloValor, descreverIntervalo,
+  intervaloDataAtivo, intervaloValorAtivo, moedaBR, opcoesDistintas, type IntervaloData, type IntervaloValor,
+} from '../utils/filtrosAvancados';
+import { anosPermitidosContasPagar } from '../utils/contasPagarFiltroMes';
+import { PAGE_TITLE_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const ANO_ATUAL = new Date().getFullYear();
 const OPCOES_PAGINA = [15, 25, 50, 100];
 
 function tipoLabel(tipo: string) {
@@ -107,42 +117,6 @@ function bonusToLinha(b: Bonus): ComissaoLinhaForm {
   };
 }
 
-function bonusToBonusLinha(b: Bonus): BonusLinhaForm {
-  return {
-    id: b.id,
-    colaborador_id: b.colaborador_id,
-    mes: b.mes,
-    ano: b.ano,
-    valor: b.valor_bonus,
-    liberado: b.liberado,
-    pago: b.pago,
-  };
-}
-
-function validarBonus(linhas: BonusLinhaForm[]): string | null {
-  for (let i = 0; i < linhas.length; i++) {
-    const l = linhas[i];
-    const vazio = !l.colaborador_id && !l.valor;
-    if (vazio) continue;
-    if (!l.colaborador_id || !(l.valor > 0)) {
-      return `Bônus linha ${i + 1}: preencha fornecedor e valor maior que zero`;
-    }
-  }
-  return null;
-}
-
-function bonusPayload(linhas: BonusLinhaForm[]) {
-  return linhas
-    .filter((l) => l.colaborador_id && l.valor > 0)
-    .map((l) => ({
-      id: l.id,
-      colaborador_id: l.colaborador_id,
-      mes: l.mes,
-      ano: l.ano,
-      valor: l.valor,
-    }));
-}
-
 function validarComissoes(linhas: ComissaoLinhaForm[]): string | null {
   for (let i = 0; i < linhas.length; i++) {
     const l = linhas[i];
@@ -182,7 +156,9 @@ const FORM_INICIAL = {
 const INPUT = 'border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-full';
 const INPUT_RO = INPUT + ' bg-gray-50 dark:bg-gray-900/40 text-gray-600 dark:text-gray-400 cursor-not-allowed';
 
-const COLUNAS: { label: string; campo: string | null; className: string; width: string }[] = [
+type ColunaGrade = { label: string; campo: string | null; className: string; width: string };
+
+const COLUNAS_TODAS: ColunaGrade[] = [
   { label: 'Projeto', campo: 'posicao', width: '8.5rem', className: 'sticky left-0 z-[2] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
   { label: 'Origem', campo: 'origem', width: '5.5rem', className: '' },
   { label: 'Tipo', campo: 'tipo', width: '6.5rem', className: '' },
@@ -201,13 +177,52 @@ const COLUNAS: { label: string; campo: string | null; className: string; width: 
   { label: 'Ações', campo: null, width: '8rem', className: 'sticky right-0 z-[2] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.12)]' },
 ];
 
-const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1268px]';
+const CAMPO_VALOR_OCULTO: Record<VisaoReceita, string> = { liquido: 'valor_bruto', bruto: 'valor_liquido' };
+
+const CAMPOS_DATA_RECEBER: { valor: keyof NF; rotulo: string }[] = [
+  { valor: 'data_ent_pgto', rotulo: 'Fechamento' },
+  { valor: 'data_emissao', rotulo: 'Emissão' },
+  { valor: 'data_vencimento', rotulo: 'Vencimento' },
+  { valor: 'data_pagamento', rotulo: 'Pagamento' },
+  { valor: 'criado_em', rotulo: 'Lançamento' },
+];
+const INTERVALO_DATA_RECEBER: IntervaloData = { campo: 'data_ent_pgto', de: '', ate: '' };
+
+const ESTILO_CARD_RECEBER: Record<ChaveCardReceber, { caixa: string; rotulo: string; valor: string }> = {
+  total: {
+    caixa: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',
+    rotulo: 'text-blue-600 dark:text-blue-400',
+    valor: 'text-blue-700 dark:text-blue-300',
+  },
+  recebido: {
+    caixa: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
+    rotulo: 'text-green-600 dark:text-green-400',
+    valor: 'text-green-700 dark:text-green-300',
+  },
+  pendente: {
+    caixa: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800',
+    rotulo: 'text-yellow-700 dark:text-yellow-400',
+    valor: 'text-yellow-700 dark:text-yellow-300',
+  },
+  vencido: {
+    caixa: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800',
+    rotulo: 'text-red-600 dark:text-red-400',
+    valor: 'text-red-700 dark:text-red-300',
+  },
+};
+
+function colunasDaVisao(visao: VisaoReceita): ColunaGrade[] {
+  return COLUNAS_TODAS.filter((c) => c.campo !== CAMPO_VALOR_OCULTO[visao]);
+}
+
+const TABELA_CLASSE = 'w-full text-sm border-collapse table-fixed min-w-[1164px]';
 
 export default function NFs() {
   const papel = useAuthStore((s) => s.papel);
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkHandled = useRef(false);
-  const { nfsMes, nfsAno, nfsStatus, nfsSemNumero, setNfsFilters } = usePageFilters();
+  const { nfsMes, nfsAno, nfsStatus, nfsSemNumero, nfsVisao, setNfsFilters, setNfsVisao } = usePageFilters();
+  const colunas = colunasDaVisao(nfsVisao);
   const triggerNotifRefresh = useNotifStore((s) => s.triggerNotifRefresh);
   const triggerCalendarioRefresh = useNotifStore((s) => s.triggerCalendarioRefresh);
 
@@ -220,6 +235,12 @@ export default function NFs() {
   const [itensPorPagina, setItensPorPagina] = useState(15);
   const [sortField, setSortField] = useState<string>('data_emissao');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  useEffect(() => {
+    if (sortField === CAMPO_VALOR_OCULTO[nfsVisao]) {
+      setSortField(nfsVisao === 'bruto' ? 'valor_bruto' : 'valor_liquido');
+    }
+  }, [nfsVisao, sortField]);
 
   const [modalAberto, setModalAberto] = useState(false);
   const [editando, setEditando] = useState<NF | null>(null);
@@ -239,11 +260,17 @@ export default function NFs() {
 
   const [pagarModal, setPagarModal] = useState<NF | null>(null);
   const [comissoesLinhas, setComissoesLinhas] = useState<ComissaoLinhaForm[]>([]);
-  const [bonusLinhas, setBonusLinhas] = useState<BonusLinhaForm[]>([]);
   const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
   const [dataPagamentoForm, setDataPagamentoForm] = useState('');
   const [caixaReceberForm, setCaixaReceberForm] = useState('');
-  const [filtroCliente, setFiltroCliente] = useState('');
+  const [busca, setBusca] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState<'' | NF['tipo']>('');
+  const [filtroFornecedor, setFiltroFornecedor] = useState('');
+  const [intervaloData, setIntervaloData] = useState<IntervaloData>(INTERVALO_DATA_RECEBER);
+  const [intervaloValor, setIntervaloValor] = useState<IntervaloValor>(INTERVALO_VALOR_VAZIO);
+  const [filtroOrigem, setFiltroOrigem] = useState<'' | 'manual' | 'maggo'>('');
+  const [filtroConta, setFiltroConta] = useState('');
+  const [filtroAnexo, setFiltroAnexo] = useState<'' | 'com' | 'sem'>('');
   const headScrollRef = useRef<HTMLDivElement>(null);
   const bodyScrollRef = useRef<HTMLDivElement>(null);
   const syncingScroll = useRef(false);
@@ -263,7 +290,8 @@ export default function NFs() {
     nfsService.obter(id).then((res) => abrirEditar(res.data)).catch(() => toast.error('Conta a receber não encontrada'));
   }, [papel, searchParams]);
 
-  useEffect(() => { carregarNFs(); setPagina(0); }, [nfsMes, nfsAno, nfsStatus, nfsSemNumero, mostrarArquivadas]);
+  useEffect(() => { carregarNFs(); setPagina(0); }, [nfsMes, nfsAno, nfsStatus, nfsSemNumero, mostrarArquivadas, filtroFornecedor]);
+  useEffect(() => { setPagina(0); }, [busca, filtroTipo, filtroOrigem, filtroConta, filtroAnexo, intervaloData, intervaloValor]);
 
   const carregarNFs = async () => {
     try {
@@ -277,6 +305,7 @@ export default function NFs() {
           semNumero ? undefined : (nfsAno || undefined),
           semNumero ? undefined : (nfsStatus || undefined),
           mostrarArquivadas,
+          filtroFornecedor ? Number(filtroFornecedor) : undefined,
         ),
         nfsService.resumo(
           semNumero ? undefined : (nfsMes !== '' ? nfsMes : undefined),
@@ -366,7 +395,6 @@ export default function NFs() {
     setConflitoNfId(null);
     setArquivoNfForm(null);
     setComissoesLinhas([]);
-    setBonusLinhas([]);
     if (searchParams.has('edit')) {
       const next = new URLSearchParams(searchParams);
       next.delete('edit');
@@ -376,15 +404,10 @@ export default function NFs() {
 
   const carregarLinhasNf = async (nfId: number) => {
     try {
-      const [comissoesRes, bonusRes] = await Promise.all([
-        bonusService.listar(0, 100, undefined, undefined, undefined, nfId, 'comissao'),
-        bonusService.listar(0, 100, undefined, undefined, undefined, nfId, 'bonus'),
-      ]);
+      const comissoesRes = await bonusService.listar(0, 100, undefined, undefined, undefined, nfId, 'comissao');
       setComissoesLinhas((comissoesRes.data as Bonus[]).map(bonusToLinha));
-      setBonusLinhas((bonusRes.data as Bonus[]).map(bonusToBonusLinha));
     } catch {
       setComissoesLinhas([]);
-      setBonusLinhas([]);
     }
   };
 
@@ -393,7 +416,6 @@ export default function NFs() {
     setConflitoNfId(null);
     setEditando(nf);
     setComissoesLinhas([]);
-    setBonusLinhas([]);
     const caixaForm = nf.caixa && nf.caixa !== 'investimento' && contasCorrentes.some((c) => c.ativo && c.codigo === nf.caixa)
       ? nf.caixa
       : codigoSlot1(contasCorrentes);
@@ -421,7 +443,6 @@ export default function NFs() {
     setConflitoNfId(null);
     setArquivoNfForm(null);
     setComissoesLinhas([]);
-    setBonusLinhas([]);
     setForm({ ...FORM_INICIAL, caixa: codigoSlot1(contasCorrentes) });
     setModalAberto(true);
   };
@@ -517,7 +538,7 @@ export default function NFs() {
       numero: '',
       data_emissao: '',
     }));
-    // comissoesLinhas / bonusLinhas: mantém o estado do form (cópia já usada no create)
+    // comissoesLinhas: mantém o estado do form (cópia já usada no create)
   };
 
   const salvar = async (continuar = false) => {
@@ -531,18 +552,12 @@ export default function NFs() {
       toast.error(erroComissao);
       return;
     }
-    const erroBonus = validarBonus(bonusLinhas);
-    if (erroBonus) {
-      toast.error(erroBonus);
-      return;
-    }
     const erroAliquota = validarAliquota(form.aliquota_imposto);
     if (erroAliquota) {
       toast.error(erroAliquota);
       return;
     }
     const comissoes = comissoesPayload(comissoesLinhas);
-    const bonus = bonusPayload(bonusLinhas);
     if (criando) {
       if (!form.razao_social.trim() || !form.valor_bruto) {
         toast.error('Preencha empresa, método de pagamento e valor bruto');
@@ -574,7 +589,6 @@ export default function NFs() {
           data_pagamento: recebido ? form.data_pagamento : null,
           caixa: form.caixa || codigoSlot1(contasCorrentes),
           comissoes,
-          bonus,
         });
         const novaId = res.data?.id;
         let anexoOk = true;
@@ -653,7 +667,6 @@ export default function NFs() {
         });
       }
       dados.comissoes = comissoes;
-      dados.bonus = bonus;
       await nfsService.atualizar(editando.id, dados);
       if (arquivoNfForm) {
         const motivo = motivoArquivoNf(arquivoNfForm);
@@ -667,7 +680,6 @@ export default function NFs() {
             setModalAberto(false);
             setArquivoNfForm(null);
             setComissoesLinhas([]);
-    setBonusLinhas([]);
             carregarNFs();
             return;
           }
@@ -771,9 +783,17 @@ export default function NFs() {
   const fmtImposto = (v?: number | null) => (v == null ? '—' : fmt(v));
 
   const nfsFiltradas = (() => {
-    const base = filtroCliente
-      ? nfs.filter((n) => n.razao_social.toLowerCase().includes(filtroCliente.toLowerCase()))
-      : nfs;
+    const termo = busca.trim().toLowerCase();
+    const base = nfs.filter((n) => {
+      if (termo && ![n.razao_social, n.posicao, n.candidato, n.numero].some((v) => (v ?? '').toLowerCase().includes(termo))) return false;
+      if (filtroTipo && n.tipo !== filtroTipo) return false;
+      if (filtroOrigem && (n.origem === 'manual' ? 'manual' : 'maggo') !== filtroOrigem) return false;
+      if (filtroConta && (n.caixa || SEM_VALOR) !== filtroConta) return false;
+      if (filtroAnexo && !!n.anexo_nome !== (filtroAnexo === 'com')) return false;
+      if (!dentroDoIntervaloData(n[intervaloData.campo as keyof NF] as string | null | undefined, intervaloData.de, intervaloData.ate)) return false;
+      if (!dentroDoIntervaloValor(nfsVisao === 'bruto' ? n.valor_bruto : n.valor_liquido, intervaloValor)) return false;
+      return true;
+    });
     return [...base].sort((a, b) => {
       const mult = sortDir === 'asc' ? 1 : -1;
       if (sortField === 'criado_em') {
@@ -790,6 +810,54 @@ export default function NFs() {
   })();
 
   const paginados = nfsFiltradas.slice(pagina * itensPorPagina, (pagina + 1) * itensPorPagina);
+
+  const opcoesFornecedor = [...fornecedores].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const anosFiltro = anosPermitidosContasPagar(ANO_ATUAL);
+  const opcoesConta = opcoesDistintas(nfs.map((n) => n.caixa), (c) => rotuloContaOrigem(c, contasCorrentes));
+  const rotuloCampoData = CAMPOS_DATA_RECEBER.find((c) => c.valor === intervaloData.campo)?.rotulo ?? '';
+  const rotuloValor = nfsVisao === 'bruto' ? 'Valor bruto' : 'Valor líquido';
+
+  const chipsFiltros: ChipFiltro[] = [
+    intervaloDataAtivo(intervaloData) && {
+      chave: 'data',
+      rotulo: `${rotuloCampoData}: ${descreverIntervalo(intervaloData.de, intervaloData.ate)}`,
+      onRemover: () => setIntervaloData({ ...intervaloData, de: '', ate: '' }),
+    },
+    intervaloValorAtivo(intervaloValor) && {
+      chave: 'valor',
+      rotulo: `${rotuloValor}: ${descreverIntervalo(intervaloValor.min, intervaloValor.max, moedaBR)}`,
+      onRemover: () => setIntervaloValor(INTERVALO_VALOR_VAZIO),
+    },
+    filtroOrigem && { chave: 'origem', rotulo: `Origem: ${origemLabel(filtroOrigem)}`, onRemover: () => setFiltroOrigem('') },
+    filtroConta && {
+      chave: 'conta',
+      rotulo: `Conta: ${opcoesConta.find((o) => o.valor === filtroConta)?.rotulo ?? filtroConta}`,
+      onRemover: () => setFiltroConta(''),
+    },
+    filtroAnexo && {
+      chave: 'anexo',
+      rotulo: filtroAnexo === 'com' ? 'Com nota fiscal anexada' : 'Sem nota fiscal anexada',
+      onRemover: () => setFiltroAnexo(''),
+    },
+    mostrarArquivadas && { chave: 'arquivadas', rotulo: 'Incluindo arquivadas', onRemover: () => setMostrarArquivadas(false) },
+  ].filter((c): c is ChipFiltro => !!c);
+
+  const podeLimparFiltros = nfsMes !== '' || nfsAno !== ANO_ATUAL || !!nfsStatus || nfsSemNumero
+    || !!busca || !!filtroTipo || !!filtroFornecedor || chipsFiltros.length > 0;
+
+  const limparFiltros = () => {
+    setNfsFilters('', ANO_ATUAL, '');
+    setBusca('');
+    setFiltroTipo('');
+    setFiltroFornecedor('');
+    setIntervaloData(INTERVALO_DATA_RECEBER);
+    setIntervaloValor(INTERVALO_VALOR_VAZIO);
+    setFiltroOrigem('');
+    setFiltroConta('');
+    setFiltroAnexo('');
+    setMostrarArquivadas(false);
+    setPagina(0);
+  };
 
   const sincronizarScroll = (origem: 'head' | 'body') => {
     if (syncingScroll.current) return;
@@ -828,7 +896,20 @@ export default function NFs() {
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">
           Contas a Receber — <span className="text-lg font-normal text-gray-500 dark:text-gray-400">{nfs.length} registro(s)</span>
         </h1>
-        <div className="flex gap-2 flex-wrap justify-end">
+        <div className="flex gap-2 flex-wrap justify-end items-center">
+          <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-sm" role="group" aria-label="Visão de valor">
+            {(['liquido', 'bruto'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setNfsVisao(v)}
+                aria-pressed={nfsVisao === v}
+                className={`px-3 py-2 ${nfsVisao === v ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}
+              >
+                {v === 'liquido' ? 'Líquido' : 'Bruto'}
+              </button>
+            ))}
+          </div>
           {nfs.length > 0 && (
             <ActionButton variant="exportar-csv" context="header" label="Exportar CSV" onClick={exportar} />
           )}
@@ -860,23 +941,96 @@ export default function NFs() {
         </div>
       </div>
 
-      <div className={`${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Mês</label>
-          <select className={INPUT} value={nfsMes} onChange={(e) => { setNfsFilters(e.target.value === '' ? '' : parseInt(e.target.value), nfsAno, nfsSemNumero ? 'sem_nf' : nfsStatus); }} disabled={nfsSemNumero}>
-            <option value="">Todos</option>
-            {MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-          </select>
+      {resumo && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {cardsResumoReceber(resumo, nfsVisao).map((card) => {
+            const estilo = ESTILO_CARD_RECEBER[card.chave];
+            return (
+              <div key={card.chave} className={`${estilo.caixa} border rounded-lg p-4`}>
+                <p className={`text-xs font-medium ${estilo.rotulo}`}>
+                  {card.rotulo} <span className="font-normal opacity-75">· {nfsVisao === 'bruto' ? 'bruto' : 'líquido'}</span>
+                </p>
+                <p className={`text-xl font-bold mt-1 ${estilo.valor}`}>{fmt(card.valor)}</p>
+                <p className={`text-xs ${estilo.rotulo}`}>{card.quantidade} registro(s)</p>
+              </div>
+            );
+          })}
         </div>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Ano</label>
-          <input type="number" className={INPUT + ' !w-24'} value={nfsAno} onChange={(e) => setNfsFilters(nfsMes, parseInt(e.target.value), nfsSemNumero ? 'sem_nf' : nfsStatus)} disabled={nfsSemNumero} />
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Status</label>
-          <select className={INPUT} value={nfsSemNumero || nfsStatus === 'sem_nf' ? 'sem_nf' : nfsStatus} onChange={(e) => {
-            setNfsFilters(nfsMes, nfsAno, e.target.value);
-          }}>
+      )}
+
+      <BarraFiltros
+        podeLimpar={podeLimparFiltros}
+        onLimpar={limparFiltros}
+        chips={chipsFiltros}
+        resumo={nfsFiltradas.length !== nfs.length ? `${nfsFiltradas.length} de ${nfs.length}` : undefined}
+        maisFiltros={(
+          <>
+            <SecaoFiltros titulo="Datas">
+              <FiltroIntervaloData id="nfs-filtro-data" campos={CAMPOS_DATA_RECEBER} valor={intervaloData} onChange={setIntervaloData} />
+            </SecaoFiltros>
+            <SecaoFiltros titulo={rotuloValor}>
+              <FiltroIntervaloValor id="nfs-filtro-valor" rotulo="Valor" valor={intervaloValor} onChange={setIntervaloValor} />
+            </SecaoFiltros>
+            <SecaoFiltros titulo="Detalhes">
+              <CampoFiltro label="Origem" htmlFor="nfs-filtro-origem">
+                <select id="nfs-filtro-origem" className={FILTRO_INPUT} value={filtroOrigem} onChange={(e) => setFiltroOrigem(e.target.value as '' | 'manual' | 'maggo')}>
+                  <option value="">Todas</option>
+                  <option value="manual">Manual</option>
+                  <option value="maggo">Maggo</option>
+                </select>
+              </CampoFiltro>
+              <CampoFiltro label="Conta corrente" htmlFor="nfs-filtro-conta">
+                <select id="nfs-filtro-conta" className={`${FILTRO_INPUT} max-w-[12rem]`} value={filtroConta} onChange={(e) => setFiltroConta(e.target.value)}>
+                  <option value="">Todas</option>
+                  {opcoesConta.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+                </select>
+              </CampoFiltro>
+              <CampoFiltro label="Nota fiscal" htmlFor="nfs-filtro-anexo">
+                <select id="nfs-filtro-anexo" className={FILTRO_INPUT} value={filtroAnexo} onChange={(e) => setFiltroAnexo(e.target.value as '' | 'com' | 'sem')}>
+                  <option value="">Todas</option>
+                  <option value="com">Anexada</option>
+                  <option value="sem">Não anexada</option>
+                </select>
+              </CampoFiltro>
+              <label className="flex items-center gap-2 cursor-pointer py-2">
+                <input type="checkbox" checked={mostrarArquivadas} onChange={(e) => setMostrarArquivadas(e.target.checked)} className="rounded" />
+                <span className="text-sm text-gray-600 dark:text-gray-300">Incluir arquivadas</span>
+              </label>
+            </SecaoFiltros>
+          </>
+        )}
+      >
+        <CampoFiltro label="Período" htmlFor="nfs-filtro-mes">
+          <div className="flex items-center gap-2">
+            <select
+              id="nfs-filtro-mes"
+              aria-label="Mês de fechamento"
+              className={FILTRO_INPUT}
+              value={nfsMes}
+              onChange={(e) => setNfsFilters(e.target.value === '' ? '' : parseInt(e.target.value), nfsAno, nfsSemNumero ? 'sem_nf' : nfsStatus)}
+              disabled={nfsSemNumero}
+            >
+              <option value="">Todos os meses</option>
+              {MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+            </select>
+            <select
+              aria-label="Ano de fechamento"
+              className={FILTRO_INPUT}
+              value={nfsAno}
+              onChange={(e) => setNfsFilters(nfsMes, parseInt(e.target.value), nfsSemNumero ? 'sem_nf' : nfsStatus)}
+              disabled={nfsSemNumero}
+            >
+              {anosFiltro.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+        </CampoFiltro>
+        <CampoFiltro label="Status" htmlFor="nfs-filtro-status">
+          <select
+            id="nfs-filtro-status"
+            className={FILTRO_INPUT}
+            value={nfsSemNumero || nfsStatus === 'sem_nf' ? 'sem_nf' : nfsStatus}
+            onChange={(e) => setNfsFilters(nfsMes, nfsAno, e.target.value)}
+          >
             <option value="">Todos</option>
             <option value="pendente">Pendente</option>
             <option value="paga">Recebida</option>
@@ -884,61 +1038,43 @@ export default function NFs() {
             <option value="sem_nf">Sem NF</option>
             <option value="cancelada">Cancelada</option>
           </select>
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Cliente</label>
-          <input
-            type="text"
-            className={INPUT + ' !w-48'}
-            value={filtroCliente}
-            onChange={(e) => { setFiltroCliente(e.target.value); setPagina(0); }}
-            placeholder="Buscar por cliente..."
-          />
-        </div>
-        <div className="flex gap-3 text-xs ml-2 items-center">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-200 inline-block"></span>Recebida</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-200 inline-block"></span>Pendente</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200 inline-block"></span>Vencida</span>
-        </div>
-        <label className="flex items-center gap-2 cursor-pointer ml-2">
-          <input type="checkbox" checked={mostrarArquivadas} onChange={(e) => setMostrarArquivadas(e.target.checked)} className="rounded" />
-          <span className="text-xs text-gray-500 dark:text-gray-400">Mostrar arquivadas</span>
-        </label>
-        <div className="ml-auto flex items-center gap-2">
-          {nfsFiltradas.length !== nfs.length && (
-            <span className="text-xs text-blue-600 dark:text-blue-400">{nfsFiltradas.length} de {nfs.length}</span>
-          )}
-          <label className="text-xs text-gray-500 dark:text-gray-400">Exibir</label>
-          <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs" value={itensPorPagina} onChange={(e) => { setItensPorPagina(Number(e.target.value)); setPagina(0); }}>
-            {OPCOES_PAGINA.map((n) => <option key={n} value={n}>{n}</option>)}
+        </CampoFiltro>
+        <CampoFiltro label="Tipo" htmlFor="nfs-filtro-tipo">
+          <select
+            id="nfs-filtro-tipo"
+            className={FILTRO_INPUT}
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value as '' | NF['tipo'])}
+          >
+            <option value="">Todos</option>
+            <option value="retainer">Retainer</option>
+            <option value="sucesso">Sucesso</option>
+            <option value="parcelamento">Parcela</option>
           </select>
-          <span className="text-xs text-gray-400">por página</span>
-        </div>
-      </div>
-
-      {resumo && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-            <p className="text-xs text-green-600 dark:text-green-400 font-medium">Bruto Recebido</p>
-            <p className="text-xl font-bold text-green-700 dark:text-green-300 mt-1">{fmt(resumo.total_bruto_pago)}</p>
-            <p className="text-xs text-green-500 dark:text-green-500">{resumo.qtd_pagas} registro(s)</p>
-          </div>
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Líquido Recebido</p>
-            <p className="text-xl font-bold text-blue-700 dark:text-blue-300 mt-1">{fmt(resumo.total_liquido_pago)}</p>
-          </div>
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-            <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">Líquido Pendente</p>
-            <p className="text-xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{fmt(resumo.total_liquido_pendente)}</p>
-            <p className="text-xs text-yellow-500">{resumo.qtd_pendentes} registro(s)</p>
-          </div>
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <p className="text-xs text-red-600 dark:text-red-400 font-medium">Líquido Vencido</p>
-            <p className="text-xl font-bold text-red-700 dark:text-red-300 mt-1">{fmt(resumo.total_liquido_vencido)}</p>
-            <p className="text-xs text-red-500">{resumo.qtd_vencidas} registro(s)</p>
-          </div>
-        </div>
-      )}
+        </CampoFiltro>
+        <CampoFiltro label="Fornecedor" htmlFor="nfs-filtro-fornecedor">
+          <select
+            id="nfs-filtro-fornecedor"
+            className={`${FILTRO_INPUT} max-w-[14rem]`}
+            value={filtroFornecedor}
+            onChange={(e) => setFiltroFornecedor(e.target.value)}
+            title="Contas com comissão ou bônus do fornecedor"
+          >
+            <option value="">Todos</option>
+            {opcoesFornecedor.map((f) => <option key={f.id} value={String(f.id)}>{f.nome}</option>)}
+          </select>
+        </CampoFiltro>
+        <CampoFiltro label="Buscar" htmlFor="nfs-filtro-busca">
+          <input
+            id="nfs-filtro-busca"
+            type="search"
+            className={`${FILTRO_INPUT} w-56`}
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Cliente, projeto, candidato ou NF"
+          />
+        </CampoFiltro>
+      </BarraFiltros>
 
       <input
         ref={anexoInputRef}
@@ -949,12 +1085,27 @@ export default function NFs() {
       />
 
       <div className="relative z-0 isolate bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden h-[36rem] flex flex-col">
+        <div className="shrink-0 flex items-center justify-between gap-3 flex-wrap px-4 py-2 border-b border-gray-100 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex gap-3 items-center">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-200 inline-block"></span>Recebida</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-200 inline-block"></span>Pendente</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-200 inline-block"></span>Vencida</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200 inline-block"></span>Cancelada</span>
+          </div>
+          <label className="flex items-center gap-2">
+            Exibir
+            <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-2 py-1 text-xs" value={itensPorPagina} onChange={(e) => { setItensPorPagina(Number(e.target.value)); setPagina(0); }}>
+              {OPCOES_PAGINA.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            por página
+          </label>
+        </div>
         {loading ? (
           <div className="flex-1 p-8 text-center text-gray-500 dark:text-gray-400 flex flex-col items-center justify-center">
             <div className="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2" />
             <p>Carregando...</p>
           </div>
-        ) : nfs.length === 0 ? (
+        ) : nfsFiltradas.length === 0 ? (
           <div className="flex-1 p-8 text-center text-gray-400 dark:text-gray-500 flex items-center justify-center">Nenhuma conta a receber encontrada</div>
         ) : (
           <>
@@ -965,11 +1116,11 @@ export default function NFs() {
             >
               <table className={TABELA_CLASSE}>
                 <colgroup>
-                  {COLUNAS.map((c) => <col key={c.label} style={{ width: c.width }} />)}
+                  {colunas.map((c) => <col key={c.label} style={{ width: c.width }} />)}
                 </colgroup>
                 <thead>
                   <tr>
-                    {COLUNAS.map(({ label, campo, className }) => (
+                    {colunas.map(({ label, campo, className }) => (
                       <th
                         key={label}
                         title={label}
@@ -993,7 +1144,7 @@ export default function NFs() {
             >
             <table className={TABELA_CLASSE}>
               <colgroup>
-                {COLUNAS.map((c) => <col key={c.label} style={{ width: c.width }} />)}
+                {colunas.map((c) => <col key={c.label} style={{ width: c.width }} />)}
               </colgroup>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {paginados.map((nf) => {
@@ -1014,13 +1165,17 @@ export default function NFs() {
                         {tipoLabel(nf.tipo)}
                       </span>
                     </td>
-                    <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_bruto)}</td>
+                    {nfsVisao === 'bruto' && (
+                      <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_bruto)}</td>
+                    )}
                     <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">
                       <span tabIndex={0} title={tipImposto} aria-label={tipImposto} className="outline-none">
                         {fmtImposto(nf.valor_imposto)}
                       </span>
                     </td>
-                    <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_liquido)}</td>
+                    {nfsVisao === 'liquido' && (
+                      <td className="px-2 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">{fmt(nf.valor_liquido)}</td>
+                    )}
                     <td className="px-2 py-2.5 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{dash(nf.data_ent_pgto)}</td>
                     <td className="px-2 py-2.5 font-mono font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
                       <div className="flex items-center gap-1">
@@ -1438,12 +1593,6 @@ export default function NFs() {
                 valorLiquido={parseFloat(form.valor_liquido) || 0}
                 linhas={comissoesLinhas}
                 onChange={setComissoesLinhas}
-                fornecedores={fornecedores}
-                readOnly={papel !== 'admin'}
-              />
-              <BonusLinhasForm
-                linhas={bonusLinhas}
-                onChange={setBonusLinhas}
                 fornecedores={fornecedores}
                 readOnly={papel !== 'admin'}
               />

@@ -14,6 +14,7 @@ from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrim
 from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
+from app.api.routes import proposal_acessos
 from app.models import (
     CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_IDIOMA,
     CK_PROPOSTAS_MOEDA,
@@ -667,6 +668,45 @@ def _migrar():
             conn.rollback()
             logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 083)")
 
+    # Proposal (feature 088): vínculo usuário × fornecedor, convite com senha pendente e tokens de uso único
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE usuarios_app ADD COLUMN IF NOT EXISTS fornecedor_id INTEGER "
+                "REFERENCES colaboradores(id) ON DELETE SET NULL"
+            ))
+            conn.execute(text(
+                "ALTER TABLE usuarios_app ADD COLUMN IF NOT EXISTS senha_pendente BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_app_fornecedor_id "
+                "ON usuarios_app (fornecedor_id) WHERE fornecedor_id IS NOT NULL"
+            ))
+            conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS tokens_acesso (
+                    id SERIAL PRIMARY KEY,
+                    usuario_id INTEGER NOT NULL REFERENCES usuarios_app(id) ON DELETE CASCADE,
+                    tipo VARCHAR(10) NOT NULL,
+                    token_hash VARCHAR(64) NOT NULL UNIQUE,
+                    criado_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                    expira_em TIMESTAMP NOT NULL,
+                    usado_em TIMESTAMP,
+                    invalidado_em TIMESTAMP,
+                    CONSTRAINT ck_tokens_acesso_tipo CHECK (tipo IN ('convite','sso'))
+                )
+                """
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_tokens_acesso_usuario_tipo ON tokens_acesso (usuario_id, tipo)"
+            ))
+            # Fecha a tabela para a API pública do Supabase; o backend é o dono e ignora RLS
+            conn.execute(text("ALTER TABLE tokens_acesso ENABLE ROW LEVEL SECURITY"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 088)")
+
     # Pendentes passam para a versão vigente do modelo (formato novo); o hash precisa ser regravado,
     # senão o aceite é recusado. Assinadas e canceladas ficam na versão com que foram emitidas.
     from app.models import Proposta
@@ -745,6 +785,7 @@ app.include_router(fluxo_movimentos.transferencias_router, prefix="/api/fluxo-tr
 app.include_router(contas_correntes.router, prefix="/api/contas-correntes", tags=["Contas correntes"], dependencies=ERP_DEPS)
 app.include_router(patrimonio.router, prefix="/api/patrimonio", tags=["Patrimônio"], dependencies=ERP_DEPS)
 app.include_router(arquivos_nfs.router, prefix="/api/arquivos-nfs", tags=["Arquivos NFs"], dependencies=ERP_DEPS)
+app.include_router(proposal_acessos.router, prefix="/api/proposal-acessos", tags=["Acessos ao Proposal"], dependencies=ERP_DEPS)
 
 # Proposal: autenticação própria (token app=proposal) e página pública sem login
 app.include_router(proposal_auth.router, prefix="/api/proposal/auth", tags=["Proposal · Auth"])

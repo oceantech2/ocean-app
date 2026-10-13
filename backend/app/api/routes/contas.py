@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import extract
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
+from datetime import date
+import calendar
 import io
 from app.database import get_db
 from app.models import ContaPagar, Colaborador
@@ -101,6 +103,14 @@ def _validar_categoria_para_tipo(
 def _resolver_caixa_conta(db: Session, caixa_in: str | None) -> str:
     codigo = caixa_in or codigo_padrao(db)
     return exigir_conta_corrente(db, codigo)
+
+
+def _somar_meses(base: date, meses: int) -> date:
+    """Mesmo dia `meses` depois; se o mês não tiver o dia, último dia do mês."""
+    indice = base.month - 1 + meses
+    ano = base.year + indice // 12
+    mes = indice % 12 + 1
+    return date(ano, mes, min(base.day, calendar.monthrange(ano, mes)[1]))
 
 
 def _validar_fornecedor_id(db: Session, fornecedor_id: int | None, atual: ContaPagar | None = None):
@@ -588,6 +598,12 @@ def criar_conta(
         )
 
     dados = conta.dict()
+    repetir_meses = dados.pop("repetir_meses", None)
+    if repetir_meses and not dados.get("data_vencimento"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Informe o vencimento para repetir a conta nos próximos meses",
+        )
     dados["categoria"] = cat
     dados["subcategoria"] = sub
     dados["fornecedor_id"] = _validar_fornecedor_id(db, dados.get("fornecedor_id"))
@@ -604,6 +620,22 @@ def criar_conta(
     db.add(nova_conta)
     db.flush()
     registrar_auditoria(db, current_user, "criar", "ContaPagar", nova_conta.id, f"{nova_conta.descricao} — R$ {nova_conta.valor:,.2f}")
+    for k in range(1, (repetir_meses or 0) + 1):
+        copia = ContaPagar(
+            **{
+                **dados,
+                "data_vencimento": _somar_meses(dados["data_vencimento"], k),
+                "data_pagamento": None,
+                "pago": False,
+            },
+            categoria_pendente=False,
+        )
+        db.add(copia)
+        db.flush()
+        registrar_auditoria(
+            db, current_user, "criar", "ContaPagar", copia.id,
+            f"{copia.descricao} — R$ {copia.valor:,.2f} (recorrência {k}/{repetir_meses})",
+        )
     db.commit()
     db.refresh(nova_conta)
     db.refresh(nova_conta, attribute_names=["fornecedor"])

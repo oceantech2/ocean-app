@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { login } from '../services/proposalApi';
 import { useProposalAuthStore } from '../store';
@@ -15,7 +15,16 @@ export default function Login() {
   const [precisa2fa, setPrecisa2fa] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const salvarSessao = useProposalAuthStore((s) => s.login);
+
+  useEffect(() => {
+    const mensagem = (location.state as { mensagem?: string } | null)?.mensagem;
+    if (mensagem) {
+      toast.error(mensagem, { id: 'login-redirecionado' });
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location, navigate]);
 
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +73,7 @@ export default function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className={inputCls}
-              placeholder="Seu usuário"
+              placeholder="Seu usuário ou e-mail"
               autoComplete="username"
               required
             />

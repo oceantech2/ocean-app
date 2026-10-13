@@ -34,6 +34,7 @@ export default function Login() {
         response.papel,
         response.permissoes,
         response.paginas_visibilidade ?? null,
+        response.acesso_proposal ?? false,
       );
       toast.success('Login realizado com sucesso!');
       navigate('/dashboard');

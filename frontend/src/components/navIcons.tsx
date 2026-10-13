@@ -148,6 +148,15 @@ export function ConfiguracoesIcon(p: IconProps) {
   );
 }
 
+export function ProposalIcon(p: IconProps) {
+  return (
+    <IconBase {...p}>
+      <path d="M13 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
+      <path d="M16 3h5v5M21 3l-9 9" />
+    </IconBase>
+  );
+}
+
 export function ChevronLeftIcon(p: IconProps) {
   return (
     <IconBase {...p}>

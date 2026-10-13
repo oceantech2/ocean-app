@@ -8,14 +8,17 @@ interface AuthState {
   papel: 'admin' | 'visualizador' | null;
   permissoes: string | null;
   paginasVisibilidade: Record<string, boolean> | null;
+  acessoProposal: boolean;
   setAuth: (
     usuario: string,
     token: string,
     papel?: string,
     permissoes?: string | null,
     paginasVisibilidade?: Record<string, boolean> | null,
+    acessoProposal?: boolean,
   ) => void;
   setPaginasVisibilidade: (paginas: Record<string, boolean>) => void;
+  setAcessoProposal: (acesso: boolean) => void;
   logout: () => void;
 }
 
@@ -36,8 +39,9 @@ export const useAuthStore = create<AuthState>(() => ({
   papel: (localStorage.getItem('papel') as 'admin' | 'visualizador') || 'admin',
   permissoes: localStorage.getItem('permissoes'),
   paginasVisibilidade: readPaginasVisibilidade(),
+  acessoProposal: localStorage.getItem('acesso_proposal') === 'true',
 
-  setAuth: (usuario, token, papel = 'admin', permissoes = null, paginasVisibilidade = null) => {
+  setAuth: (usuario, token, papel = 'admin', permissoes = null, paginasVisibilidade = null, acessoProposal = false) => {
     useAuthStore.setState({
       isAuthenticated: true,
       usuario,
@@ -45,10 +49,12 @@ export const useAuthStore = create<AuthState>(() => ({
       papel: papel as 'admin' | 'visualizador',
       permissoes,
       paginasVisibilidade,
+      acessoProposal,
     });
     localStorage.setItem('usuario', usuario);
     localStorage.setItem('access_token', token);
     localStorage.setItem('papel', papel);
+    localStorage.setItem('acesso_proposal', String(acessoProposal));
     if (permissoes) localStorage.setItem('permissoes', permissoes);
     else localStorage.removeItem('permissoes');
     if (paginasVisibilidade) {
@@ -63,6 +69,11 @@ export const useAuthStore = create<AuthState>(() => ({
     localStorage.setItem('paginas_visibilidade', JSON.stringify(paginas));
   },
 
+  setAcessoProposal: (acesso) => {
+    useAuthStore.setState({ acessoProposal: acesso });
+    localStorage.setItem('acesso_proposal', String(acesso));
+  },
+
   logout: () => {
     useAuthStore.setState({
       isAuthenticated: false,
@@ -71,7 +82,9 @@ export const useAuthStore = create<AuthState>(() => ({
       papel: null,
       permissoes: null,
       paginasVisibilidade: null,
+      acessoProposal: false,
     });
+    localStorage.removeItem('acesso_proposal');
     localStorage.removeItem('usuario');
     localStorage.removeItem('access_token');
     localStorage.removeItem('papel');
@@ -167,6 +180,7 @@ interface PageFiltersState {
   contasPago: '' | 'true' | 'false';
   contasAlertaVencimento: '' | 'hoje' | '7dias' | 'vencida';
   nfsSemNumero: boolean;
+  nfsVisao: 'liquido' | 'bruto';
   bonusColaboradorId: number | '';
   bonusAno: number;
   bonusRecorte: 'ano' | 'mes' | 'trimestre';
@@ -180,6 +194,7 @@ interface PageFiltersState {
   setNfsFilters: (mes: number | '', ano: number, status: string) => void;
   setContasFilters: (categoria: string, pago: '' | 'true' | 'false', subcategoria?: string, alertaVencimento?: '' | 'hoje' | '7dias' | 'vencida') => void;
   setNfsSemNumero: (ligado: boolean) => void;
+  setNfsVisao: (visao: 'liquido' | 'bruto') => void;
   setBonusFilters: (
     colaboradorId: number | '',
     ano: number,
@@ -200,6 +215,7 @@ export const usePageFilters = create<PageFiltersState>((set) => ({
   contasPago: '',
   contasAlertaVencimento: '',
   nfsSemNumero: false,
+  nfsVisao: 'liquido',
   bonusColaboradorId: '',
   bonusAno: ANO,
   bonusRecorte: 'ano',
@@ -226,6 +242,7 @@ export const usePageFilters = create<PageFiltersState>((set) => ({
   setNfsSemNumero: (ligado) => set(ligado
     ? { nfsSemNumero: true, nfsMes: '' as const, nfsStatus: 'sem_nf' }
     : { nfsSemNumero: false }),
+  setNfsVisao: (visao) => set({ nfsVisao: visao }),
   setBonusFilters: (colaboradorId, ano, recorte, mes, trimestre) =>
     set((s) => ({
       bonusColaboradorId: colaboradorId,

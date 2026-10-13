@@ -361,8 +361,38 @@ class UsuarioApp(Base):
     ativo = Column(Boolean, default=True)
     acesso_erp = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     acesso_proposal = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Fornecedor liberado pela página Fornecedores (feature 088); no máximo um usuário por fornecedor
+    fornecedor_id = Column(Integer, ForeignKey("colaboradores.id", ondelete="SET NULL"), nullable=True)
+    # Criado por convite e ainda sem senha definida pelo próprio usuário: login recusado
+    senha_pendente = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index(
+            "ux_usuarios_app_fornecedor_id", "fornecedor_id",
+            unique=True, postgresql_where=text("fornecedor_id IS NOT NULL"),
+        ),
+    )
+
+
+class TokenAcesso(Base):
+    """Credencial temporária de uso único: convite para criar senha ou entrada automática no Proposal."""
+    __tablename__ = "tokens_acesso"
+
+    id = Column(Integer, primary_key=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="CASCADE"), nullable=False)
+    tipo = Column(String(10), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expira_em = Column(DateTime, nullable=False)
+    usado_em = Column(DateTime, nullable=True)
+    invalidado_em = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("tipo IN ('convite','sso')", name="ck_tokens_acesso_tipo"),
+        Index("ix_tokens_acesso_usuario_tipo", "usuario_id", "tipo"),
+    )
 
 
 # ==================== PROPOSAL ====================

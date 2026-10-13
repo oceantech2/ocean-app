@@ -32,15 +32,6 @@ const FORM_INICIAL = {
   data_fim: '',
 };
 
-function formatBRL(n: number) {
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
-function rotuloSalario(valor?: number | null) {
-  if (valor == null) return '—';
-  return formatBRL(valor);
-}
-
 function rotuloPeriodo(inicio?: string | null, fim?: string | null) {
   if (inicio && fim) return `${inicio} → ${fim}`;
   if (inicio) return inicio;
@@ -72,11 +63,6 @@ export default function FeriasPage() {
 
   const nomeFornecedor = (id: number) =>
     fornecedores.find((c) => c.id === id)?.nome ?? `ID ${id}`;
-
-  const fornecedorForm = useMemo(
-    () => fornecedores.find((c) => c.id === parseInt(form.colaborador_id, 10)),
-    [fornecedores, form.colaborador_id],
-  );
 
   useEffect(() => { carregarFornecedores(); }, []);
   useEffect(() => { carregarFerias(); setPagina(0); }, [feriasColaboradorId, feriasAno]);
@@ -267,7 +253,6 @@ export default function FeriasPage() {
     ferias.map((f) => ({
       Fornecedor: nomeFornecedor(f.colaborador_id),
       Ano: f.ano,
-      Salário: rotuloSalario(fornecedores.find((c) => c.id === f.colaborador_id)?.salario),
       'Dias Tirados': f.dias_tirados,
       'Data Início': f.data_inicio || '',
       'Data Fim': f.data_fim || '',
@@ -279,7 +264,6 @@ export default function FeriasPage() {
   const INPUT = 'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm';
   const cabecalhos = [
     ...(mostrarFornecedor ? ['Fornecedor'] : []),
-    'Salário',
     'Ano',
     'Tirados',
     'Período',
@@ -379,7 +363,7 @@ export default function FeriasPage() {
                   {cabecalhos.map((h) => (
                     <th
                       key={h || 'acoes'}
-                      className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Tirados' || h === 'Salário' ? 'text-right' : 'text-left'}`}
+                      className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Tirados' ? 'text-right' : 'text-left'}`}
                     >
                       {h}
                     </th>
@@ -392,9 +376,6 @@ export default function FeriasPage() {
                     {mostrarFornecedor && (
                       <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{nomeFornecedor(f.colaborador_id)}</td>
                     )}
-                    <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300 tabular-nums">
-                      {rotuloSalario(fornecedores.find((c) => c.id === f.colaborador_id)?.salario)}
-                    </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{f.ano}</td>
                     <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{f.dias_tirados}d</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
@@ -462,18 +443,6 @@ export default function FeriasPage() {
                     <option value="">Selecione...</option>
                     {fornecedores.map((c) => <option key={c.id} value={c.id}>{c.nome || `ID ${c.id}`}</option>)}
                   </select>
-                </div>
-              )}
-
-              {form.colaborador_id && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Salário</label>
-                  <input
-                    className={`${INPUT} bg-gray-50 dark:bg-gray-700/60`}
-                    value={rotuloSalario(fornecedorForm?.salario)}
-                    readOnly
-                    tabIndex={-1}
-                  />
                 </div>
               )}
 

@@ -11,14 +11,31 @@ import { CHAVE_SEM_VENCIMENTO, chaveMesVencimento, rotuloMesAnoColuna } from '..
 import { anosPermitidosContasPagar, mesesDisponiveis, passaFiltroMesAno } from '../utils/contasPagarFiltroMes';
 import { caixaInicialForm, codigoPadrao, rotuloContaOrigem } from '../utils/fluxoCaixaMovimentos';
 import { ACCEPT_NF, motivoArquivoNf } from '../utils/anexoNf';
+import { RECORRENCIA_MAX_MESES, mesesRecorrenciaValido, resumoRecorrencia } from '../utils/recorrencia';
 import toast from 'react-hot-toast';
 import ActionButton from '../components/ActionButton';
 import Modal from '../components/Modal';
+import BarraFiltros, {
+  CampoFiltro, FILTRO_INPUT, FiltroIntervaloData, FiltroIntervaloValor, SecaoFiltros, type ChipFiltro,
+} from '../components/BarraFiltros';
+import {
+  INTERVALO_VALOR_VAZIO, SEM_VALOR, dentroDoIntervaloData, dentroDoIntervaloValor, descreverIntervalo,
+  intervaloDataAtivo, intervaloValorAtivo, moedaBR, opcoesDistintas, type IntervaloData, type IntervaloValor,
+} from '../utils/filtrosAvancados';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
-import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
+import { PAGE_TITLE_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const SENTINELA_NOVA = '__nova__';
 const SENTINELA_NOVA_SUB = '__nova_sub__';
+const SEM_FORNECEDOR = '__sem__';
+const PERIODO_TODOS = 'todos';
+
+const CAMPOS_DATA_PAGAR: { valor: keyof ContaPagar; rotulo: string }[] = [
+  { valor: 'data_vencimento', rotulo: 'Vencimento' },
+  { valor: 'data_pagamento', rotulo: 'Pagamento' },
+  { valor: 'criado_em', rotulo: 'Lançamento' },
+];
+const INTERVALO_DATA_PAGAR: IntervaloData = { campo: 'data_vencimento', de: '', ate: '' };
 
 const MESES_NOME_LONGO = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -140,11 +157,17 @@ export default function Contas() {
   const [modalAberto, setModalAberto] = useState(false);
   const [importAberto, setImportAberto] = useState(false);
   const [buscaDescricao, setBuscaDescricao] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState<'' | 'fixo' | 'variavel' | 'imposto_das'>('');
+  const [filtroFornecedor, setFiltroFornecedor] = useState('');
   const [arquivoNf, setArquivoNf] = useState<File | null>(null);
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
+  const [intervaloData, setIntervaloData] = useState<IntervaloData>(INTERVALO_DATA_PAGAR);
+  const [intervaloValor, setIntervaloValor] = useState<IntervaloValor>(INTERVALO_VALOR_VAZIO);
+  const [filtroConta, setFiltroConta] = useState('');
+  const [filtroComprovante, setFiltroComprovante] = useState<'' | 'com' | 'sem'>('');
   const [editando, setEditando] = useState<ContaPagar | null>(null);
   const [form, setForm] = useState({ ...FORM_INICIAL });
+  const [repetir, setRepetir] = useState(false);
+  const [repetirMeses, setRepetirMeses] = useState('');
   const [fornecedores, setFornecedores] = useState<Colaborador[]>([]);
   const [contasCorrentes, setContasCorrentes] = useState<ContaCorrente[]>([]);
   const [pagoModal, setPagoModal] = useState<ContaPagar | null>(null);
@@ -219,9 +242,15 @@ export default function Contas() {
   const isVencida = (c: ContaPagar) => !c.pago && compararVencimento(c.data_vencimento, hojeISO()) === -1;
 
   const contasFiltradas = contas.filter((c) => {
-    if (buscaDescricao && !c.descricao.toLowerCase().includes(buscaDescricao.toLowerCase())) return false;
-    if (dataInicio && c.data_vencimento && c.data_vencimento < dataInicio) return false;
-    if (dataFim && c.data_vencimento && c.data_vencimento > dataFim) return false;
+    const termo = buscaDescricao.trim().toLowerCase();
+    if (termo && ![c.descricao, c.fornecedor_nome].some((v) => (v ?? '').toLowerCase().includes(termo))) return false;
+    if (filtroTipo && (c.tipo_despesa || 'variavel') !== filtroTipo) return false;
+    if (filtroFornecedor === SEM_FORNECEDOR && c.fornecedor_id) return false;
+    if (filtroFornecedor && filtroFornecedor !== SEM_FORNECEDOR && String(c.fornecedor_id ?? '') !== filtroFornecedor) return false;
+    if (filtroConta && (c.caixa || SEM_VALOR) !== filtroConta) return false;
+    if (filtroComprovante && !!c.comprovante_nome !== (filtroComprovante === 'com')) return false;
+    if (!dentroDoIntervaloData(c[intervaloData.campo as keyof ContaPagar] as string | null | undefined, intervaloData.de, intervaloData.ate)) return false;
+    if (!dentroDoIntervaloValor(c.valor, intervaloValor)) return false;
     if (contasAlertaVencimento === 'vencida') {
       return !c.pago && compararVencimento(c.data_vencimento, hojeISO()) === -1;
     }
@@ -260,7 +289,7 @@ export default function Contas() {
   }, [
     contasMesTodos, contasMes, contasAno,
     contasCategoria, contasSubcategoria, contasPago, contasAlertaVencimento,
-    buscaDescricao, dataInicio, dataFim,
+    buscaDescricao, intervaloData, intervaloValor, filtroConta, filtroComprovante, filtroTipo, filtroFornecedor,
   ]);
 
   useEffect(() => {
@@ -268,7 +297,7 @@ export default function Contas() {
   }, [
     contasMesTodos, contasMes, contasAno,
     contasCategoria, contasSubcategoria, contasPago, contasAlertaVencimento,
-    buscaDescricao, dataInicio, dataFim,
+    buscaDescricao, intervaloData, intervaloValor, filtroConta, filtroComprovante, filtroTipo, filtroFornecedor,
   ]);
 
   const verComprovante = (conta: ContaPagar) => {
@@ -415,6 +444,72 @@ export default function Contas() {
   const contasOrdenadas = ordenar(contasFiltradas);
   const anosFiltro = anosPermitidosContasPagar(new Date().getFullYear());
 
+  const opcoesFornecedor = (() => {
+    const mapa = new Map<number, string>();
+    fornecedores.forEach((f) => mapa.set(f.id, f.nome));
+    contas.forEach((c) => {
+      if (c.fornecedor_id && !mapa.has(c.fornecedor_id)) {
+        const nome = c.fornecedor_nome || `Fornecedor ${c.fornecedor_id}`;
+        mapa.set(c.fornecedor_id, c.fornecedor_ativo === false ? `${nome} (inativo)` : nome);
+      }
+    });
+    return Array.from(mapa.entries()).sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
+  })();
+
+  const opcoesConta = opcoesDistintas(contas.map((c) => c.caixa), (c) => rotuloContaOrigem(c, contasCorrentes));
+  const categoriasFiltro = [...(catalog?.oficiais || []), ...(catalog?.cadastradas || [])]
+    .filter((c) => c.codigo !== 'impostos' && c.codigo !== 'imposto');
+  const rotuloCampoData = CAMPOS_DATA_PAGAR.find((c) => c.valor === intervaloData.campo)?.rotulo ?? '';
+
+  const chipsFiltros: ChipFiltro[] = [
+    contasCategoria && {
+      chave: 'categoria',
+      rotulo: `Categoria: ${categoriasFiltro.find((c) => c.codigo === contasCategoria)?.nome ?? contasCategoria}`,
+      onRemover: () => setContasFilters('', contasPago, ''),
+    },
+    contasSubcategoria && {
+      chave: 'subcategoria',
+      rotulo: `Subcategoria: ${catalog?.subcategorias_rh.find((s) => s.codigo === contasSubcategoria)?.nome ?? contasSubcategoria}`,
+      onRemover: () => setContasFilters(contasCategoria, contasPago, ''),
+    },
+    intervaloDataAtivo(intervaloData) && {
+      chave: 'data',
+      rotulo: `${rotuloCampoData}: ${descreverIntervalo(intervaloData.de, intervaloData.ate)}`,
+      onRemover: () => setIntervaloData({ ...intervaloData, de: '', ate: '' }),
+    },
+    intervaloValorAtivo(intervaloValor) && {
+      chave: 'valor',
+      rotulo: `Valor: ${descreverIntervalo(intervaloValor.min, intervaloValor.max, moedaBR)}`,
+      onRemover: () => setIntervaloValor(INTERVALO_VALOR_VAZIO),
+    },
+    filtroConta && {
+      chave: 'conta',
+      rotulo: `Conta: ${opcoesConta.find((o) => o.valor === filtroConta)?.rotulo ?? filtroConta}`,
+      onRemover: () => setFiltroConta(''),
+    },
+    filtroComprovante && {
+      chave: 'comprovante',
+      rotulo: filtroComprovante === 'com' ? 'Com nota fiscal anexada' : 'Sem nota fiscal anexada',
+      onRemover: () => setFiltroComprovante(''),
+    },
+  ].filter((c): c is ChipFiltro => !!c);
+
+  const podeLimparFiltros = chipsFiltros.length > 0
+    || !!(contasPago || contasAlertaVencimento || filtroTipo || filtroFornecedor || buscaDescricao)
+    || !contasMesTodos;
+
+  const limparFiltros = () => {
+    setContasFilters('', '', '', '');
+    setContasMesTodos(true);
+    setFiltroTipo('');
+    setFiltroFornecedor('');
+    setBuscaDescricao('');
+    setIntervaloData(INTERVALO_DATA_PAGAR);
+    setIntervaloValor(INTERVALO_VALOR_VAZIO);
+    setFiltroConta('');
+    setFiltroComprovante('');
+  };
+
   const gruposMesAno = (() => {
     const grupos: { chave: string; rotulo: string; contas: ContaPagar[] }[] = [];
     for (const c of contasOrdenadas) {
@@ -439,6 +534,8 @@ export default function Contas() {
   const abrirCriar = () => {
     setEditando(null);
     setForm({ ...FORM_INICIAL, caixa: codigoPadrao(contasCorrentes), tipo_despesa: 'variavel' });
+    setRepetir(false);
+    setRepetirMeses('');
     setArquivoNf(null);
     setNovaAberto(false);
     setNovaNome('');
@@ -596,6 +693,8 @@ export default function Contas() {
   const aplicarFormPosMaisUmPagar = () => {
     setEditando(null);
     setArquivoNf(null);
+    setRepetir(false);
+    setRepetirMeses('');
     setForm((prev) => ({ ...prev, data_pagamento: '' }));
   };
 
@@ -628,6 +727,11 @@ export default function Contas() {
     const valorNum = parseMoedaInput(form.valor);
     if (valorNum === null || valorNum <= 0) {
       toast.error('Informe um valor válido maior que zero');
+      return;
+    }
+    const mesesRecorrencia = !editando && repetir ? Number(repetirMeses) : 0;
+    if (!editando && repetir && !mesesRecorrenciaValido(mesesRecorrencia)) {
+      toast.error(`Informe de 1 a ${RECORRENCIA_MAX_MESES} meses para repetir a conta`);
       return;
     }
     try {
@@ -674,7 +778,10 @@ export default function Contas() {
         toast.success('Conta atualizada!');
         setModalAberto(false); setArquivoNf(null); carregarContas(); triggerNotifRefresh(); triggerCalendarioRefresh();
       } else {
-        const res = await contasService.criar(dados);
+        const res = await contasService.criar({
+          ...dados,
+          repetir_meses: mesesRecorrencia || null,
+        });
         const novaId = res.data?.id;
         let anexoOk = true;
         if (arquivoNf && novaId) {
@@ -691,7 +798,9 @@ export default function Contas() {
             toast.error(`${motivo}. A conta foi salva sem arquivo.`);
           }
         }
-        if (anexoOk) toast.success('Conta criada!');
+        if (anexoOk) {
+          toast.success(mesesRecorrencia ? `Conta criada + ${mesesRecorrencia} recorrência(s)` : 'Conta criada!');
+        }
         carregarContas();
         triggerNotifRefresh();
         triggerCalendarioRefresh();
@@ -914,79 +1023,79 @@ export default function Contas() {
         </div>
       </div>
 
-      <div className={`no-print ${PAGE_FILTERS_STICKY_CLASS} rounded-lg shadow-md p-4 flex flex-wrap gap-3 items-end`}>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Categorias</label>
-          <select
-            className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
-            value={contasCategoria}
-            onChange={(e) => setContasFilters(e.target.value, contasPago, e.target.value === 'recursos_humanos' ? contasSubcategoria : '')}
-          >
-            <option value="">Todas</option>
-            {(catalog?.oficiais || []).filter((c) => c.codigo !== 'impostos' && c.codigo !== 'imposto').map((c) => (
-              <option key={c.codigo} value={c.codigo}>{c.nome}</option>
-            ))}
-            {(catalog?.cadastradas || []).filter((c) => c.codigo !== 'impostos' && c.codigo !== 'imposto').map((c) => (
-              <option key={c.codigo} value={c.codigo}>{c.nome}</option>
-            ))}
-          </select>
-        </div>
-        {contasCategoria === 'recursos_humanos' && (
-          <div>
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Subcategoria RH</label>
-            <select
-              className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
-              value={contasSubcategoria}
-              onChange={(e) => setContasFilters(contasCategoria, contasPago, e.target.value)}
-            >
-              <option value="">Todas de RH</option>
-              {(catalog?.subcategorias_rh || []).map((s) => <option key={s.codigo} value={s.codigo}>{s.nome}</option>)}
-            </select>
-          </div>
+      <BarraFiltros
+        className="no-print"
+        podeLimpar={podeLimparFiltros}
+        onLimpar={limparFiltros}
+        chips={chipsFiltros}
+        resumo={contasOrdenadas.length !== contas.length ? `${contasOrdenadas.length} de ${contas.length}` : undefined}
+        maisFiltros={(
+          <>
+            <SecaoFiltros titulo="Datas">
+              <FiltroIntervaloData id="contas-filtro-data" campos={CAMPOS_DATA_PAGAR} valor={intervaloData} onChange={setIntervaloData} />
+            </SecaoFiltros>
+            <SecaoFiltros titulo="Valor">
+              <FiltroIntervaloValor id="contas-filtro-valor" valor={intervaloValor} onChange={setIntervaloValor} />
+            </SecaoFiltros>
+            <SecaoFiltros titulo="Detalhes">
+              <CampoFiltro label="Categoria" htmlFor="contas-filtro-categoria">
+                <select
+                  id="contas-filtro-categoria"
+                  className={`${FILTRO_INPUT} max-w-[12rem]`}
+                  value={contasCategoria}
+                  onChange={(e) => setContasFilters(e.target.value, contasPago, e.target.value === 'recursos_humanos' ? contasSubcategoria : '')}
+                >
+                  <option value="">Todas</option>
+                  {categoriasFiltro.map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
+                </select>
+              </CampoFiltro>
+              {contasCategoria === 'recursos_humanos' && (
+                <CampoFiltro label="Subcategoria RH" htmlFor="contas-filtro-sub">
+                  <select
+                    id="contas-filtro-sub"
+                    className={FILTRO_INPUT}
+                    value={contasSubcategoria}
+                    onChange={(e) => setContasFilters(contasCategoria, contasPago, e.target.value)}
+                  >
+                    <option value="">Todas de RH</option>
+                    {(catalog?.subcategorias_rh || []).map((s) => <option key={s.codigo} value={s.codigo}>{s.nome}</option>)}
+                  </select>
+                </CampoFiltro>
+              )}
+              <CampoFiltro label="Conta" htmlFor="contas-filtro-conta">
+                <select id="contas-filtro-conta" className={`${FILTRO_INPUT} max-w-[12rem]`} value={filtroConta} onChange={(e) => setFiltroConta(e.target.value)}>
+                  <option value="">Todas</option>
+                  {opcoesConta.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+                </select>
+              </CampoFiltro>
+              <CampoFiltro label="Nota fiscal" htmlFor="contas-filtro-comprovante">
+                <select id="contas-filtro-comprovante" className={FILTRO_INPUT} value={filtroComprovante} onChange={(e) => setFiltroComprovante(e.target.value as '' | 'com' | 'sem')}>
+                  <option value="">Todas</option>
+                  <option value="com">Anexada</option>
+                  <option value="sem">Não anexada</option>
+                </select>
+              </CampoFiltro>
+            </SecaoFiltros>
+          </>
         )}
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Status</label>
-          <select className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm" value={
-            contasAlertaVencimento === 'hoje' ? 'alerta-hoje'
-              : contasAlertaVencimento === '7dias' ? 'alerta-7dias'
-                : contasAlertaVencimento === 'vencida' ? 'alerta-vencida'
-                  : contasPago
-          } onChange={(e) => {
-            const v = e.target.value;
-            if (v === 'alerta-hoje') setContasFilters(contasCategoria, 'false', contasSubcategoria, 'hoje');
-            else if (v === 'alerta-7dias') setContasFilters(contasCategoria, 'false', contasSubcategoria, '7dias');
-            else if (v === 'alerta-vencida') setContasFilters(contasCategoria, 'false', contasSubcategoria, 'vencida');
-            else setContasFilters(contasCategoria, v as '' | 'true' | 'false', contasSubcategoria, '');
-          }}>
-            <option value="">Todos</option>
-            <option value="false">Pendente</option>
-            <option value="alerta-hoje">Vence hoje</option>
-            <option value="alerta-7dias">Vence em menos de 7 dias</option>
-            <option value="alerta-vencida">Vencida</option>
-            <option value="true">Pago</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1" htmlFor="contas-filtro-todos">Mês/Ano</label>
-          <div className="flex items-center gap-2 flex-wrap">
-            <label className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
-              <input
-                id="contas-filtro-todos"
-                type="checkbox"
-                checked={contasMesTodos}
-                onChange={(e) => setContasMesTodos(e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600"
-              />
-              Todos
-            </label>
+      >
+        <CampoFiltro label="Período" htmlFor="contas-filtro-mes">
+          <div className="flex items-center gap-2">
             <select
               id="contas-filtro-mes"
               aria-label="Mês de vencimento"
-              disabled={contasMesTodos}
-              className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
-              value={contasMes}
-              onChange={(e) => setContasMes(Number(e.target.value))}
+              className={FILTRO_INPUT}
+              value={contasMesTodos ? PERIODO_TODOS : contasMes}
+              onChange={(e) => {
+                if (e.target.value === PERIODO_TODOS) {
+                  setContasMesTodos(true);
+                  return;
+                }
+                setContasMesTodos(false);
+                setContasMes(Number(e.target.value));
+              }}
             >
+              <option value={PERIODO_TODOS}>Todos os períodos</option>
               {mesesDisponiveis().map((m) => (
                 <option key={m} value={m}>{MESES_NOME_LONGO[m - 1]}</option>
               ))}
@@ -995,7 +1104,7 @@ export default function Contas() {
               id="contas-filtro-ano"
               aria-label="Ano de vencimento"
               disabled={contasMesTodos}
-              className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
+              className={FILTRO_INPUT}
               value={contasAno}
               onChange={(e) => setContasAno(Number(e.target.value))}
             >
@@ -1004,27 +1113,71 @@ export default function Contas() {
               ))}
             </select>
           </div>
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Descrição</label>
-          <input type="text" className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm w-44"
-            value={buscaDescricao} onChange={(e) => setBuscaDescricao(e.target.value)} placeholder="Buscar..." />
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Venc. de</label>
-          <input type="date" className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
-            value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Venc. até</label>
-          <input type="date" className="border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
-            value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
-        </div>
-        {(buscaDescricao || dataInicio || dataFim) && (
-          <button onClick={() => { setBuscaDescricao(''); setDataInicio(''); setDataFim(''); }}
-            className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 mt-4">✕ Limpar</button>
-        )}
-      </div>
+        </CampoFiltro>
+        <CampoFiltro label="Status" htmlFor="contas-filtro-status">
+          <select
+            id="contas-filtro-status"
+            className={FILTRO_INPUT}
+            value={
+              contasAlertaVencimento === 'hoje' ? 'alerta-hoje'
+                : contasAlertaVencimento === '7dias' ? 'alerta-7dias'
+                  : contasAlertaVencimento === 'vencida' ? 'alerta-vencida'
+                    : contasPago
+            }
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'alerta-hoje') setContasFilters(contasCategoria, 'false', contasSubcategoria, 'hoje');
+              else if (v === 'alerta-7dias') setContasFilters(contasCategoria, 'false', contasSubcategoria, '7dias');
+              else if (v === 'alerta-vencida') setContasFilters(contasCategoria, 'false', contasSubcategoria, 'vencida');
+              else setContasFilters(contasCategoria, v as '' | 'true' | 'false', contasSubcategoria, '');
+            }}
+          >
+            <option value="">Todos</option>
+            <option value="false">Pendente</option>
+            <option value="alerta-hoje">Vence hoje</option>
+            <option value="alerta-7dias">Vence em menos de 7 dias</option>
+            <option value="alerta-vencida">Vencida</option>
+            <option value="true">Pago</option>
+          </select>
+        </CampoFiltro>
+        <CampoFiltro label="Tipo" htmlFor="contas-filtro-tipo">
+          <select
+            id="contas-filtro-tipo"
+            className={FILTRO_INPUT}
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value as '' | 'fixo' | 'variavel' | 'imposto_das')}
+          >
+            <option value="">Todos</option>
+            <option value="fixo">Fixo</option>
+            <option value="variavel">Variável</option>
+            <option value="imposto_das">Imposto / DAS</option>
+          </select>
+        </CampoFiltro>
+        <CampoFiltro label="Fornecedor" htmlFor="contas-filtro-fornecedor">
+          <select
+            id="contas-filtro-fornecedor"
+            className={`${FILTRO_INPUT} max-w-[14rem]`}
+            value={filtroFornecedor}
+            onChange={(e) => setFiltroFornecedor(e.target.value)}
+          >
+            <option value="">Todos</option>
+            <option value={SEM_FORNECEDOR}>Sem fornecedor</option>
+            {opcoesFornecedor.map(([id, nome]) => (
+              <option key={id} value={String(id)}>{nome}</option>
+            ))}
+          </select>
+        </CampoFiltro>
+        <CampoFiltro label="Buscar" htmlFor="contas-filtro-busca">
+          <input
+            id="contas-filtro-busca"
+            type="search"
+            className={`${FILTRO_INPUT} w-56`}
+            value={buscaDescricao}
+            onChange={(e) => setBuscaDescricao(e.target.value)}
+            placeholder="Descrição ou fornecedor"
+          />
+        </CampoFiltro>
+      </BarraFiltros>
 
       {isAdmin && selecionadosCount > 0 && (
         <div className="no-print flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3">
@@ -1525,6 +1678,45 @@ export default function Contas() {
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data Vencimento *</label>
                 <input type="date" className={INPUT} value={form.data_vencimento} onChange={(e) => setForm({ ...form, data_vencimento: e.target.value })} />
               </div>
+              {!editando && isAdmin && (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-600 p-3 space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={repetir}
+                      onChange={(e) => setRepetir(e.target.checked)}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                    Repetir nos próximos meses
+                  </label>
+                  {repetir && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={RECORRENCIA_MAX_MESES}
+                          step={1}
+                          className={`${INPUT} !w-24`}
+                          value={repetirMeses}
+                          onChange={(e) => setRepetirMeses(e.target.value)}
+                          aria-label="Quantidade de meses"
+                        />
+                        <span className="text-xs text-gray-500 dark:text-gray-400">mês(es) — máx. {RECORRENCIA_MAX_MESES}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {form.data_vencimento
+                          ? (resumoRecorrencia(form.data_vencimento, Number(repetirMeses))
+                            ?? `Informe de 1 a ${RECORRENCIA_MAX_MESES} meses`)
+                          : 'Informe a data de vencimento para ver os meses'}
+                      </p>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                        As cópias são independentes, ficam pendentes e sem nota fiscal.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Data de Pagamento</label>
                 <input type="date" className={INPUT} value={form.data_pagamento} onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })} />
