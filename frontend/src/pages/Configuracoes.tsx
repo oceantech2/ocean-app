@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { configuracoesService } from '../services/api';
+import { configuracoesService, ImpostoProposta } from '../services/api';
 import { mensagemErro } from '../utils/erros';
 import { UsuarioApp, UsuarioAppUpdatePayload } from '../types';
 import { useAuthStore } from '../store';
@@ -225,6 +225,8 @@ export default function ConfiguracoesPage() {
         )}
       </div>
 
+      <ImpostoPropostaSecao input={INPUT} />
+
       <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md ${TABLE_SCROLL_CONTAINER_CLASS}`}>
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
@@ -389,6 +391,143 @@ export default function ConfiguracoesPage() {
             </div>
           )}
         </Modal>
+      )}
+    </div>
+  );
+}
+
+const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+function mesAtualSP(): { ano: number; mes: number } {
+  const [ano, mes] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()).split('-').map(Number);
+  return { ano, mes };
+}
+
+const fmtPercentual = (valor: number) => valor.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+
+function parsePercentual(texto: string): number | null {
+  const t = texto.trim().replace('%', '').replace(',', '.');
+  if (!/^\d{1,2}(\.\d{1,2})?$/.test(t)) return null;
+  const valor = Number(t);
+  return valor > 0 && valor < 100 ? valor : null;
+}
+
+function ImpostoPropostaSecao({ input }: { input: string }) {
+  const [itens, setItens] = useState<ImpostoProposta[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [form, setForm] = useState(() => ({ ...mesAtualSP(), percentual: '' }));
+
+  const carregar = async () => {
+    try {
+      setCarregando(true);
+      const res = await configuracoesService.listarImpostosProposta();
+      setItens(res.data);
+    } catch { toast.error('Erro ao carregar o imposto das propostas'); }
+    finally { setCarregando(false); }
+  };
+
+  useEffect(() => { carregar(); }, []);
+
+  const salvar = async () => {
+    const percentual = parsePercentual(form.percentual);
+    if (percentual === null) {
+      toast.error('Percentual deve ser maior que 0 e menor que 100, com até 2 casas decimais');
+      return;
+    }
+    if (!Number.isInteger(form.ano) || form.ano < 2000 || form.ano > 2100) {
+      toast.error('Ano inválido');
+      return;
+    }
+    try {
+      setSalvando(true);
+      await configuracoesService.salvarImpostoProposta({ ano: form.ano, mes: form.mes, percentual });
+      toast.success(`Imposto de ${MESES[form.mes - 1]}/${form.ano} salvo!`);
+      setForm((f) => ({ ...f, percentual: '' }));
+      carregar();
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao salvar o imposto')); }
+    finally { setSalvando(false); }
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div className="mb-4">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Imposto das propostas</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Percentual exibido nas propostas geradas ou editadas no mês. Sem cadastro no mês, vale o último mês informado.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end mb-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mês</label>
+          <select className={input} value={form.mes} onChange={(e) => setForm({ ...form, mes: Number(e.target.value) })}>
+            {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ano</label>
+          <input
+            className={input}
+            inputMode="numeric"
+            value={form.ano || ''}
+            onChange={(e) => setForm({ ...form, ano: Number(e.target.value.replace(/\D/g, '').slice(0, 4)) })}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Imposto (%)</label>
+          <input
+            className={input}
+            inputMode="decimal"
+            placeholder="18,75"
+            value={form.percentual}
+            onChange={(e) => setForm({ ...form, percentual: e.target.value.replace(/[^\d.,]/g, '') })}
+          />
+        </div>
+        <button
+          onClick={salvar}
+          disabled={salvando}
+          className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition"
+        >
+          {salvando ? 'Salvando...' : 'Salvar'}
+        </button>
+      </div>
+      {carregando ? (
+        <div className="py-6 text-center text-gray-500 dark:text-gray-400">Carregando...</div>
+      ) : itens.length === 0 ? (
+        <div className="py-6 text-center text-gray-400 dark:text-gray-500">Nenhum mês cadastrado</div>
+      ) : (
+        <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-700/50">
+              <tr>
+                {['Mês', 'Imposto', 'Atualizado', ''].map((h) => (
+                  <th key={h} className="text-left px-4 py-2 text-gray-600 dark:text-gray-300 font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {itens.map((it) => (
+                <tr key={`${it.ano}-${it.mes}`} className="border-t border-gray-100 dark:border-gray-700">
+                  <td className="px-4 py-2 text-gray-700 dark:text-gray-300">{MESES[it.mes - 1]}/{it.ano}</td>
+                  <td className="px-4 py-2 text-gray-900 dark:text-gray-100 font-medium">{fmtPercentual(it.percentual)}%</td>
+                  <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                    {it.atualizado_em
+                      ? `${new Date(`${it.atualizado_em}Z`).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${it.atualizado_por ? ` · ${it.atualizado_por}` : ''}`
+                      : '—'}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button
+                      onClick={() => setForm({ ano: it.ano, mes: it.mes, percentual: fmtPercentual(it.percentual) })}
+                      className="text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Editar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

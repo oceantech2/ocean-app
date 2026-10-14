@@ -4,9 +4,12 @@ import toast from 'react-hot-toast';
 import ProposalLayout from '../components/ProposalLayout';
 import ModeloForm, { formDeModelo } from '../components/ModeloForm';
 import PropostaForm, { formDeProposta } from '../components/PropostaForm';
+import { IMPOSTO_LEGADO } from '../modelos/formatacao';
 import {
   editarProposta,
+  ImpostoVigente,
   mensagemErro,
+  obterImpostoVigente,
   obterProposta,
   Proposta,
   PropostaModeloPayload,
@@ -20,6 +23,13 @@ export default function Editar() {
   const [loading, setLoading] = useState(true);
   const [naoEncontrada, setNaoEncontrada] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [imposto, setImposto] = useState<ImpostoVigente | null>(null);
+
+  useEffect(() => {
+    obterImpostoVigente()
+      .then(setImposto)
+      .catch(() => setImposto(null));
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -116,6 +126,7 @@ export default function Editar() {
           onSubmit={salvar}
           aviso={aviso}
           idiomaMoedaFixos
+          imposto={{ vigente: imposto, atual: proposta.imposto_percentual ?? IMPOSTO_LEGADO }}
         />
       )}
     </ProposalLayout>

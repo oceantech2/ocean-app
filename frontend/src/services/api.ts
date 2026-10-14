@@ -611,7 +611,18 @@ export const configuracoesService = {
     api.get<{ limiar_percentual: number }>('/configuracoes/limiar-alerta-fluxo'),
   salvarLimiarAlertaFluxo: (limiar_percentual: number) =>
     api.put<{ limiar_percentual: number }>('/configuracoes/limiar-alerta-fluxo', { limiar_percentual }),
+  listarImpostosProposta: () => api.get<ImpostoProposta[]>('/configuracoes/imposto-proposta'),
+  salvarImpostoProposta: (dados: { ano: number; mes: number; percentual: number }) =>
+    api.put<ImpostoProposta>('/configuracoes/imposto-proposta', dados),
 };
+
+export interface ImpostoProposta {
+  ano: number;
+  mes: number;
+  percentual: number;
+  atualizado_em: string | null;
+  atualizado_por: string | null;
+}
 
 // Saldos (Fluxo de Caixa / Conta Investimento)
 export const saldosService = {

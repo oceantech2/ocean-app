@@ -495,6 +495,8 @@ class Proposta(Base):
     garantia_texto = Column(String(255), nullable=True)
     # validade = data_proposta + validade_dias ao salvar
     validade_dias = Column(SmallInteger, nullable=True)
+    # Imposto vigente no último salvamento (feature 092); NULL = proposta anterior à feature, exibe 19,55%
+    imposto_percentual = Column(Numeric(5, 2), nullable=True)
 
     assinatura = relationship(
         "PropostaAssinatura", back_populates="proposta", uselist=False, passive_deletes=True
@@ -558,6 +560,24 @@ class PerfilConsultor(Base):
     telefone = Column(String(30), nullable=True)
     email = Column(String(255), nullable=True)
     atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ImpostoProposta(Base):
+    """Imposto do mês informado no ERP e aplicado às propostas salvas naquele mês."""
+    __tablename__ = "impostos_proposta"
+    __table_args__ = (
+        UniqueConstraint("ano", "mes", name="uq_impostos_proposta_ano_mes"),
+        CheckConstraint("mes BETWEEN 1 AND 12", name="ck_impostos_proposta_mes"),
+        CheckConstraint("percentual > 0 AND percentual < 100", name="ck_impostos_proposta_percentual"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    ano = Column(Integer, nullable=False)
+    mes = Column(SmallInteger, nullable=False)
+    percentual = Column(Numeric(5, 2), nullable=False)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, nullable=True)
+    atualizado_por = Column(String(100), nullable=True)
 
 
 # ==================== CONFIGURAÇÃO GLOBAL DO APP ====================

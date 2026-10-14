@@ -7,8 +7,10 @@ import { modelosDisponiveis } from '../modelos';
 import { resumoProjetos } from '../modelos/formatoProposta';
 import {
   criarProposta,
+  ImpostoVigente,
   mensagemErro,
   ModeloId,
+  obterImpostoVigente,
   obterPerfil,
   obterProposta,
   PerfilConsultor,
@@ -34,6 +36,13 @@ export default function Nova() {
   const [salvando, setSalvando] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [criada, setCriada] = useState<Proposta | null>(null);
+  const [imposto, setImposto] = useState<ImpostoVigente | null>(null);
+
+  useEffect(() => {
+    obterImpostoVigente()
+      .then(setImposto)
+      .catch(() => setImposto(null));
+  }, []);
 
   const reiniciarForm = (form: FormModelo) => {
     setInicial(form);
@@ -194,6 +203,7 @@ export default function Nova() {
           salvando={salvando}
           onSubmit={salvar}
           aviso={aviso}
+          imposto={{ vigente: imposto }}
         />
       )}
     </ProposalLayout>

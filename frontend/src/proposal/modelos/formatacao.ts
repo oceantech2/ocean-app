@@ -24,6 +24,18 @@ export function formatarTaxa(
   return `${PREFIXO_MOEDA[moeda]} ${numero}`;
 }
 
+// Texto fixo das propostas emitidas antes do imposto mensal (imposto_percentual nulo)
+export const IMPOSTO_LEGADO = '19.55';
+
+export function formatarPercentual(valor: string | null | undefined, idioma: Idioma = 'pt-BR'): string {
+  const numero = Number(valor ?? IMPOSTO_LEGADO);
+  return new Intl.NumberFormat(idioma, { maximumFractionDigits: 2 }).format(numero);
+}
+
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+export const formatarMesAno = (mes: number, ano: number) => `${MESES_ABREV[mes - 1]}/${ano}`;
+
 export function formatarPagamento(entrada: number | null | undefined): string {
   if (!entrada) return '100% após conclusão';
   return `${entrada}% de entrada + ${100 - entrada}% após conclusão`;

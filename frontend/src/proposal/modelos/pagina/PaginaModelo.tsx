@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { assinarPublica } from '../../services/proposalApi';
 import type { Idioma } from '../../services/proposalApi';
-import { dataHoraSP, EMAIL_RE, formatarDataISO, formatarDataSP, formatarTaxa } from '../formatacao';
+import { dataHoraSP, EMAIL_RE, formatarDataISO, formatarDataSP, formatarPercentual, formatarTaxa } from '../formatacao';
 import { projetosDaProposta, TEXTOS_PADRAO_GARANTIAS } from '../formatoProposta';
 import { idiomaDaProposta } from '../idioma';
 import type { ModeloPaginaProps } from '../index';
@@ -283,6 +283,7 @@ export default function PaginaModelo({ dados, codigo, onRecarregar, divisao, rec
               {d.observacoesInvestimento.map((obs) => (
                 <li key={obs}>{obs}</li>
               ))}
+              <li>{d.observacaoImpostos(formatarPercentual(dados.imposto_percentual, idioma))}</li>
             </ul>
           </div>
         </section>

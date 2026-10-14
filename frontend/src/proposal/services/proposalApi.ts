@@ -86,6 +86,8 @@ export interface Proposta extends PropostaListItem {
   sla: string | null;
   garantia: string | null;
   validade_dias: number | null;
+  // Imposto vigente no último salvamento; null = proposta anterior ao imposto mensal (exibe 19,55%)
+  imposto_percentual: string | null;
   valor: string | null;
   imposto_ativo: boolean;
   aliquota: string | null;
@@ -161,6 +163,7 @@ export interface PropostaPublicaData {
   shortlist?: string | null;
   sla?: string | null;
   garantia?: string | null;
+  imposto_percentual?: string | null;
   cliente_nome?: string;
   cnpj?: string;
   valor?: string;
@@ -267,6 +270,18 @@ export async function editarProposta(
   payload: PropostaPayload | PropostaModeloPayload,
 ): Promise<Proposta & { alterada: boolean }> {
   const { data } = await proposalHttp.put<Proposta & { alterada: boolean }>(`/proposal/propostas/${id}`, payload);
+  return data;
+}
+
+export interface ImpostoVigente {
+  percentual: string;
+  ano: number | null;
+  mes: number | null;
+  origem: 'mes' | 'anterior' | 'padrao';
+}
+
+export async function obterImpostoVigente(): Promise<ImpostoVigente> {
+  const { data } = await proposalHttp.get<ImpostoVigente>('/proposal/propostas/imposto-vigente');
   return data;
 }
 

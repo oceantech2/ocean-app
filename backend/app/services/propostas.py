@@ -11,6 +11,7 @@ from fastapi import HTTPException, Request
 
 from app.models import Proposta
 from app.services.documento import formatar_cnpj, normalizar_cnpj, validar_cnpj, validar_email
+from app.services.imposto_proposta import IMPOSTO_LEGADO
 from app.services.proposta_modelos import (
     MODELO_SIMPLES,
     MOEDA_PADRAO,
@@ -129,7 +130,7 @@ def _json_canonico(dados: dict) -> str:
 
 def conteudo_canonico(p: Proposta) -> str:
     if formato_novo(p):
-        return _json_canonico({
+        dados = {
             "codigo": p.codigo,
             "emitida_em": p.emitida_em.replace(microsecond=0).isoformat(),
             "modelo": p.modelo,
@@ -152,7 +153,11 @@ def conteudo_canonico(p: Proposta) -> str:
             "garantia": p.garantia_texto,
             "validade_dias": p.validade_dias,
             "validade": p.validade.isoformat(),
-        })
+        }
+        # Sem a chave quando nulo: mantém válidos os hashes gravados antes do imposto mensal existir
+        if p.imposto_percentual is not None:
+            dados["imposto_percentual"] = _dec_str(p.imposto_percentual)
+        return _json_canonico(dados)
     # Formato antigo congelado: assinaturas das versões 1 e 2 do Executive Search dependem dele
     if not eh_simples(p):
         dados = {
@@ -209,14 +214,14 @@ CAMPOS_EDITAVEIS = (
 CAMPOS_MODELO = (
     "cliente_nome", "data_proposta", "setor", "consultor_nome", "consultor_cargo",
     "consultor_telefone", "consultor_email", "projeto_escopo", "shortlist", "sla", "garantia_texto",
-    "validade_dias", "validade",
+    "validade_dias", "validade", "imposto_percentual",
 )
 
 
 def _canonico(campo: str, valor):
     if valor is None:
         return None
-    if campo in ("valor", "aliquota", "valor_imposto", "total"):
+    if campo in ("valor", "aliquota", "valor_imposto", "total", "imposto_percentual"):
         return _dec_str(valor)
     if campo in ("validade", "data_proposta"):
         return valor.isoformat()
@@ -248,6 +253,9 @@ def _diff_modelo(p: Proposta, dados: dict) -> list[dict]:
     for campo in CAMPOS_MODELO:
         anterior = _canonico(campo, getattr(p, campo))
         novo = _canonico(campo, dados[campo])
+        if campo == "imposto_percentual" and anterior is None:
+            # O cliente via o texto fixo de 19,55% antes da feature 092
+            anterior = _dec_str(IMPOSTO_LEGADO)
         if anterior != novo:
             alteracoes.append({"campo": campo, "anterior": anterior, "novo": novo})
     # Projetos não têm identificador: a comparação é por posição (inclusão, remoção, renomeação e reordenação)
@@ -344,6 +352,7 @@ def serializar_detalhe(p: Proposta) -> dict:
         "sla": p.sla,
         "garantia": p.garantia_texto,
         "validade_dias": p.validade_dias,
+        "imposto_percentual": _dec_str(p.imposto_percentual),
         "valor": _dec_str(p.valor),
         "imposto_ativo": bool(p.imposto_ativo),
         "aliquota": _dec_str(p.aliquota) if p.imposto_ativo else None,
@@ -412,6 +421,7 @@ def serializar_publica(p: Proposta) -> dict:
             "shortlist": p.shortlist,
             "sla": p.sla,
             "garantia": p.garantia_texto,
+            "imposto_percentual": _dec_str(p.imposto_percentual),
             "validade": p.validade.isoformat(),
             "versao": p.versao,
             "atualizada_em": _iso(p.atualizada_em),

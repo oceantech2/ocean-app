@@ -45,8 +45,8 @@ const conteudo: ConteudoDivisao = {
   tituloEscopo: 'Escopo',
   observacoesInvestimento: [
     'Valor mínimo de R$ 10.000,00 por projeto;',
-    'Impostos (até 19,55%) serão adicionados a todos os valores informados.',
   ],
+  observacaoImpostos: (percentual) => `Impostos (até ${percentual}%) serão adicionados a todos os valores informados.`,
   observacoesGarantias: [],
   garantiasSempreVisivel: false,
 };

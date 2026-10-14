@@ -1,9 +1,10 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from passlib.context import CryptContext
 from app.database import get_db
-from app.models import UsuarioApp
+from app.models import ImpostoProposta, UsuarioApp
 from app.schemas import (
     UsuarioAppCreate,
     UsuarioAppUpdate,
@@ -12,8 +13,11 @@ from app.schemas import (
     PaginasVisibilidadeUpdate,
     LimiarAlertaFluxoResponse,
     LimiarAlertaFluxoPut,
+    ImpostoPropostaIn,
+    ImpostoPropostaOut,
 )
 from app.api.routes.auth import require_admin, get_current_user
+from app.services.audit import registrar_auditoria
 from app.services.paginas_visibilidade import ler_paginas_visibilidade, salvar_paginas_visibilidade
 from app.services.limiar_alerta_fluxo import ler_limiar, salvar_limiar
 
@@ -55,6 +59,44 @@ def atualizar_limiar_alerta_fluxo(
 ):
     valor = salvar_limiar(db, payload.limiar_percentual)
     return {"limiar_percentual": valor}
+
+
+@router.get("/imposto-proposta", response_model=List[ImpostoPropostaOut])
+def listar_impostos_proposta(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    return (
+        db.query(ImpostoProposta)
+        .order_by(ImpostoProposta.ano.desc(), ImpostoProposta.mes.desc())
+        .all()
+    )
+
+
+@router.put("/imposto-proposta", response_model=ImpostoPropostaOut)
+def salvar_imposto_proposta(
+    payload: ImpostoPropostaIn,
+    db: Session = Depends(get_db),
+    current_admin: str = Depends(require_admin),
+):
+    registro = (
+        db.query(ImpostoProposta)
+        .filter(ImpostoProposta.ano == payload.ano, ImpostoProposta.mes == payload.mes)
+        .first()
+    )
+    acao = "editar" if registro else "criar"
+    if registro is None:
+        registro = ImpostoProposta(ano=payload.ano, mes=payload.mes)
+        db.add(registro)
+    registro.percentual = payload.percentual
+    registro.atualizado_em = datetime.utcnow()
+    registro.atualizado_por = current_admin
+    db.flush()
+    registrar_auditoria(db, current_admin, acao, "ImpostoProposta", registro.id,
+                        f"{payload.mes:02d}/{payload.ano} — {payload.percentual}%")
+    db.commit()
+    db.refresh(registro)
+    return registro
 
 
 @router.get("/", response_model=List[UsuarioAppResponse])

@@ -707,6 +707,21 @@ def _migrar():
             conn.rollback()
             logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 088)")
 
+    # Proposal (feature 092): imposto do mês cadastrado no ERP e gravado em cada proposta salva
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE propostas ADD COLUMN IF NOT EXISTS imposto_percentual NUMERIC(5,2)"))
+            conn.execute(text("ALTER TABLE impostos_proposta ENABLE ROW LEVEL SECURITY"))
+            # DO NOTHING: não sobrescreve o valor que o admin ajustar depois
+            conn.execute(text(
+                "INSERT INTO impostos_proposta (ano, mes, percentual, criado_em) "
+                "VALUES (2026, 10, 18.75, NOW()) ON CONFLICT (ano, mes) DO NOTHING"
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 092)")
+
     # Pendentes passam para a versão vigente do modelo (formato novo); o hash precisa ser regravado,
     # senão o aceite é recusado. Assinadas e canceladas ficam na versão com que foram emitidas.
     from app.models import Proposta

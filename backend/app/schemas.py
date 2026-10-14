@@ -733,6 +733,30 @@ class AgingRecebiveisResponse(BaseModel):
 
 
 # ==================== ALERTA DE FLUXO DE CAIXA ====================
+class ImpostoPropostaIn(BaseModel):
+    ano: int = Field(..., ge=2000, le=2100)
+    mes: int = Field(..., ge=1, le=12)
+    percentual: Decimal
+
+    @field_validator("percentual")
+    @classmethod
+    def percentual_valido(cls, v: Decimal) -> Decimal:
+        if not v.is_finite() or v <= 0 or v >= 100 or v != v.quantize(Decimal("0.01")):
+            raise ValueError("Percentual deve ser maior que 0 e menor que 100, com até 2 casas decimais")
+        return v.quantize(Decimal("0.01"))
+
+
+class ImpostoPropostaOut(BaseModel):
+    ano: int
+    mes: int
+    percentual: float
+    atualizado_em: Optional[datetime] = None
+    atualizado_por: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class LimiarAlertaFluxoResponse(BaseModel):
     limiar_percentual: int = 60
 

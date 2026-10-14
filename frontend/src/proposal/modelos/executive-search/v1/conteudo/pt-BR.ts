@@ -60,8 +60,8 @@ const conteudo: ConteudoDivisao = {
     'A parcela inicial será calculada com base na remuneração estimada. A parcela final será calculada com base ' +
       'na remuneração praticada, descontando-se a parcela inicial;',
     'Valor mínimo de R$ 15.000,00 por projeto;',
-    'Impostos (até 19,55%) serão adicionados a todos os valores informados.',
   ],
+  observacaoImpostos: (percentual) => `Impostos (até ${percentual}%) serão adicionados a todos os valores informados.`,
   observacoesGarantias: [
     'Prazo de garantia para reposição caso o candidato contratado deixe a empresa (sem custo adicional);',
     'A Ocean não abordará profissionais do cliente por 12 meses após a última posição atendida;',

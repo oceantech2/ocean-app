@@ -61,6 +61,7 @@ const ROTULOS_CAMPO: Record<string, string> = {
   sla: 'SLA',
   garantia_texto: 'Garantia',
   validade_dias: 'Validade (dias)',
+  imposto_percentual: 'Imposto',
 };
 
 function rotuloCampo(campo: string, p: Proposta): string {
@@ -105,6 +106,7 @@ function formatarValorCampo(campo: string, valor: AlteracaoCampo['novo'], moeda:
     case 'imposto_ativo':
       return valor ? 'Sim' : 'Não';
     case 'aliquota':
+    case 'imposto_percentual':
       return formatarAliquota(String(valor)) || '—';
     case 'validade':
       return formatarData(String(valor));

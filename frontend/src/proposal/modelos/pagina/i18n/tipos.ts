@@ -71,6 +71,8 @@ export interface ConteudoDivisao {
   secaoMeio: SecaoMeio;
   tituloEscopo: string;
   observacoesInvestimento: string[];
+  // Último item das Observações de Investimento, com o imposto gravado na proposta já formatado
+  observacaoImpostos: (percentual: string) => string;
   observacoesGarantias: string[];
   // Executive Search: a seção aparece mesmo sem Shortlist/SLA/Garantia, por causa das Observações
   garantiasSempreVisivel: boolean;

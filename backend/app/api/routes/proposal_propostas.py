@@ -8,6 +8,7 @@ from app.api.routes.proposal_auth import get_proposal_user
 from app.database import get_db
 from app.models import Proposta, PropostaEdicao
 from app.schemas import PropostaCreate
+from app.services.imposto_proposta import imposto_vigente
 from app.services.proposta_modelos import modelo_disponivel, validar_idioma, validar_modelo, validar_moeda
 from app.services.propostas import (
     MSG_NAO_ENCONTRADA,
@@ -79,6 +80,15 @@ def listar_propostas(
     }
 
 
+@router.get("/imposto-vigente")
+def obter_imposto_vigente(
+    db: Session = Depends(get_db),
+    _: dict = Depends(get_proposal_user),
+):
+    vigente = imposto_vigente(db)
+    return {**vigente, "percentual": f"{vigente['percentual']:.2f}"}
+
+
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def criar_proposta(
     payload: PropostaCreate,
@@ -90,6 +100,7 @@ def criar_proposta(
     dados = validar_modelo(payload, payload.modelo, hoje_sp())
     dados["moeda"] = validar_moeda(payload.moeda)
     dados["idioma"] = validar_idioma(payload.idioma)
+    dados["imposto_percentual"] = imposto_vigente(db)["percentual"]
 
     codigo = gerar_codigo()
     while db.query(Proposta.id).filter(Proposta.codigo == codigo).first():
@@ -150,6 +161,7 @@ def editar_proposta(
                 raise HTTPException(status_code=422, detail="O idioma da proposta não pode ser alterado")
             dados = validar_modelo(payload, p.modelo, p.data_proposta)
             dados.pop("modelo")
+            dados["imposto_percentual"] = imposto_vigente(db)["percentual"]
     except HTTPException:
         db.rollback()
         raise

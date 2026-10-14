@@ -1,7 +1,14 @@
 import { lazy, ReactNode, Suspense, useState } from 'react';
 import { registroDoModelo } from '../modelos';
 import { contarCaracteres, LIMITE_ESCOPO, MSG_ESCOPO_LONGO } from '../modelos/escopo';
-import { EMAIL_RE, formatarPagamento, formatarTaxa, telefoneValido } from '../modelos/formatacao';
+import {
+  EMAIL_RE,
+  formatarMesAno,
+  formatarPagamento,
+  formatarPercentual,
+  formatarTaxa,
+  telefoneValido,
+} from '../modelos/formatacao';
 import {
   formatoNovo,
   LIMITE_PROJETOS,
@@ -15,6 +22,7 @@ import { TIPOS } from '../modelos/investimentos';
 import { SETORES } from '../modelos/setores';
 import type {
   Idioma,
+  ImpostoVigente,
   Investimento,
   ModeloId,
   Moeda,
@@ -236,6 +244,33 @@ interface Props {
   onSubmit: (payload: PropostaModeloPayload) => void;
   aviso?: ReactNode;
   idiomaMoedaFixos?: boolean;
+  // vigente: null quando a consulta falhou; atual: imposto já gravado na proposta (edição)
+  imposto?: { vigente: ImpostoVigente | null; atual?: string };
+}
+
+function ResumoImposto({ vigente, atual }: { vigente: ImpostoVigente | null; atual?: string }) {
+  const avisoCls = 'text-xs text-amber-700';
+  if (!vigente) {
+    return <p className={avisoCls}>Não foi possível consultar o imposto do mês; ele será aplicado ao salvar.</p>;
+  }
+  const referencia = vigente.mes && vigente.ano ? ` (${formatarMesAno(vigente.mes, vigente.ano)})` : '';
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between gap-4 text-sm text-gray-700">
+        <span>Imposto</span>
+        <span className="text-right">{`${formatarPercentual(vigente.percentual)}%${referencia}`}</span>
+      </div>
+      {vigente.origem === 'anterior' && (
+        <p className={avisoCls}>Imposto do mês atual não cadastrado; usando o do último mês informado.</p>
+      )}
+      {vigente.origem === 'padrao' && <p className={avisoCls}>Imposto do mês não cadastrado; usando o padrão.</p>}
+      {atual !== undefined && Number(atual) !== Number(vigente.percentual) && (
+        <p className={avisoCls}>
+          Ao salvar, o imposto será atualizado de {formatarPercentual(atual)}% para {formatarPercentual(vigente.percentual)}%.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function ModeloForm({
@@ -247,6 +282,7 @@ export default function ModeloForm({
   onSubmit,
   aviso,
   idiomaMoedaFixos,
+  imposto,
 }: Props) {
   const [form, setForm] = useState<FormModelo>(inicial);
   const [erros, setErros] = useState<Erros>({});
@@ -710,6 +746,7 @@ export default function ModeloForm({
             <span>Garantia</span>
             <span className="text-right">{garantiaResumo || '—'}</span>
           </div>
+          {imposto && <ResumoImposto vigente={imposto.vigente} atual={imposto.atual} />}
           <div className="flex justify-between gap-4 text-sm text-gray-700">
             <span>Válida até</span>
             <span>{validade ? formatarData(validade) : '—'}</span>
