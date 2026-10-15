@@ -35,12 +35,13 @@ Aguarde ~30 segundos e acesse **http://localhost:3000**
 
 ---
 
-## Credenciais
+## Primeiro acesso
 
-| Campo | Valor |
-|---|---|
-| Usuário | `admin` |
-| Senha | `admin123` |
+O sistema não tem usuário nem senha padrão. Em um banco vazio, crie o primeiro administrador:
+
+```bash
+docker exec -it ocean_backend python scripts/criar_admin.py <login>
+```
 
 ---
 

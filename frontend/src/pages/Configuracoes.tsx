@@ -5,6 +5,7 @@ import { UsuarioApp, UsuarioAppUpdatePayload } from '../types';
 import { useAuthStore } from '../store';
 import { PAGINAS_PERMISSOES, PAGINAS_VISIBILIDADE_UI, paginaVisivelGlobal } from '../utils/paginasCatalogo';
 import Modal from '../components/Modal';
+import CampoSenha from '../components/CampoSenha';
 import toast from 'react-hot-toast';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 
@@ -119,6 +120,10 @@ export default function ConfiguracoesPage() {
   const salvar = async () => {
     if (!form.usuario) { toast.error('Usuário obrigatório'); return; }
     if (!editando && !form.senha) { toast.error('Senha obrigatória para novo usuário'); return; }
+    if (editando?.senha_pendente && form.acesso_erp && !form.senha) {
+      toast.error('Defina uma senha para liberar o acesso ao ERP');
+      return;
+    }
     try {
       setSalvando(true);
       const permissoesJson = JSON.stringify(form.papel === 'admin' ? PERMS_ADMIN : form.permissoes);
@@ -144,7 +149,7 @@ export default function ConfiguracoesPage() {
       await configuracoesService.atualizar(u.id, { ativo: !u.ativo });
       toast.success(u.ativo ? 'Usuário desativado' : 'Usuário reativado');
       carregarUsuarios();
-    } catch { toast.error('Erro ao atualizar'); }
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao atualizar')); }
   };
 
   const deletar = async (u: UsuarioApp) => {
@@ -281,6 +286,14 @@ export default function ConfiguracoesPage() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.ativo ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>
                         {u.ativo ? 'Ativo' : 'Inativo'}
                       </span>
+                      {u.senha_pendente && (
+                        <span
+                          className="ml-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                          title="O usuário ainda não definiu a senha pelo convite do Proposal"
+                        >
+                          Convite pendente
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 justify-end">
@@ -320,7 +333,12 @@ export default function ConfiguracoesPage() {
           </div>
           <div>
             <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Senha {editando ? '(deixe em branco para não alterar)' : '*'}</label>
-            <input type="password" className={INPUT} value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} />
+            <CampoSenha className={INPUT} value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} autoComplete="new-password" />
+            {editando?.senha_pendente && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                Convite do Proposal pendente: para liberar o ERP, defina uma senha (o convite antigo deixa de valer).
+              </p>
+            )}
           </div>
           <div>
             <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Papel *</label>

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -10,6 +10,7 @@ from app.api.routes.proposal_auth import get_proposal_user_opcional
 from app.database import get_db
 from app.models import Proposta, PropostaAssinatura
 from app.schemas import PropostaAssinar
+from app.services.email_aceite import enviar_emails_aceite
 from app.services.propostas import (
     MSG_NAO_ENCONTRADA,
     STATUS_PENDENTES,
@@ -85,6 +86,7 @@ def assinar_proposta(
     codigo: str,
     payload: PropostaAssinar,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     p = _por_codigo(db, codigo)
@@ -133,5 +135,6 @@ def assinar_proposta(
     except IntegrityError:
         _recusar(db, codigo)
 
+    background_tasks.add_task(enviar_emails_aceite, p.id)
     db.expire_all()
     return serializar_publica(_por_codigo(db, codigo))

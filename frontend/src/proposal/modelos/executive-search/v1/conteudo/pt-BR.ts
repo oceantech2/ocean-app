@@ -3,11 +3,12 @@ import type { ConteudoDivisao } from '../../../pagina/i18n/tipos';
 const conteudo: ConteudoDivisao = {
   logo: { src: '/propostas/executive-search/logo-divisao.png', alt: 'Ocean Talent Solutions — Executive Search' },
   tituloDivisao: 'Executive Search',
-  textoServico:
+  textoServico: [
     'Desenvolvemos inteligência de mercado e encontramos os profissionais que fazem a diferença, do especialista ' +
-    'técnico ao C-level. Nosso processo vai além da captação de currículos: mapeamos o mercado ativamente, abordamos ' +
-    'os profissionais mais aderentes ao desafio da sua empresa, checamos referências e mitigamos riscos de ' +
-    'engajamento, garantindo uma contratação assertiva.',
+      'técnico ao C-level. Nosso processo vai além da captação de currículos: mapeamos o mercado ativamente, abordamos ' +
+      'os profissionais mais aderentes ao desafio da sua empresa, checamos referências e mitigamos riscos de ' +
+      'engajamento, garantindo uma contratação assertiva.',
+  ],
   secaoMeio: {
     tipo: 'metodologia',
     id: 'metodologia',

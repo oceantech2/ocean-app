@@ -76,10 +76,10 @@ npm run dev
 # Abre em http://localhost:5173
 ```
 
-## 🔑 Credenciais de Teste
+## 🔑 Primeiro acesso
 
-- **Usuário:** qualquer nome
-- **Senha:** `123456`
+Não há usuário nem senha padrão. Em um banco vazio, crie o primeiro administrador com
+`docker exec -it ocean_backend python scripts/criar_admin.py <login>` (a senha é pedida no terminal).
 
 ## 📝 Usar com Claude Code
 

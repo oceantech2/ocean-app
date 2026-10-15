@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from passlib.context import CryptContext
 from app.database import get_db
-from app.models import ImpostoProposta, UsuarioApp
+from app.models import ImpostoProposta, UsuarioApp, UsuarioAuth
 from app.schemas import (
     UsuarioAppCreate,
     UsuarioAppUpdate,
@@ -17,6 +17,7 @@ from app.schemas import (
     ImpostoPropostaOut,
 )
 from app.api.routes.auth import require_admin, get_current_user
+from app.services.acesso_proposal import invalidar_convites, normalizar_login
 from app.services.audit import registrar_auditoria
 from app.services.paginas_visibilidade import ler_paginas_visibilidade, salvar_paginas_visibilidade
 from app.services.limiar_alerta_fluxo import ler_limiar, salvar_limiar
@@ -107,23 +108,43 @@ def listar_usuarios(
     return db.query(UsuarioApp).order_by(UsuarioApp.usuario).all()
 
 
+MSG_ERP_SEM_SENHA = (
+    "Defina uma senha para liberar o acesso ao ERP "
+    "(o usuário ainda não aceitou o convite do Proposal)"
+)
+
+
+def _ferramentas(acesso_erp: bool, acesso_proposal: bool) -> str:
+    nomes = [n for n, ligado in (("ERP", acesso_erp), ("Proposal", acesso_proposal)) if ligado]
+    return ", ".join(nomes) or "nenhuma"
+
+
 @router.post("/", response_model=UsuarioAppResponse, status_code=status.HTTP_201_CREATED)
 def criar_usuario(
     payload: UsuarioAppCreate,
     db: Session = Depends(get_db),
-    _: str = Depends(require_admin),
+    current_admin: str = Depends(require_admin),
 ):
-    if db.query(UsuarioApp).filter(UsuarioApp.usuario == payload.usuario).first():
+    login = normalizar_login(payload.usuario)
+    if not login:
+        raise HTTPException(status_code=400, detail="Usuário obrigatório")
+    if db.query(UsuarioApp).filter(UsuarioApp.usuario == login).first():
         raise HTTPException(status_code=400, detail="Usuário já existe")
     novo = UsuarioApp(
-        usuario=payload.usuario,
+        usuario=login,
         senha_hash=pwd_context.hash(payload.senha),
         papel=payload.papel,
         permissoes=payload.permissoes,
         acesso_erp=payload.acesso_erp,
         acesso_proposal=payload.acesso_proposal,
+        senha_pendente=False,
     )
     db.add(novo)
+    db.flush()
+    registrar_auditoria(
+        db, current_admin, "criar", "UsuarioApp", novo.id,
+        f"{login} — papel {novo.papel}; ferramentas: {_ferramentas(novo.acesso_erp, novo.acesso_proposal)}",
+    )
     db.commit()
     db.refresh(novo)
     return novo
@@ -139,20 +160,37 @@ def atualizar_usuario(
     u = db.query(UsuarioApp).filter(UsuarioApp.id == uid).first()
     if not u:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    if payload.acesso_erp is False and u.usuario == current_admin:
-        raise HTTPException(status_code=400, detail="Não pode remover o próprio acesso ao ERP")
-    if payload.acesso_erp is not None:
-        u.acesso_erp = payload.acesso_erp
-    if payload.acesso_proposal is not None:
-        u.acesso_proposal = payload.acesso_proposal
-    if payload.senha is not None:
-        u.senha_hash = pwd_context.hash(payload.senha)
-    if payload.papel is not None:
+    if u.usuario == current_admin:
+        if payload.acesso_erp is False:
+            raise HTTPException(status_code=400, detail="Não pode remover o próprio acesso ao ERP")
+        if payload.ativo is False:
+            raise HTTPException(status_code=400, detail="Não pode desativar o próprio usuário")
+    if payload.acesso_erp and u.senha_pendente and not payload.senha:
+        raise HTTPException(status_code=400, detail=MSG_ERP_SEM_SENHA)
+
+    alteracoes = []
+    if payload.papel is not None and payload.papel != u.papel:
+        alteracoes.append(f"papel {u.papel} → {payload.papel}")
         u.papel = payload.papel
-    if payload.permissoes is not None:
+    if payload.acesso_erp is not None and payload.acesso_erp != u.acesso_erp:
+        alteracoes.append(f"ERP {'liberado' if payload.acesso_erp else 'removido'}")
+        u.acesso_erp = payload.acesso_erp
+    if payload.acesso_proposal is not None and payload.acesso_proposal != u.acesso_proposal:
+        alteracoes.append(f"Proposal {'liberado' if payload.acesso_proposal else 'removido'}")
+        u.acesso_proposal = payload.acesso_proposal
+    if payload.permissoes is not None and payload.permissoes != u.permissoes:
+        alteracoes.append("permissões de menu alteradas")
         u.permissoes = payload.permissoes
-    if payload.ativo is not None:
+    if payload.ativo is not None and payload.ativo != u.ativo:
+        alteracoes.append("reativado" if payload.ativo else "desativado")
         u.ativo = payload.ativo
+    if payload.senha:
+        alteracoes.append("senha redefinida")
+        u.senha_hash = pwd_context.hash(payload.senha)
+        u.senha_pendente = False
+        invalidar_convites(db, u.id)
+    if alteracoes:
+        registrar_auditoria(db, current_admin, "editar", "UsuarioApp", u.id, f"{u.usuario} — {'; '.join(alteracoes)}")
     db.commit()
     db.refresh(u)
     return u
@@ -169,6 +207,8 @@ def deletar_usuario(
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     if u.usuario == current_admin:
         raise HTTPException(status_code=400, detail="Não pode remover o próprio usuário")
+    db.query(UsuarioAuth).filter(UsuarioAuth.usuario == u.usuario).delete(synchronize_session=False)
+    registrar_auditoria(db, current_admin, "excluir", "UsuarioApp", u.id, f"{u.usuario} — usuário excluído")
     db.delete(u)
     db.commit()
     return None

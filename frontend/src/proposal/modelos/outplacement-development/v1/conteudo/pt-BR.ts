@@ -4,15 +4,16 @@ const conteudo: ConteudoDivisao = {
   logo: {
     src: '/propostas/outplacement-development/logo-divisao.png',
     alt: 'Ocean Talent Solutions — Development & Outplacement',
-    larga: true,
+    largura: 290,
   },
   tituloDivisao: 'Development & Outplacement',
-  textoServico:
+  textoServico: [
     'Para empresas que querem valorizar e desenvolver quem já está no time e, quando necessário, conduzir ' +
-    'desligamentos com responsabilidade, preservando a marca empregadora e a confiança das equipes. Avaliamos ' +
-    'perfis e competências, apoiamos o desenvolvimento de pessoas e lideranças e conduzimos processos de ' +
-    'outplacement com metodologia estruturada, respeito e transparência, preparando o profissional para o ' +
-    'próximo passo da carreira.',
+      'desligamentos com responsabilidade, preservando a marca empregadora e a confiança das equipes. Avaliamos ' +
+      'perfis e competências, apoiamos o desenvolvimento de pessoas e lideranças e conduzimos processos de ' +
+      'outplacement com metodologia estruturada, respeito e transparência, preparando o profissional para o ' +
+      'próximo passo da carreira.',
+  ],
   secaoMeio: {
     tipo: 'servicos',
     id: 'principais-servicos',

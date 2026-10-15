@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import ProposalLayout from '../components/ProposalLayout';
 import StatusBadge from '../components/StatusBadge';
@@ -15,6 +15,7 @@ import { rotuloSetor } from '../modelos/setores';
 import {
   AlteracaoCampo,
   cancelarProposta,
+  excluirProposta,
   Investimento,
   mensagemErro,
   Moeda,
@@ -28,8 +29,10 @@ import {
   formatarData,
   formatarDataHora,
   formatarMoeda,
+  mensagemConfirmacaoExclusao,
   montarLinkPublico,
 } from '../utils/propostaCalculo';
+import { useProposalAuthStore } from '../store';
 
 function Campo({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -197,6 +200,9 @@ export default function Detalhe() {
   const [loading, setLoading] = useState(true);
   const [naoEncontrada, setNaoEncontrada] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const isAdmin = useProposalAuthStore((s) => s.papel) === 'admin';
+  const navigate = useNavigate();
 
   const carregar = useCallback(async () => {
     if (!id) return;
@@ -234,6 +240,21 @@ export default function Detalhe() {
       carregar();
     } finally {
       setCancelando(false);
+    }
+  };
+
+  const excluir = async () => {
+    if (!proposta) return;
+    if (!window.confirm(mensagemConfirmacaoExclusao(proposta.cliente_nome, proposta.status))) return;
+    setExcluindo(true);
+    try {
+      await excluirProposta(proposta.id);
+      toast.success('Proposta excluída');
+      navigate('/', { replace: true });
+    } catch (e) {
+      toast.error(mensagemErro(e, 'Não foi possível excluir a proposta'));
+      setExcluindo(false);
+      carregar();
     }
   };
 
@@ -292,6 +313,15 @@ export default function Detalhe() {
                   className="px-3 py-2 rounded-lg border border-red-300 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50 transition"
                 >
                   {cancelando ? 'Cancelando...' : 'Cancelar'}
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={excluir}
+                  disabled={excluindo}
+                  className="px-3 py-2 rounded-lg bg-red-600 text-sm text-white hover:bg-red-700 disabled:opacity-50 transition"
+                >
+                  {excluindo ? 'Excluindo...' : 'Excluir'}
                 </button>
               )}
             </div>

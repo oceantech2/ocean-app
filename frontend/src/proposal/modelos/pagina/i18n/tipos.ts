@@ -65,9 +65,11 @@ export type SecaoMeio =
   | { tipo: 'servicos'; id: string; titulo: string; cartoes: { icone: IconeServico; titulo: string; texto: string }[] };
 
 export interface ConteudoDivisao {
-  logo: { src: string; alt: string; larga?: boolean };
+  // largura: em px no computador (padrão 220); no celular todas as logos usam a mesma largura
+  logo: { src: string; alt: string; largura?: number };
   tituloDivisao: string;
-  textoServico: string;
+  // Um item por parágrafo
+  textoServico: string[];
   secaoMeio: SecaoMeio;
   tituloEscopo: string;
   observacoesInvestimento: string[];

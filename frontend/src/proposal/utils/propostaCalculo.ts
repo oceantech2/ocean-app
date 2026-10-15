@@ -101,6 +101,13 @@ export async function copiarTexto(texto: string): Promise<boolean> {
   }
 }
 
+export function mensagemConfirmacaoExclusao(cliente: string, status: StatusProposta): string {
+  if (status === 'assinada') {
+    return `A proposta de ${cliente} JÁ FOI ASSINADA. Excluir apaga definitivamente a proposta e o registro do aceite do cliente. Continuar?`;
+  }
+  return `Excluir definitivamente a proposta de ${cliente}? Esta ação não pode ser desfeita.`;
+}
+
 export const STATUS_LABEL: Record<StatusProposta, string> = {
   aguardando: 'Aguardando assinatura',
   visualizada: 'Visualizada',

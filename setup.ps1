@@ -91,5 +91,5 @@ Write-Host "   cd frontend" -ForegroundColor White
 Write-Host "   npm run dev" -ForegroundColor White
 Write-Host ""
 Write-Host "Acesse: http://localhost:5173" -ForegroundColor Cyan
-Write-Host "Senha: 123456" -ForegroundColor Cyan
+Write-Host "Banco vazio? docker exec -it ocean_backend python scripts/criar_admin.py <login>" -ForegroundColor Cyan
 Write-Host ""

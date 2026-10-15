@@ -78,5 +78,5 @@ frontend/src/
 
 ## Credenciais de desenvolvimento
 
-- `admin` / `123456` | `visualizador` / `123456`
+- Sem usuário/senha padrão (feature 093): o login só aceita contas de `usuarios_app`. Banco vazio → `docker exec -it ocean_backend python scripts/criar_admin.py <login>`
 - BD: `postgresql://ocean:ocean_dev_pass@localhost:5433/ocean_db`

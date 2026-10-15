@@ -9,36 +9,13 @@ import pyotp
 from app.database import get_db
 from app.config import settings
 from app.models import UsuarioAuth, UsuarioApp
-from app.services.acesso_proposal import TIPO_SSO, emitir_token
+from app.services.acesso_proposal import TIPO_SSO, emitir_token, normalizar_login
 from app.services.paginas_visibilidade import ler_paginas_visibilidade
 
 router = APIRouter()
 
 pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# Usuários padrão de fallback (usados quando DB não tem usuário cadastrado)
-USUARIOS_DEV = {
-    "admin": {"senha": "123456", "papel": "admin"},
-    "visualizador": {"senha": "123456", "papel": "visualizador"},
-}
-
-# Permissões padrão para admin
-PERMISSOES_ADMIN = '{"dashboard":true,"nfs":true,"colaboradores":true,"contas":true,"bonus":true,"ferias":true,"dh":true,"relatorios":true}'
-
-
-def seed_usuarios_default(db: Session):
-    """Garante que os usuários padrão existam no banco."""
-    for usuario, dados in USUARIOS_DEV.items():
-        if not db.query(UsuarioApp).filter(UsuarioApp.usuario == usuario).first():
-            perms = PERMISSOES_ADMIN if dados["papel"] == "admin" else '{"dashboard":true,"nfs":false,"colaboradores":false,"contas":false,"bonus":false,"ferias":false,"dh":false,"relatorios":false}'
-            db.add(UsuarioApp(
-                usuario=usuario,
-                senha_hash=pwd_context.hash(dados["senha"]),
-                papel=dados["papel"],
-                permissoes=perms,
-            ))
-    db.commit()
 
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
@@ -82,28 +59,41 @@ def _decode_erp(token: str) -> dict:
     return _exigir_app(_decode_token(token), APP_ERP)
 
 
-def require_erp(token: str = Depends(oauth2_scheme)) -> str:
-    """Dependency aplicada a todos os routers do ERP: recusa tokens de outras ferramentas."""
-    return _decode_erp(token).get("sub")
-
-
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
-    return _decode_erp(token).get("sub")
-
-
-async def get_current_papel(token: str = Depends(oauth2_scheme)) -> str:
-    return _decode_erp(token).get("papel", "visualizador")
-
-
-def require_admin(token: str = Depends(oauth2_scheme)) -> str:
-    """Dependency que exige papel admin."""
+def _usuario_erp(token: str, db: Session) -> UsuarioApp:
+    """Reconfere no banco a cada requisição: exclusão, desativação e mudança de papel valem na hora."""
     payload = _decode_erp(token)
-    if payload.get("papel") != "admin":
+    usuario = db.query(UsuarioApp).filter(UsuarioApp.usuario == payload.get("sub")).first()
+    if not usuario or not usuario.ativo or not usuario.acesso_erp or usuario.senha_pendente:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Não foi possível validar as credenciais",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return usuario
+
+
+def require_erp(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> str:
+    """Dependency aplicada a todos os routers do ERP: recusa tokens de outras ferramentas."""
+    return _usuario_erp(token, db).usuario
+
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> str:
+    return _usuario_erp(token, db).usuario
+
+
+def get_current_papel(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> str:
+    return _usuario_erp(token, db).papel or "visualizador"
+
+
+def require_admin(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> str:
+    """Dependency que exige papel admin."""
+    usuario = _usuario_erp(token, db)
+    if usuario.papel != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Ação permitida apenas para administradores",
         )
-    return payload.get("sub")
+    return usuario.usuario
 
 
 def _get_auth(db: Session, usuario: str) -> Optional[UsuarioAuth]:
@@ -127,68 +117,55 @@ async def login(
     totp_code: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    """Login com usuário e senha. Verifica banco primeiro, fallback nos USUARIOS_DEV."""
-    seed_usuarios_default(db)
-
-    # Busca usuário no banco
+    """Login com usuário e senha: só usuários cadastrados, ativos e com senha própria definida."""
     usuario_db = db.query(UsuarioApp).filter(
-        UsuarioApp.usuario == form_data.username,
-        UsuarioApp.ativo == True,
+        UsuarioApp.usuario == normalizar_login(form_data.username),
+        UsuarioApp.ativo == True,  # noqa: E712
     ).first()
+    if (
+        not usuario_db
+        or usuario_db.senha_pendente
+        or not pwd_context.verify(form_data.password, usuario_db.senha_hash)
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos")
 
-    permissoes = None
-    if usuario_db:
-        if usuario_db.senha_pendente or not pwd_context.verify(form_data.password, usuario_db.senha_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos")
-        papel = usuario_db.papel
-        permissoes = usuario_db.permissoes
-    else:
-        # fallback hardcoded
-        usuario_dev = USUARIOS_DEV.get(form_data.username)
-        if not usuario_dev or form_data.password != usuario_dev["senha"]:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos")
-        papel = usuario_dev["papel"]
-        permissoes = PERMISSOES_ADMIN if papel == "admin" else None
+    auth = verificar_2fa(db, usuario_db.usuario, totp_code)
 
-    auth = verificar_2fa(db, form_data.username, totp_code)
-
-    if usuario_db and not usuario_db.acesso_erp:
+    if not usuario_db.acesso_erp:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuário sem acesso ao ERP")
 
+    papel = usuario_db.papel or "visualizador"
     access_token = create_access_token(
-        data={"sub": form_data.username, "papel": papel, "app": APP_ERP},
+        data={"sub": usuario_db.usuario, "papel": papel, "app": APP_ERP},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "usuario": form_data.username,
+        "usuario": usuario_db.usuario,
         "papel": papel,
         "twofa_ativo": bool(auth and auth.twofa_ativo),
-        "permissoes": permissoes,
+        "permissoes": usuario_db.permissoes,
         "paginas_visibilidade": ler_paginas_visibilidade(db),
-        "acesso_proposal": bool(usuario_db and usuario_db.acesso_proposal),
+        "acesso_proposal": bool(usuario_db.acesso_proposal),
     }
 
 
 @router.get("/me")
-async def read_users_me(
+def read_users_me(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
     """Retorna informações do usuário autenticado"""
-    payload = _decode_erp(token)
-    username = payload.get("sub")
-    auth = _get_auth(db, username)
-    usuario_db = db.query(UsuarioApp).filter(UsuarioApp.usuario == username).first()
-    permissoes = usuario_db.permissoes if usuario_db else None
+    usuario_db = _usuario_erp(token, db)
+    auth = _get_auth(db, usuario_db.usuario)
     return {
-        "usuario": username,
-        "papel": payload.get("papel", "visualizador"),
+        "usuario": usuario_db.usuario,
+        "papel": usuario_db.papel or "visualizador",
         "twofa_ativo": bool(auth and auth.twofa_ativo),
-        "permissoes": permissoes,
+        "permissoes": usuario_db.permissoes,
         "paginas_visibilidade": ler_paginas_visibilidade(db),
-        "acesso_proposal": bool(usuario_db and usuario_db.ativo and usuario_db.acesso_proposal),
+        "acesso_proposal": bool(usuario_db.acesso_proposal),
     }
 
 

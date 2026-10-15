@@ -8,8 +8,8 @@ export const PAPEL_KEY = 'proposal_papel';
 
 export type StatusProposta = 'aguardando' | 'visualizada' | 'assinada' | 'cancelada' | 'expirada';
 
-export type ModeloId = 'executive-search' | 'outplacement-development';
-export type SetorId = 'oil-gas' | 'energia' | 'infraestrutura' | 'mineracao' | 'industria-servicos';
+export type ModeloId = 'executive-search' | 'offshore-talent' | 'outsourcing' | 'outplacement-development';
+export type SetorId = 'oil-gas' | 'energia' | 'infraestrutura' | 'mineracao' | 'tecnologia' | 'industria-servicos';
 export type TipoInvestimento = 'retainer' | 'sucesso' | 'valor-fechado';
 export type TaxaTipo = 'percentual' | 'valor';
 export type Moeda = 'BRL' | 'USD';
@@ -258,11 +258,38 @@ export async function obterProposta(id: number | string): Promise<Proposta> {
   return data;
 }
 
-export async function listarPropostas(params: { status?: StatusProposta | ''; page?: number } = {}): Promise<PropostaListResponse> {
+export interface FiltrosPropostas {
+  status: StatusProposta | '';
+  empresa: string;
+  modelo: ModeloId | 'simples' | '';
+  projeto: string;
+  data_de: string;
+  data_ate: string;
+  criado_por: string;
+}
+
+export async function listarPropostas(
+  params: Partial<FiltrosPropostas> & { page?: number } = {},
+): Promise<PropostaListResponse> {
+  const { page, ...filtros } = params;
+  const query = Object.fromEntries(
+    Object.entries(filtros)
+      .map(([chave, valor]) => [chave, typeof valor === 'string' ? valor.trim() : valor])
+      .filter(([, valor]) => valor),
+  );
   const { data } = await proposalHttp.get<PropostaListResponse>('/proposal/propostas/', {
-    params: { status: params.status || undefined, page: params.page || 1 },
+    params: { ...query, page: page || 1 },
   });
   return data;
+}
+
+export async function listarAutores(): Promise<string[]> {
+  const { data } = await proposalHttp.get<string[]>('/proposal/propostas/autores');
+  return data;
+}
+
+export async function excluirProposta(id: number | string): Promise<void> {
+  await proposalHttp.delete(`/proposal/propostas/${id}`);
 }
 
 export async function editarProposta(

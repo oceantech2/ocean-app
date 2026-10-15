@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { aceitarConvite, consultarConvite, mensagemErro } from '../services/proposalApi';
 import { useProposalAuthStore } from '../store';
+import CampoSenha from '../../components/CampoSenha';
 
 const SENHA_MINIMA = 8;
 const MSG_INVALIDO = 'Este convite não é mais válido. Peça um novo ao administrador.';
@@ -92,8 +93,7 @@ export default function Convite() {
             </div>
             <div>
               <label className="block text-gray-700 font-medium mb-2">Senha</label>
-              <input
-                type="password"
+              <CampoSenha
                 value={senha}
                 onChange={(e) => setSenha(e.target.value)}
                 className={inputCls}
@@ -106,8 +106,7 @@ export default function Convite() {
             </div>
             <div>
               <label className="block text-gray-700 font-medium mb-2">Confirmar senha</label>
-              <input
-                type="password"
+              <CampoSenha
                 value={confirmacao}
                 onChange={(e) => setConfirmacao(e.target.value)}
                 className={inputCls}

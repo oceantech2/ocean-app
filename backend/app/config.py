@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     ALERT_DIAS_ANTECEDENCIA: int = int(os.getenv("ALERT_DIAS_ANTECEDENCIA", "5"))
     ALERT_FERIAS_LIMITE_DIAS: int = int(os.getenv("ALERT_FERIAS_LIMITE_DIAS", "20"))
 
+    # Endereço público do Proposal, usado nos links dos e-mails de aceite (sem barra final)
+    PROPOSAL_PUBLIC_URL: str = os.getenv("PROPOSAL_PUBLIC_URL", "http://proposal.localhost:5193")
+
     # Upload de documentos
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/app/uploads")
     UPLOAD_MAX_MB: int = int(os.getenv("UPLOAD_MAX_MB", "10"))

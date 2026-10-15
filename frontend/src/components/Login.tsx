@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { authService } from '../services/api';
 import { useAuthStore } from '../store';
+import CampoSenha from './CampoSenha';
 
 const MSG_CREDENCIAIS = 'Usuário ou senha incorretos';
 const MSG_REDE = 'Não foi possível conectar. Tente novamente.';
@@ -83,15 +84,13 @@ export default function Login() {
 
           <div>
             <label className="block text-gray-700 font-medium mb-2">Senha</label>
-            <input
-              type="password"
+            <CampoSenha
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
               placeholder="Sua senha"
               required
             />
-            <p className="text-sm text-gray-600 mt-1">Usuário: <strong>admin</strong> / Senha: <strong>123456</strong></p>
           </div>
 
           {precisa2fa && (
@@ -118,10 +117,6 @@ export default function Login() {
             {loading ? 'Entrando...' : precisa2fa ? 'Verificar e entrar' : 'Entrar'}
           </button>
         </form>
-
-        <p className="text-center text-gray-600 mt-6 text-sm">
-          Ambiente de desenvolvimento
-        </p>
       </div>
     </div>
   );

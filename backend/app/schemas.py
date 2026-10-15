@@ -538,6 +538,7 @@ class UsuarioAppResponse(BaseModel):
     ativo: bool
     acesso_erp: bool = True
     acesso_proposal: bool = False
+    senha_pendente: bool = False
     criado_em: datetime
 
     class Config:

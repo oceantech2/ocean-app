@@ -4,14 +4,15 @@ const conteudo: ConteudoDivisao = {
   logo: {
     src: '/propostas/outplacement-development/logo-divisao.png',
     alt: 'Ocean Talent Solutions — Development & Outplacement',
-    larga: true,
+    largura: 290,
   },
   tituloDivisao: 'Development & Outplacement',
-  textoServico:
+  textoServico: [
     'For companies that want to value and develop the people already on their team and, when necessary, handle ' +
-    'terminations responsibly, preserving the employer brand and the trust of their teams. We assess profiles and ' +
-    'competencies, support the development of people and leaders, and conduct outplacement processes with a ' +
-    'structured methodology, respect and transparency, preparing professionals for the next step in their careers.',
+      'terminations responsibly, preserving the employer brand and the trust of their teams. We assess profiles and ' +
+      'competencies, support the development of people and leaders, and conduct outplacement processes with a ' +
+      'structured methodology, respect and transparency, preparing professionals for the next step in their careers.',
+  ],
   secaoMeio: {
     tipo: 'servicos',
     id: 'principais-servicos',

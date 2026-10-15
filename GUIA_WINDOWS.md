@@ -51,8 +51,7 @@ npm run dev
 ## ✅ Pronto!
 
 - Acesse: **http://localhost:5173**
-- Usuário: qualquer nome
-- Senha: **123456**
+- Primeiro acesso em banco vazio: `docker exec -it ocean_backend python scripts/criar_admin.py <login>`
 
 ---
 

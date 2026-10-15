@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { assinarPublica } from '../../services/proposalApi';
 import type { Idioma } from '../../services/proposalApi';
 import { dataHoraSP, EMAIL_RE, formatarDataISO, formatarDataSP, formatarPercentual, formatarTaxa } from '../formatacao';
@@ -6,7 +7,7 @@ import { projetosDaProposta, TEXTOS_PADRAO_GARANTIAS } from '../formatoProposta'
 import { idiomaDaProposta } from '../idioma';
 import type { ModeloPaginaProps } from '../index';
 import EscopoRico from '../EscopoRico';
-import { fotoSetor } from '../setores';
+import { FOTO_PADRAO, fotoSetor } from '../setores';
 import IconeServico from './IconeServico';
 import { textosPagina } from './i18n';
 import type { ConteudoDivisao } from './i18n/tipos';
@@ -86,6 +87,22 @@ export default function PaginaModelo({ dados, codigo, onRecarregar, divisao, rec
     window.print();
   };
 
+  // Link "Baixar PDF" do e-mail de aceite: imprime uma vez e tira o parâmetro para recarregar não repetir
+  const pdfPendente = useRef(new URLSearchParams(window.location.search).get('pdf') === '1');
+  const baixarPdfRef = useRef(baixarPdf);
+  baixarPdfRef.current = baixarPdf;
+  useEffect(() => {
+    if (!pdfPendente.current) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('pdf');
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+    const timer = window.setTimeout(() => {
+      pdfPendente.current = false;
+      baixarPdfRef.current();
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const abrirAceite = () => {
     setMensagem(null);
     setAceito(false);
@@ -140,7 +157,9 @@ export default function PaginaModelo({ dados, codigo, onRecarregar, divisao, rec
             aria-hidden="true"
             src={fotoSetor(dados.setor)}
             onError={(e) => {
-              e.currentTarget.style.display = 'none';
+              const img = e.currentTarget;
+              if (img.getAttribute('src') !== FOTO_PADRAO) img.src = FOTO_PADRAO;
+              else img.style.display = 'none';
             }}
           />
         </div>
@@ -164,7 +183,10 @@ export default function PaginaModelo({ dados, codigo, onRecarregar, divisao, rec
               <span>{t.capa.consultor}</span>
               <strong>{consultor?.nome}</strong>
             </div>
-            <div className={d.logo.larga ? 'div-logo larga' : 'div-logo'}>
+            <div
+              className="div-logo"
+              style={d.logo.largura ? ({ '--logo-largura': `${d.logo.largura}px` } as CSSProperties) : undefined}
+            >
               <img
                 src={d.logo.src}
                 alt={d.logo.alt}
@@ -193,7 +215,11 @@ export default function PaginaModelo({ dados, codigo, onRecarregar, divisao, rec
           <div className="head">
             <h2>{tituloServico}</h2>
           </div>
-          <p className="lead">{d.textoServico}</p>
+          {d.textoServico.map((paragrafo) => (
+            <p className="lead" key={paragrafo}>
+              {paragrafo}
+            </p>
+          ))}
         </section>
 
         <section id={meio.id}>

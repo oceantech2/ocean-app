@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { login } from '../services/proposalApi';
 import { useProposalAuthStore } from '../store';
+import CampoSenha from '../../components/CampoSenha';
 
 const MSG_CREDENCIAIS = 'Usuário ou senha incorretos';
 const MSG_REDE = 'Não foi possível conectar. Tente novamente.';
@@ -81,8 +82,7 @@ export default function Login() {
 
           <div>
             <label className="block text-gray-700 font-medium mb-2">Senha</label>
-            <input
-              type="password"
+            <CampoSenha
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={inputCls}

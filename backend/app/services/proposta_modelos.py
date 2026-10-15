@@ -12,6 +12,8 @@ from app.services.escopo_projeto import normalizar_escopo
 # Mantido em sincronia com frontend/src/proposal/modelos/index.ts
 MODELOS = {
     "executive-search": {"nome": "Executive Search", "versao_atual": 3, "disponivel": True},
+    "offshore-talent": {"nome": "Offshore Talent", "versao_atual": 1, "disponivel": True},
+    "outsourcing": {"nome": "Outsourcing", "versao_atual": 1, "disponivel": True},
     "outplacement-development": {"nome": "Development & Outplacement", "versao_atual": 1, "disponivel": True},
 }
 MODELO_SIMPLES = "simples"
@@ -22,6 +24,7 @@ SETORES = {
     "energia": "Energia",
     "infraestrutura": "Infraestrutura",
     "mineracao": "Mineração",
+    "tecnologia": "Tecnologia",
     "industria-servicos": "Indústria & Serviços",
 }
 

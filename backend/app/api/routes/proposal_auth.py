@@ -22,7 +22,7 @@ from app.services.acesso_proposal import (
     TIPO_SSO,
     consumir_token,
     invalidar_convites,
-    normalizar_email,
+    normalizar_login,
     usuario_do_token,
 )
 
@@ -85,11 +85,8 @@ def login_proposal(
     db: Session = Depends(get_db),
 ):
     """Login do Proposal: só usuários cadastrados, ativos e com acesso ao Proposal."""
-    login = form_data.username
-    if "@" in login:
-        login = normalizar_email(login)
     usuario = db.query(UsuarioApp).filter(
-        UsuarioApp.usuario == login,
+        UsuarioApp.usuario == normalizar_login(form_data.username),
         UsuarioApp.ativo == True,  # noqa: E712
     ).first()
     if (

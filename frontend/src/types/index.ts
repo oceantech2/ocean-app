@@ -135,6 +135,7 @@ export interface UsuarioApp {
   ativo: boolean;
   acesso_erp: boolean;
   acesso_proposal: boolean;
+  senha_pendente?: boolean;
   criado_em: string;
 }
 

@@ -97,6 +97,6 @@ echo    cd frontend
 echo    npm run dev
 echo.
 echo Acesse: http://localhost:5173
-echo Senha: 123456
+echo Banco vazio? docker exec -it ocean_backend python scripts/criar_admin.py ^<login^>
 echo.
 pause

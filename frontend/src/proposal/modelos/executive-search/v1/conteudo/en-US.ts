@@ -3,11 +3,12 @@ import type { ConteudoDivisao } from '../../../pagina/i18n/tipos';
 const conteudo: ConteudoDivisao = {
   logo: { src: '/propostas/executive-search/logo-divisao.png', alt: 'Ocean Talent Solutions — Executive Search' },
   tituloDivisao: 'Executive Search',
-  textoServico:
+  textoServico: [
     'We develop market intelligence and find the professionals who make a difference, from technical specialists ' +
-    "to the C-level. Our process goes beyond collecting résumés: we actively map the market, approach the " +
-    "professionals best suited to your company's challenge, check references and mitigate engagement risks, " +
-    'ensuring the right hire.',
+      "to the C-level. Our process goes beyond collecting résumés: we actively map the market, approach the " +
+      "professionals best suited to your company's challenge, check references and mitigate engagement risks, " +
+      'ensuring the right hire.',
+  ],
   secaoMeio: {
     tipo: 'metodologia',
     id: 'metodologia',

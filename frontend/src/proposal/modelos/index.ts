@@ -19,6 +19,8 @@ interface ModeloRegistro {
 
 // v1 a v3 compartilham o componente; as diferenças ficam em executive-search/v1/versoes.ts
 const paginaExecutiveSearch = lazy(() => import('./executive-search/v1/ExecutiveSearchV1'));
+const paginaOffshoreTalent = lazy(() => import('./offshore-talent/v1/OffshoreTalentV1'));
+const paginaOutsourcing = lazy(() => import('./outsourcing/v1/OutsourcingV1'));
 const paginaOutplacementDevelopment = lazy(
   () => import('./outplacement-development/v1/OutplacementDevelopmentV1'),
 );
@@ -34,6 +36,24 @@ export const MODELOS: Record<ModeloId, ModeloRegistro> = {
       1: paginaExecutiveSearch,
       2: paginaExecutiveSearch,
       3: paginaExecutiveSearch,
+    },
+  },
+  'offshore-talent': {
+    nome: 'Offshore Talent',
+    disponivel: true,
+    rotuloEscopo: 'Escopo',
+    garantiasSempreVisivel: true,
+    versoes: {
+      1: paginaOffshoreTalent,
+    },
+  },
+  outsourcing: {
+    nome: 'Outsourcing',
+    disponivel: true,
+    rotuloEscopo: 'Escopo',
+    garantiasSempreVisivel: true,
+    versoes: {
+      1: paginaOutsourcing,
     },
   },
   'outplacement-development': {

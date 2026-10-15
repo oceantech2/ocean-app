@@ -34,6 +34,12 @@ def normalizar_email(email: Optional[str]) -> str:
     return (email or "").strip().lower()
 
 
+def normalizar_login(login: Optional[str]) -> str:
+    """Login como gravado em usuarios_app: sem espaços nas pontas; e-mails em minúsculas."""
+    valor = (login or "").strip()
+    return valor.lower() if "@" in valor else valor
+
+
 def email_liberavel(email: Optional[str]) -> bool:
     e = normalizar_email(email)
     return bool(e) and len(e) <= 100 and validar_email(e)

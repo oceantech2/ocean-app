@@ -1,15 +1,24 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import Date, cast, func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.routes.proposal_auth import get_proposal_user
 from app.database import get_db
 from app.models import Proposta, PropostaEdicao
 from app.schemas import PropostaCreate
+from app.services.audit import registrar_auditoria
 from app.services.imposto_proposta import imposto_vigente
-from app.services.proposta_modelos import modelo_disponivel, validar_idioma, validar_modelo, validar_moeda
+from app.services.proposta_modelos import (
+    MODELO_SIMPLES,
+    MODELOS,
+    modelo_disponivel,
+    validar_idioma,
+    validar_modelo,
+    validar_moeda,
+)
 from app.services.propostas import (
     MSG_NAO_ENCONTRADA,
     STATUS_FILTRO,
@@ -42,9 +51,38 @@ def _obter_visivel(db: Session, proposta_id: int, user: dict, travar: bool = Fal
     return p
 
 
+def _exigir_admin(user: dict) -> None:
+    if user["papel"] != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Ação permitida apenas para administradores")
+
+
+def _contem(valor: str) -> str:
+    """Padrão ILIKE de 'contém' tratando % e _ como texto literal (escape padrão do Postgres: \\)."""
+    escapado = valor.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escapado}%"
+
+
+_PROJETO_CONTEM = text(
+    "EXISTS (SELECT 1 FROM jsonb_array_elements(propostas.projetos) AS p "
+    "WHERE p->>'nome' ILIKE :projeto_contem)"
+)
+
+# Mesma data da coluna Data da lista: data da proposta ou emissão (UTC) convertida para São Paulo
+_DATA_EXIBIDA = func.coalesce(
+    Proposta.data_proposta,
+    cast(func.timezone("America/Sao_Paulo", func.timezone("UTC", Proposta.emitida_em)), Date),
+)
+
+
 @router.get("/")
 def listar_propostas(
     status_filtro: Optional[str] = Query(None, alias="status"),
+    empresa: Optional[str] = Query(None, max_length=255),
+    modelo: Optional[str] = Query(None),
+    projeto: Optional[str] = Query(None, max_length=255),
+    data_de: Optional[date] = Query(None),
+    data_ate: Optional[date] = Query(None),
+    criado_por: Optional[str] = Query(None, max_length=255),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -53,6 +91,25 @@ def listar_propostas(
     q = db.query(Proposta)
     if user["papel"] != "admin":
         q = q.filter(Proposta.criado_por_id == user["id"])
+    elif criado_por and criado_por.strip():
+        q = q.filter(Proposta.criado_por_usuario == criado_por.strip())
+
+    if empresa and empresa.strip():
+        q = q.filter(Proposta.cliente_nome.ilike(_contem(empresa.strip())))
+    if modelo:
+        if modelo != MODELO_SIMPLES and modelo not in MODELOS:
+            raise HTTPException(status_code=422, detail="Modelo inválido")
+        q = q.filter(Proposta.modelo == modelo)
+    if projeto and projeto.strip():
+        padrao = _contem(projeto.strip())
+        q = q.filter(or_(
+            Proposta.projeto_nome.ilike(padrao),
+            _PROJETO_CONTEM.bindparams(projeto_contem=padrao),
+        ))
+    if data_de:
+        q = q.filter(_DATA_EXIBIDA >= data_de)
+    if data_ate:
+        q = q.filter(_DATA_EXIBIDA <= data_ate)
 
     if status_filtro:
         if status_filtro not in STATUS_FILTRO:
@@ -87,6 +144,16 @@ def obter_imposto_vigente(
 ):
     vigente = imposto_vigente(db)
     return {**vigente, "percentual": f"{vigente['percentual']:.2f}"}
+
+
+@router.get("/autores")
+def listar_autores(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_proposal_user),
+):
+    _exigir_admin(user)
+    linhas = db.query(Proposta.criado_por_usuario).distinct().order_by(Proposta.criado_por_usuario).all()
+    return [linha[0] for linha in linhas]
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -215,3 +282,21 @@ def cancelar_proposta(
     db.commit()
     db.expire_all()
     return serializar_detalhe(_obter_visivel(db, proposta_id, user))
+
+
+@router.delete("/{proposta_id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_proposta(
+    proposta_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_proposal_user),
+):
+    """Exclusão definitiva (qualquer status); assinatura e edições saem por ON DELETE CASCADE."""
+    _exigir_admin(user)
+    p = _obter_visivel(db, proposta_id, user)
+    registrar_auditoria(
+        db, user["usuario"], "excluir", "Proposta", p.id,
+        f"{p.codigo} — {p.cliente_nome} ({status_efetivo(p)})",
+    )
+    db.delete(p)
+    db.commit()
+    return None
