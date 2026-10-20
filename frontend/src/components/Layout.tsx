@@ -66,14 +66,14 @@ export default function Layout({ children }: LayoutProps) {
     try {
       const { codigo } = await authService.proposalSso();
       if (!aba) {
-        toast.error('Permita pop-ups para abrir o Proposal em nova aba');
+        toast.error('Permita pop-ups para abrir o Consultant Panel em nova aba');
         return;
       }
       aba.opener = null;
       aba.location.href = urlEntradaProposal(codigo);
     } catch (e) {
       aba?.close();
-      toast.error(mensagemErro(e, 'Não foi possível abrir o Proposal'));
+      toast.error(mensagemErro(e, 'Não foi possível abrir o Consultant Panel'));
       if ((e as any)?.response?.status === 403) setAcessoProposal(false);
     }
   };
@@ -354,14 +354,14 @@ export default function Layout({ children }: LayoutProps) {
                 <button
                   type="button"
                   onClick={abrirProposal}
-                  title={sidebarCollapsed ? 'Proposal' : 'Abrir o Proposal em nova aba'}
-                  aria-label={sidebarCollapsed ? 'Proposal' : undefined}
+                  title={sidebarCollapsed ? 'Consultant Panel' : 'Abrir o Consultant Panel em nova aba'}
+                  aria-label={sidebarCollapsed ? 'Consultant Panel' : undefined}
                   className={`w-full flex items-center gap-3 rounded-lg text-sm transition text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 ${
                     sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'
                   }`}
                 >
                   <ProposalIcon className="w-5 h-5 shrink-0" />
-                  {!sidebarCollapsed && <span className="flex-1 truncate text-left text-sm">Proposal</span>}
+                  {!sidebarCollapsed && <span className="flex-1 truncate text-left text-sm">Consultant Panel</span>}
                 </button>
               </div>
             )}

@@ -30,7 +30,7 @@ const FORM_INICIAL = {
 
 const FERRAMENTAS = [
   { key: 'acesso_erp', label: 'Acesso ao ERP', badge: 'ERP' },
-  { key: 'acesso_proposal', label: 'Acesso ao Proposal', badge: 'Proposal' },
+  { key: 'acesso_proposal', label: 'Acesso ao Consultant Panel', badge: 'Consultant Panel' },
 ] as const;
 
 export default function ConfiguracoesPage() {
@@ -289,7 +289,7 @@ export default function ConfiguracoesPage() {
                       {u.senha_pendente && (
                         <span
                           className="ml-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
-                          title="O usuário ainda não definiu a senha pelo convite do Proposal"
+                          title="O usuário ainda não definiu a senha pelo convite do Consultant Panel"
                         >
                           Convite pendente
                         </span>
@@ -336,7 +336,7 @@ export default function ConfiguracoesPage() {
             <CampoSenha className={INPUT} value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} autoComplete="new-password" />
             {editando?.senha_pendente && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                Convite do Proposal pendente: para liberar o ERP, defina uma senha (o convite antigo deixa de valer).
+                Convite do Consultant Panel pendente: para liberar o ERP, defina uma senha (o convite antigo deixa de valer).
               </p>
             )}
           </div>

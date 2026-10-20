@@ -277,6 +277,11 @@ def status_efetivo(p: Proposta) -> str:
 
 
 def pode_ver(p: Proposta, user: dict) -> bool:
+    return user is not None
+
+
+def pode_alterar(p: Proposta, user: dict) -> bool:
+    """Editar e cancelar: só quem criou ou admin (ver é liberado a todos os usuários do Proposal)."""
     return user["papel"] == "admin" or p.criado_por_id == user["id"]
 
 

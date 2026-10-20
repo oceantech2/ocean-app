@@ -317,6 +317,68 @@ export async function cancelarProposta(id: number | string): Promise<Proposta> {
   return data;
 }
 
+export interface ModeloPropostaPayload {
+  divisao: ModeloId;
+  nome: string;
+  idioma: Idioma;
+  moeda: Moeda;
+  setor: SetorId | '';
+  projeto_escopo: string | null;
+  projetos: Projeto[];
+  shortlist: string | null;
+  sla: string | null;
+  garantia: string | null;
+  validade_dias: number;
+}
+
+export interface ModeloProposta extends Omit<ModeloPropostaPayload, 'setor'> {
+  id: number;
+  divisao_nome: string;
+  setor: SetorId | null;
+  criado_por_usuario: string;
+  criado_em: string | null;
+  atualizado_por_usuario: string | null;
+  atualizado_em: string | null;
+}
+
+export interface ModeloPropostaListResponse {
+  items: ModeloProposta[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export async function listarModelosProposta(
+  params: { divisao?: ModeloId | ''; nome?: string; page?: number; page_size?: number } = {},
+): Promise<ModeloPropostaListResponse> {
+  const query = Object.fromEntries(
+    Object.entries(params)
+      .map(([chave, valor]) => [chave, typeof valor === 'string' ? valor.trim() : valor])
+      .filter(([, valor]) => valor),
+  );
+  const { data } = await proposalHttp.get<ModeloPropostaListResponse>('/proposal/modelos/', { params: query });
+  return data;
+}
+
+export async function obterModeloProposta(id: number | string): Promise<ModeloProposta> {
+  const { data } = await proposalHttp.get<ModeloProposta>(`/proposal/modelos/${id}`);
+  return data;
+}
+
+export async function criarModeloProposta(payload: ModeloPropostaPayload): Promise<ModeloProposta> {
+  const { data } = await proposalHttp.post<ModeloProposta>('/proposal/modelos/', payload);
+  return data;
+}
+
+export async function editarModeloProposta(id: number | string, payload: ModeloPropostaPayload): Promise<ModeloProposta> {
+  const { data } = await proposalHttp.put<ModeloProposta>(`/proposal/modelos/${id}`, payload);
+  return data;
+}
+
+export async function excluirModeloProposta(id: number | string): Promise<void> {
+  await proposalHttp.delete(`/proposal/modelos/${id}`);
+}
+
 export interface PerfilConsultor {
   nome: string | null;
   cargo: string | null;

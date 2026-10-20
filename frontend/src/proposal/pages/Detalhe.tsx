@@ -30,6 +30,7 @@ import {
   formatarDataHora,
   formatarMoeda,
   mensagemConfirmacaoExclusao,
+  montarLinkPreVisualizacao,
   montarLinkPublico,
 } from '../utils/propostaCalculo';
 import { useProposalAuthStore } from '../store';
@@ -202,6 +203,7 @@ export default function Detalhe() {
   const [cancelando, setCancelando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const isAdmin = useProposalAuthStore((s) => s.papel) === 'admin';
+  const usuario = useProposalAuthStore((s) => s.usuario);
   const navigate = useNavigate();
 
   const carregar = useCallback(async () => {
@@ -260,6 +262,7 @@ export default function Detalhe() {
 
   const botao = 'px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-100 transition';
   const porModelo = !!proposta && proposta.modelo !== 'simples';
+  const podeAlterar = isAdmin || (!!proposta && proposta.criado_por_usuario === usuario);
 
   return (
     <ProposalLayout>
@@ -290,7 +293,7 @@ export default function Detalhe() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {STATUS_EDITAVEIS.includes(proposta.status) && (
+              {podeAlterar && STATUS_EDITAVEIS.includes(proposta.status) && (
                 <Link to={`/propostas/${proposta.id}/editar`} className={botao}>
                   Editar
                 </Link>
@@ -298,7 +301,12 @@ export default function Detalhe() {
               <button onClick={copiarLink} className={botao}>
                 Copiar link
               </button>
-              <a href={montarLinkPublico(proposta.codigo)} target="_blank" rel="noopener noreferrer" className={botao}>
+              <a
+                href={montarLinkPreVisualizacao(proposta.codigo)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={botao}
+              >
                 Abrir página do cliente
               </a>
               {porModelo && (
@@ -306,7 +314,7 @@ export default function Detalhe() {
                   Criar cópia
                 </Link>
               )}
-              {(proposta.status === 'aguardando' || proposta.status === 'visualizada') && (
+              {podeAlterar && (proposta.status === 'aguardando' || proposta.status === 'visualizada') && (
                 <button
                   onClick={cancelar}
                   disabled={cancelando}

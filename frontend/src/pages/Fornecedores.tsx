@@ -15,7 +15,7 @@ import ActionButton from '../components/ActionButton';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
-const ITENS_POR_PAGINA = 15;
+const ITENS_POR_PAGINA = 100;
 
 function formatBRL(n: number) {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -116,7 +116,7 @@ export default function Fornecedores() {
     try {
       const res = await proposalAcessosService.listar();
       setAcessosProposal(Object.fromEntries(res.data.map((a) => [a.fornecedor_id, a])));
-    } catch { toast.error('Erro ao carregar acessos ao Proposal'); }
+    } catch { toast.error('Erro ao carregar acessos ao Consultant Panel'); }
   };
 
   const statusProposal = (col: Colaborador): StatusAcessoProposal =>
@@ -126,14 +126,14 @@ export default function Fornecedores() {
 
   const liberarProposal = async (ids: number[]) => {
     if (ids.length === 0) return;
-    if (ids.length > 1 && !confirm(`Liberar o acesso ao Proposal para ${ids.length} fornecedor(es) selecionado(s)?`)) return;
+    if (ids.length > 1 && !confirm(`Liberar o acesso ao Consultant Panel para ${ids.length} fornecedor(es) selecionado(s)?`)) return;
     try {
       setProcessandoProposal(true);
       const res = await proposalAcessosService.liberar(ids);
       setResultadosProposal(res.data.resultados);
       setSelecionados(new Set());
       carregarAcessosProposal();
-    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao liberar acesso ao Proposal')); }
+    } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao liberar acesso ao Consultant Panel')); }
     finally { setProcessandoProposal(false); }
   };
 
@@ -152,11 +152,11 @@ export default function Fornecedores() {
   };
 
   const revogarProposal = async (col: Colaborador) => {
-    if (!confirm(`Revogar o acesso de ${col.nome} ao Proposal? Convites pendentes deixarão de funcionar.`)) return;
+    if (!confirm(`Revogar o acesso de ${col.nome} ao Consultant Panel? Convites pendentes deixarão de funcionar.`)) return;
     try {
       setProcessandoProposal(true);
       await proposalAcessosService.revogar(col.id);
-      toast.success('Acesso ao Proposal revogado');
+      toast.success('Acesso ao Consultant Panel revogado');
       carregarAcessosProposal();
     } catch (e: unknown) { toast.error(mensagemErro(e, 'Erro ao revogar acesso')); }
     finally { setProcessandoProposal(false); }
@@ -439,7 +439,7 @@ export default function Fornecedores() {
               <ActionButton
                 variant="liberar"
                 context="header"
-                label={`Liberar Proposal (${selecionados.size})`}
+                label={`Liberar Consultant Panel (${selecionados.size})`}
                 onClick={() => liberarProposal([...selecionados])}
                 disabled={processandoProposal}
               />
@@ -526,7 +526,7 @@ export default function Fornecedores() {
                       />
                     </th>
                   )}
-                  {['Nome', 'Tipo', 'Documento', 'Telefone', 'Email', 'Salário', 'Status', ...(papel === 'admin' ? ['Proposal'] : []), '', ''].map((h, i) => (
+                  {['Nome', 'Tipo', 'Documento', 'Telefone', 'Email', 'Salário', 'Status', ...(papel === 'admin' ? ['Consultant Panel'] : []), '', ''].map((h, i) => (
                     <th key={i} className={`${TH_STICKY_CLASS} px-4 py-3 text-gray-600 dark:text-gray-300 font-medium ${h === 'Salário' ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
@@ -576,8 +576,8 @@ export default function Fornecedores() {
                               <ActionButton
                                 variant="liberar"
                                 context="row"
-                                label="Liberar Proposal"
-                                title={emailLiberavel(col) || acessosProposal[col.id] ? 'Liberar Proposal' : 'Cadastre um e-mail válido para liberar o Proposal'}
+                                label="Liberar Consultant Panel"
+                                title={emailLiberavel(col) || acessosProposal[col.id] ? 'Liberar Consultant Panel' : 'Cadastre um e-mail válido para liberar o Consultant Panel'}
                                 disabled={processandoProposal || (!emailLiberavel(col) && !acessosProposal[col.id])}
                                 onClick={() => liberarProposal([col.id])}
                               />
@@ -594,7 +594,7 @@ export default function Fornecedores() {
                                 <ActionButton
                                   variant="rejeitar"
                                   context="row"
-                                  label="Revogar Proposal"
+                                  label="Revogar Consultant Panel"
                                   disabled={processandoProposal}
                                   onClick={() => revogarProposal(col)}
                                 />
@@ -653,7 +653,7 @@ export default function Fornecedores() {
       {resultadosProposal && (
         <Modal
           maxWidth="max-w-2xl"
-          titulo="Acesso ao Proposal"
+          titulo="Acesso ao Consultant Panel"
           footerClassName="p-6 border-t dark:border-gray-700 flex justify-end text-sm"
           footer={(
             <button onClick={() => setResultadosProposal(null)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -663,7 +663,7 @@ export default function Fornecedores() {
         >
           {resultadosProposal.some((r) => r.resultado === 'convite') && (
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Envie o link a cada fornecedor (WhatsApp, e-mail…). Ele criará a própria senha e entrará no Proposal
+              Envie o link a cada fornecedor (WhatsApp, e-mail…). Ele criará a própria senha e entrará no Consultant Panel
               com o e-mail como usuário. Cada link funciona uma única vez.
             </p>
           )}

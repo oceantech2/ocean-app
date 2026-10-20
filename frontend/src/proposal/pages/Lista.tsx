@@ -18,6 +18,7 @@ import { formatarDataISO } from '../modelos/formatacao';
 import { resumoProjetos } from '../modelos/formatoProposta';
 import { rotuloIdiomaMoeda } from '../modelos/idioma';
 import { useProposalAuthStore } from '../store';
+import { IconExcluir, IconExibir, IconLink } from '../../components/actionIcons';
 import {
   copiarTexto,
   formatarData,
@@ -32,7 +33,7 @@ const FILTROS_STATUS: Array<{ valor: StatusProposta | ''; label: string }> = [
 ];
 
 const FILTROS_MODELO: Array<{ valor: FiltrosPropostas['modelo']; label: string }> = [
-  { valor: '', label: 'Todos os modelos' },
+  { valor: '', label: 'Todas as divisões' },
   ...(Object.keys(MODELOS) as ModeloId[]).map((id) => ({ valor: id, label: MODELOS[id].nome })),
   { valor: 'simples', label: 'Proposta simples' },
 ];
@@ -47,17 +48,32 @@ const FILTROS_VAZIOS: FiltrosPropostas = {
   criado_por: '',
 };
 
+const isoLocal = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function filtrosMesAtual(): FiltrosPropostas {
+  const hoje = new Date();
+  return {
+    ...FILTROS_VAZIOS,
+    data_de: isoLocal(new Date(hoje.getFullYear(), hoje.getMonth(), 1)),
+    data_ate: isoLocal(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0)),
+  };
+}
+
+const botaoIcone =
+  'inline-flex items-center justify-center p-1.5 rounded transition disabled:opacity-50 disabled:cursor-not-allowed';
+
 export default function Lista() {
   const papel = useProposalAuthStore((s) => s.papel);
   const isAdmin = papel === 'admin';
-  const [filtros, setFiltros] = useState<FiltrosPropostas>(FILTROS_VAZIOS);
-  const [filtrosAplicados, setFiltrosAplicados] = useState<FiltrosPropostas>(FILTROS_VAZIOS);
+  const [filtros, setFiltros] = useState<FiltrosPropostas>(filtrosMesAtual);
+  const [filtrosAplicados, setFiltrosAplicados] = useState<FiltrosPropostas>(filtros);
   const [autores, setAutores] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [recarga, setRecarga] = useState(0);
   const [itens, setItens] = useState<PropostaListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(100);
   const [loading, setLoading] = useState(true);
   const [excluindo, setExcluindo] = useState<number | null>(null);
 
@@ -72,16 +88,15 @@ export default function Lista() {
   }, [filtros]);
 
   useEffect(() => {
-    if (!isAdmin) return;
     listarAutores()
       .then(setAutores)
       .catch(() => setAutores([]));
-  }, [isAdmin]);
+  }, []);
 
   useEffect(() => {
     let ativo = true;
     setLoading(true);
-    listarPropostas({ ...filtrosAplicados, criado_por: isAdmin ? filtrosAplicados.criado_por : '', page })
+    listarPropostas({ ...filtrosAplicados, page })
       .then((r) => {
         if (!ativo) return;
         setItens(r.items);
@@ -93,7 +108,7 @@ export default function Lista() {
     return () => {
       ativo = false;
     };
-  }, [filtrosAplicados, page, recarga, isAdmin]);
+  }, [filtrosAplicados, page, recarga]);
 
   const alterarFiltro = (campo: keyof FiltrosPropostas, valor: string) => {
     setFiltros((f) => ({ ...f, [campo]: valor }));
@@ -146,7 +161,7 @@ export default function Lista() {
           <select
             value={filtros.modelo}
             onChange={(e) => alterarFiltro('modelo', e.target.value)}
-            aria-label="Filtrar por modelo"
+            aria-label="Filtrar por divisão"
             className={campo}
           >
             {FILTROS_MODELO.map((f) => (
@@ -192,21 +207,19 @@ export default function Lista() {
               className={`${campo} flex-1 min-w-0`}
             />
           </label>
-          {isAdmin && (
-            <select
-              value={filtros.criado_por}
-              onChange={(e) => alterarFiltro('criado_por', e.target.value)}
-              aria-label="Filtrar por quem criou"
-              className={campo}
-            >
-              <option value="">Criado por: todos</option>
-              {autores.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-          )}
+          <select
+            value={filtros.criado_por}
+            onChange={(e) => alterarFiltro('criado_por', e.target.value)}
+            aria-label="Filtrar por quem criou"
+            className={campo}
+          >
+            <option value="">Criado por: todos</option>
+            {autores.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
           {temFiltro && (
             <button
               type="button"
@@ -230,52 +243,74 @@ export default function Lista() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-gray-600">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Empresa</th>
-                  <th className="px-4 py-3 font-medium">Modelo</th>
-                  <th className="px-4 py-3 font-medium">Projeto</th>
-                  <th className="px-4 py-3 font-medium">Data</th>
-                  <th className="px-4 py-3 font-medium">Validade</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  {isAdmin && <th className="px-4 py-3 font-medium">Criado por</th>}
-                  <th className="px-4 py-3 font-medium text-right">Ações</th>
+                  <th className="px-3 py-3 font-medium">Empresa</th>
+                  <th className="px-3 py-3 font-medium">Divisão</th>
+                  <th className="px-3 py-3 font-medium">Projeto</th>
+                  <th className="px-3 py-3 font-medium">Data</th>
+                  <th className="px-3 py-3 font-medium">Validade</th>
+                  <th className="px-3 py-3 font-medium">Status</th>
+                  <th className="px-3 py-3 font-medium">Criado por</th>
+                  <th className="px-3 py-3 font-medium text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {itens.map((p) => (
                   <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-900">{p.cliente_nome}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                    <td className="px-3 py-3 text-gray-900 break-words">{p.cliente_nome}</td>
+                    <td className="px-3 py-3 text-gray-600">
                       {p.modelo_nome}
                       {p.moeda && <div className="text-xs text-gray-500">{rotuloIdiomaMoeda(p)}</div>}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{resumoProjetos(p.projeto_nome, p.projetos_total)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 text-gray-600 break-words">
+                      {resumoProjetos(p.projeto_nome, p.projetos_total)}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap">
                       {p.data_proposta ? formatarDataISO(p.data_proposta) : formatarData(p.emitida_em)}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">{formatarData(p.validade)}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3 whitespace-nowrap">{formatarData(p.validade)}</td>
+                    <td className="px-3 py-3">
                       <StatusBadge status={p.status} />
                     </td>
-                    {isAdmin && <td className="px-4 py-3 text-gray-600">{p.criado_por_usuario || '—'}</td>}
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <button onClick={() => copiarLink(p.codigo)} className="text-ocean-700 hover:underline mr-4">
-                        Copiar link
-                      </button>
-                      <Link to={`/propostas/${p.id}`} className="text-ocean-700 hover:underline">
-                        Ver
-                      </Link>
-                      {isAdmin && (
+                    <td className="px-3 py-3 text-gray-600 break-all">{p.criado_por_usuario || '—'}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
-                          onClick={() => excluir(p)}
-                          disabled={excluindo === p.id}
-                          className="text-red-600 hover:underline ml-4 disabled:opacity-50"
+                          type="button"
+                          onClick={() => copiarLink(p.codigo)}
+                          title="Copiar link"
+                          aria-label="Copiar link"
+                          className={`${botaoIcone} bg-ocean-50 text-ocean-700 hover:bg-sky-100`}
                         >
-                          {excluindo === p.id ? 'Excluindo...' : 'Excluir'}
+                          <IconLink className="w-4 h-4" />
                         </button>
-                      )}
+                        <Link
+                          to={`/propostas/${p.id}`}
+                          title="Ver proposta"
+                          aria-label="Ver proposta"
+                          className={`${botaoIcone} bg-gray-100 text-gray-700 hover:bg-gray-200`}
+                        >
+                          <IconExibir className="w-4 h-4" />
+                        </Link>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => excluir(p)}
+                            disabled={excluindo === p.id}
+                            title="Excluir proposta"
+                            aria-label="Excluir proposta"
+                            className={`${botaoIcone} bg-red-50 text-red-600 hover:bg-red-100`}
+                          >
+                            {excluindo === p.id ? (
+                              <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-red-600" />
+                            ) : (
+                              <IconExcluir className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

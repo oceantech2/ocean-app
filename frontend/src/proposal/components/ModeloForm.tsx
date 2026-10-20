@@ -1,4 +1,4 @@
-import { lazy, ReactNode, Suspense, useState } from 'react';
+import { lazy, ReactNode, Suspense, useEffect, useRef, useState } from 'react';
 import { registroDoModelo } from '../modelos';
 import { contarCaracteres, LIMITE_ESCOPO, MSG_ESCOPO_LONGO } from '../modelos/escopo';
 import {
@@ -25,6 +25,7 @@ import type {
   ImpostoVigente,
   Investimento,
   ModeloId,
+  ModeloProposta,
   Moeda,
   PerfilConsultor,
   Projeto,
@@ -128,6 +129,24 @@ function projetoParaForm(projeto: Projeto): ProjetoForm {
   return { chave: novaChave(), nome: projeto.nome, investimentos };
 }
 
+/** Formulário de nova proposta a partir de um modelo de proposta: cliente vazio, data de hoje e consultor do perfil. */
+export function formDeModeloProposta(m: ModeloProposta, consultor?: PerfilConsultor | null): FormModelo {
+  const base = formModeloInicial(consultor);
+  const projetos = (m.projetos || []).map(projetoParaForm);
+  return {
+    ...base,
+    idioma: m.idioma,
+    moeda: m.moeda,
+    setor: m.setor && SETORES.some((s) => s.chave === m.setor) ? m.setor : '',
+    projeto_escopo: m.projeto_escopo ?? '',
+    projetos: projetos.length ? projetos : [projetoVazio()],
+    shortlist: m.shortlist ?? '',
+    sla: m.sla ?? '',
+    garantia: m.garantia ?? '',
+    validade_dias: String(m.validade_dias),
+  };
+}
+
 function diasEntre(inicio: string, fim: string): number {
   return Math.round((Date.parse(`${fim}T00:00:00Z`) - Date.parse(`${inicio}T00:00:00Z`)) / 86_400_000);
 }
@@ -164,7 +183,7 @@ const parseTaxa = (texto: string) => parseNumeroBR(texto, 2);
 function parseEntrada(texto: string): number | null | undefined {
   const t = texto.trim();
   if (!t) return null;
-  if (!/^\d{1,2}$/.test(t)) return undefined;
+  if (!/^\d{1,3}$/.test(t) || Number(t) > 100) return undefined;
   return Number(t) || null;
 }
 
@@ -188,15 +207,17 @@ function validadeCalculada(form: FormModelo): string | null {
   return somarDias(form.data_proposta, dias);
 }
 
-function validar(form: FormModelo): Erros {
+function validar(form: FormModelo, variante: Variante): Erros {
   const erros: Erros = {};
-  if (!form.cliente_nome.trim()) erros.cliente_nome = 'Informe a empresa';
-  if (!form.data_proposta) erros.data_proposta = 'Informe a data da proposta';
-  if (!form.setor) erros.setor = 'Selecione o setor';
-  if (!form.consultor_nome.trim()) erros.consultor_nome = 'Informe o nome do consultor';
-  if (!form.consultor_cargo.trim()) erros.consultor_cargo = 'Informe o cargo do consultor';
-  if (!telefoneValido(form.consultor_telefone)) erros.consultor_telefone = 'Telefone do consultor inválido';
-  if (!EMAIL_RE.test(form.consultor_email.trim())) erros.consultor_email = 'E-mail do consultor inválido';
+  if (variante === 'proposta') {
+    if (!form.cliente_nome.trim()) erros.cliente_nome = 'Informe a empresa';
+    if (!form.data_proposta) erros.data_proposta = 'Informe a data da proposta';
+    if (!form.setor) erros.setor = 'Selecione o setor';
+    if (!form.consultor_nome.trim()) erros.consultor_nome = 'Informe o nome do consultor';
+    if (!form.consultor_cargo.trim()) erros.consultor_cargo = 'Informe o cargo do consultor';
+    if (!telefoneValido(form.consultor_telefone)) erros.consultor_telefone = 'Telefone do consultor inválido';
+    if (!EMAIL_RE.test(form.consultor_email.trim())) erros.consultor_email = 'E-mail do consultor inválido';
+  }
   if (contarCaracteres(form.projeto_escopo) > LIMITE_ESCOPO) erros.projeto_escopo = MSG_ESCOPO_LONGO;
 
   form.projetos.forEach((projeto, i) => {
@@ -215,12 +236,17 @@ function validar(form: FormModelo): Erros {
         erros[`${p}.${tipo}.taxa`] = `Taxa do ${rotulo} deve ser maior que zero`;
       }
       if (parseEntrada(inv.entrada) === undefined) {
-        erros[`${p}.${tipo}.entrada`] = `Entrada do ${rotulo} deve estar entre 0 e 99%`;
+        erros[`${p}.${tipo}.entrada`] = `Entrada do ${rotulo} deve estar entre 0 e 100%`;
       }
     }
   });
 
-  if (form.data_proposta) {
+  if (variante === 'modelo') {
+    const dias = Number(form.validade_dias);
+    if (!/^\d+$/.test(form.validade_dias) || dias < 1 || dias > VALIDADE_DIAS_MAX) {
+      erros.validade_dias = `Validade deve ser de 1 a ${VALIDADE_DIAS_MAX} dias`;
+    }
+  } else if (form.data_proposta) {
     const validade = validadeCalculada(form);
     if (!validade) erros.validade_dias = `Validade deve ser de 1 a ${VALIDADE_DIAS_MAX} dias`;
     else if (validade <= hojeSP()) erros.validade_dias = 'A validade calculada já passou. Ajuste a data ou os dias.';
@@ -235,8 +261,14 @@ function Erro({ msg }: { msg?: string }) {
 const semErrosDeProjeto = (e: Erros): Erros =>
   Object.fromEntries(Object.entries(e).filter(([chave]) => !chave.startsWith('projeto.')));
 
+// 'modelo': cadastro de modelo de proposta, sem empresa, data e consultor e com setor opcional
+type Variante = 'proposta' | 'modelo';
+
 interface Props {
   inicial: FormModelo;
+  variante?: Variante;
+  // Chamado na primeira alteração feita pelo usuário depois de carregar `inicial`
+  onAlterado?: () => void;
   modelo: ModeloId;
   rotuloSalvar: string;
   rotuloSalvando: string;
@@ -275,6 +307,8 @@ function ResumoImposto({ vigente, atual }: { vigente: ImpostoVigente | null; atu
 
 export default function ModeloForm({
   inicial,
+  variante = 'proposta',
+  onAlterado,
   modelo,
   rotuloSalvar,
   rotuloSalvando,
@@ -287,6 +321,14 @@ export default function ModeloForm({
   const [form, setForm] = useState<FormModelo>(inicial);
   const [erros, setErros] = useState<Erros>({});
   const registro = registroDoModelo(modelo);
+  const ehModelo = variante === 'modelo';
+
+  const alteradoAvisado = useRef(false);
+  useEffect(() => {
+    if (form === inicial || alteradoAvisado.current) return;
+    alteradoAvisado.current = true;
+    onAlterado?.();
+  }, [form, inicial, onAlterado]);
 
   const set = <K extends keyof FormModelo>(campo: K, valor: FormModelo[K]) => {
     setForm((f) => ({ ...f, [campo]: valor }));
@@ -346,7 +388,7 @@ export default function ModeloForm({
 
   const salvar = (e: React.FormEvent) => {
     e.preventDefault();
-    const encontrados = validar(form);
+    const encontrados = validar(form, variante);
     setErros(encontrados);
     if (Object.values(encontrados).some(Boolean)) return;
     onSubmit({
@@ -453,73 +495,96 @@ export default function ModeloForm({
             </p>
           </section>
 
-          <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Cliente</h2>
-            {texto('cliente_nome', 'Empresa')}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Data</label>
-                <input
-                  type="date"
-                  value={form.data_proposta}
-                  onChange={(e) => {
-                    set('data_proposta', e.target.value);
-                    setErros((er) => ({ ...er, validade_dias: undefined }));
-                  }}
-                  className={inputCls(erros.data_proposta)}
-                />
-                <Erro msg={erros.data_proposta} />
-              </div>
-              <div>
-                <label className={labelCls}>Setor</label>
-                <select
-                  value={form.setor}
-                  onChange={(e) => set('setor', e.target.value as SetorId | '')}
-                  className={inputCls(erros.setor)}
-                >
-                  <option value="">Selecione…</option>
-                  {SETORES.map((s) => (
-                    <option key={s.chave} value={s.chave}>
-                      {s.rotulo}
-                    </option>
-                  ))}
-                </select>
-                <Erro msg={erros.setor} />
-              </div>
-            </div>
-          </section>
+          {ehModelo ? (
+            <section className={secaoCls}>
+              <h2 className="font-semibold text-gray-900">Setor (opcional)</h2>
+              <select
+                value={form.setor}
+                onChange={(e) => set('setor', e.target.value as SetorId | '')}
+                className={`${inputCls()} sm:max-w-sm`}
+              >
+                <option value="">Escolhido em cada proposta</option>
+                {SETORES.map((s) => (
+                  <option key={s.chave} value={s.chave}>
+                    {s.rotulo}
+                  </option>
+                ))}
+              </select>
+              <p className="text-sm text-gray-500">
+                Empresa, data e dados do consultor são preenchidos em cada proposta criada a partir do modelo.
+              </p>
+            </section>
+          ) : (
+            <>
+              <section className={secaoCls}>
+                <h2 className="font-semibold text-gray-900">Cliente</h2>
+                {texto('cliente_nome', 'Empresa')}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Data</label>
+                    <input
+                      type="date"
+                      value={form.data_proposta}
+                      onChange={(e) => {
+                        set('data_proposta', e.target.value);
+                        setErros((er) => ({ ...er, validade_dias: undefined }));
+                      }}
+                      className={inputCls(erros.data_proposta)}
+                    />
+                    <Erro msg={erros.data_proposta} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Setor</label>
+                    <select
+                      value={form.setor}
+                      onChange={(e) => set('setor', e.target.value as SetorId | '')}
+                      className={inputCls(erros.setor)}
+                    >
+                      <option value="">Selecione…</option>
+                      {SETORES.map((s) => (
+                        <option key={s.chave} value={s.chave}>
+                          {s.rotulo}
+                        </option>
+                      ))}
+                    </select>
+                    <Erro msg={erros.setor} />
+                  </div>
+                </div>
+              </section>
 
-          <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Consultor</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {texto('consultor_nome', 'Nome')}
-              {texto('consultor_cargo', 'Cargo')}
-              <div>
-                <label className={labelCls}>Telefone</label>
-                <input
-                  value={form.consultor_telefone}
-                  onChange={(e) => set('consultor_telefone', e.target.value)}
-                  className={inputCls(erros.consultor_telefone)}
-                  inputMode="tel"
-                  maxLength={30}
-                  placeholder="(21) 99999-9999"
-                />
-                <Erro msg={erros.consultor_telefone} />
-              </div>
-              <div>
-                <label className={labelCls}>E-mail</label>
-                <input
-                  type="email"
-                  value={form.consultor_email}
-                  onChange={(e) => set('consultor_email', e.target.value)}
-                  className={inputCls(erros.consultor_email)}
-                  inputMode="email"
-                  maxLength={255}
-                />
-                <Erro msg={erros.consultor_email} />
-              </div>
-            </div>
-          </section>
+              <section className={secaoCls}>
+                <h2 className="font-semibold text-gray-900">Consultor</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {texto('consultor_nome', 'Nome')}
+                  {texto('consultor_cargo', 'Cargo')}
+                  <div>
+                    <label className={labelCls}>Telefone</label>
+                    <input
+                      value={form.consultor_telefone}
+                      onChange={(e) => set('consultor_telefone', e.target.value)}
+                      className={inputCls(erros.consultor_telefone)}
+                      inputMode="tel"
+                      maxLength={30}
+                      placeholder="(21) 99999-9999"
+                    />
+                    <Erro msg={erros.consultor_telefone} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>E-mail</label>
+                    <input
+                      type="email"
+                      value={form.consultor_email}
+                      onChange={(e) => set('consultor_email', e.target.value)}
+                      className={inputCls(erros.consultor_email)}
+                      inputMode="email"
+                      maxLength={255}
+                    />
+                    <Erro msg={erros.consultor_email} />
+                  </div>
+                </div>
+              </section>
+            </>
+          )}
 
           <section className={secaoCls}>
             <h2 className="font-semibold text-gray-900">{registro.rotuloEscopo} (opcional)</h2>
@@ -649,7 +714,7 @@ export default function ModeloForm({
                             <input
                               value={inv.entrada}
                               onChange={(e) =>
-                                setInv(i, tipo, { entrada: e.target.value.replace(/\D/g, '').slice(0, 2) })
+                                setInv(i, tipo, { entrada: e.target.value.replace(/\D/g, '').slice(0, 3) })
                               }
                               className={`${inputCls(erros[`${p}.${tipo}.entrada`])} bg-white`}
                               inputMode="numeric"
@@ -711,7 +776,11 @@ export default function ModeloForm({
                 <Erro msg={erros.validade_dias} />
               </div>
               <p className="text-sm text-gray-700 sm:pt-8">
-                {validade ? `Válida até ${formatarData(validade)}` : '—'}
+                {ehModelo
+                  ? 'Contados a partir da data de cada proposta.'
+                  : validade
+                    ? `Válida até ${formatarData(validade)}`
+                    : '—'}
               </p>
             </div>
           </section>
@@ -748,8 +817,16 @@ export default function ModeloForm({
           </div>
           {imposto && <ResumoImposto vigente={imposto.vigente} atual={imposto.atual} />}
           <div className="flex justify-between gap-4 text-sm text-gray-700">
-            <span>Válida até</span>
-            <span>{validade ? formatarData(validade) : '—'}</span>
+            <span>{ehModelo ? 'Validade' : 'Válida até'}</span>
+            <span>
+              {ehModelo
+                ? /^\d+$/.test(form.validade_dias)
+                  ? `${form.validade_dias} dias`
+                  : '—'
+                : validade
+                  ? formatarData(validade)
+                  : '—'}
+            </span>
           </div>
           <button
             type="submit"

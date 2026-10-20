@@ -116,8 +116,8 @@ def _taxa(valor, taxa_tipo: str, rotulo: str, sufixo: str) -> Decimal:
 def _entrada(valor, rotulo: str, sufixo: str) -> Optional[int]:
     if valor is None or valor == "":
         return None
-    if not isinstance(valor, int) or isinstance(valor, bool) or valor < 0 or valor > 99:
-        raise _erro(f"Entrada do {rotulo} deve estar entre 0 e 99%{sufixo}")
+    if not isinstance(valor, int) or isinstance(valor, bool) or valor < 0 or valor > 100:
+        raise _erro(f"Entrada do {rotulo} deve estar entre 0 e 100%{sufixo}")
     return valor or None
 
 
@@ -264,6 +264,44 @@ def validar_modelo(payload, modelo: str, data_se_vazia: date) -> dict:
         "imposto_ativo": False,
         "aliquota": None,
         "valor_imposto": Decimal("0.00"),
+    }
+
+
+NOME_MODELO_PROPOSTA_MAX = 120
+
+
+def validar_modelo_proposta(payload) -> dict:
+    """Valida um modelo de proposta (feature 098): mesmo conteúdo da proposta, sem cliente, data e consultor."""
+    divisao = (payload.divisao or "").strip()
+    if not modelo_disponivel(divisao):
+        raise _erro("Selecione a divisão")
+
+    nome = (payload.nome or "").strip()
+    if not nome:
+        raise _erro("Informe o nome do modelo")
+    if len(nome) > NOME_MODELO_PROPOSTA_MAX:
+        raise _erro(f"Nome do modelo deve ter até {NOME_MODELO_PROPOSTA_MAX} caracteres")
+
+    setor = (payload.setor or "").strip()
+    if setor and setor not in SETORES:
+        raise _erro("Setor inválido")
+
+    dias = payload.validade_dias
+    if not isinstance(dias, int) or isinstance(dias, bool) or not 1 <= dias <= VALIDADE_DIAS_MAX:
+        raise _erro(f"Validade deve ser de 1 a {VALIDADE_DIAS_MAX} dias")
+
+    return {
+        "divisao": divisao,
+        "nome": nome,
+        "idioma": validar_idioma(payload.idioma),
+        "moeda": validar_moeda(payload.moeda),
+        "setor": setor or None,
+        "projeto_escopo": normalizar_escopo(payload.projeto_escopo),
+        "projetos": validar_projetos(payload.projetos),
+        "shortlist": _texto_opcional(payload.shortlist, "Shortlist muito longo"),
+        "sla": _texto_opcional(payload.sla, "SLA muito longo"),
+        "garantia_texto": _texto_opcional(payload.garantia, "Garantia muito longa"),
+        "validade_dias": dias,
     }
 
 

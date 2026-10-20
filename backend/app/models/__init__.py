@@ -498,13 +498,19 @@ class Proposta(Base):
     # Imposto vigente no último salvamento (feature 092); NULL = proposta anterior à feature, exibe 19,55%
     imposto_percentual = Column(Numeric(5, 2), nullable=True)
 
+    # Sem cascade delete, o ORM tentaria anular proposta_id (NOT NULL) dos filhos já carregados ao excluir
     assinatura = relationship(
-        "PropostaAssinatura", back_populates="proposta", uselist=False, passive_deletes=True
+        "PropostaAssinatura",
+        back_populates="proposta",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     edicoes = relationship(
         "PropostaEdicao",
         back_populates="proposta",
         order_by="desc(PropostaEdicao.versao)",
+        cascade="all, delete-orphan",
         passive_deletes=True,
     )
 
@@ -578,6 +584,36 @@ class ImpostoProposta(Base):
     criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
     atualizado_em = Column(DateTime, nullable=True)
     atualizado_por = Column(String(100), nullable=True)
+
+
+class ModeloProposta(Base):
+    """Ponto de partida reutilizável de uma divisão (feature 098): conteúdo da proposta sem cliente e consultor.
+
+    As propostas criadas a partir dele copiam o conteúdo e não guardam referência ao modelo.
+    """
+    __tablename__ = "propostas_modelos"
+    __table_args__ = (
+        UniqueConstraint("divisao", "nome", name="uq_propostas_modelos_divisao_nome"),
+        CheckConstraint("validade_dias BETWEEN 1 AND 365", name="ck_propostas_modelos_validade"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    divisao = Column(String(40), nullable=False, index=True)
+    nome = Column(String(120), nullable=False)
+    idioma = Column(String(5), nullable=False)
+    moeda = Column(String(3), nullable=False)
+    setor = Column(String(40), nullable=True)
+    projeto_escopo = Column(Text, nullable=True)
+    # Mesmo formato de Proposta.projetos: [{"nome": str, "investimentos": [...]}]
+    projetos = Column(JSONB, nullable=False)
+    shortlist = Column(String(255), nullable=True)
+    sla = Column(String(255), nullable=True)
+    garantia_texto = Column(String(255), nullable=True)
+    validade_dias = Column(SmallInteger, nullable=False)
+    criado_por_usuario = Column(String(255), nullable=False)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    atualizado_por_usuario = Column(String(255), nullable=True)
+    atualizado_em = Column(DateTime, nullable=True)
 
 
 # ==================== CONFIGURAÇÃO GLOBAL DO APP ====================

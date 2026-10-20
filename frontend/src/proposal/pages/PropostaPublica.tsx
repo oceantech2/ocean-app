@@ -6,6 +6,8 @@ import { idiomaDaProposta } from '../modelos/idioma';
 import { textosIndisponivel } from '../modelos/pagina/i18n/indisponivel';
 import { assinarPublica, consultarPublica, mensagemErro, PropostaPublicaData } from '../services/proposalApi';
 import { formatarAliquota, formatarData, formatarDataHora, formatarMoeda } from '../utils/propostaCalculo';
+import { ehHostCliente } from '../dominios';
+import { useProposalAuthStore } from '../store';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -40,8 +42,18 @@ function Linha({ label, valor, destaque }: { label: string; valor: string; desta
   );
 }
 
+// Fora da impressão: o PDF gerado pelo consultor sai igual ao do cliente
+function FaixaPreVisualizacao() {
+  return (
+    <div className="print:hidden bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-sm text-amber-800">
+      Pré-visualização do consultor: abrir a proposta aqui não conta como visualização do cliente.
+    </div>
+  );
+}
+
 export default function PropostaPublica() {
   const { codigo = '' } = useParams();
+  const preVisualizacao = useProposalAuthStore((s) => s.isAuthenticated) && !ehHostCliente();
   const [dados, setDados] = useState<PropostaPublicaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [naoEncontrada, setNaoEncontrada] = useState(false);
@@ -137,9 +149,12 @@ export default function PropostaPublica() {
     const Pagina = componenteDoModelo(dados.modelo, dados.modelo_versao);
     if (!Pagina) return <Mensagem texto="Não foi possível exibir esta proposta" />;
     return (
-      <Suspense fallback={telaCarregando(textosIndisponivel(idiomaDaProposta(dados)).carregando)}>
-        <Pagina dados={dados} codigo={codigo} onRecarregar={recarregarSilencioso} />
-      </Suspense>
+      <>
+        {preVisualizacao && <FaixaPreVisualizacao />}
+        <Suspense fallback={telaCarregando(textosIndisponivel(idiomaDaProposta(dados)).carregando)}>
+          <Pagina dados={dados} codigo={codigo} onRecarregar={recarregarSilencioso} />
+        </Suspense>
+      </>
     );
   }
 
@@ -150,6 +165,7 @@ export default function PropostaPublica() {
 
   return (
     <Moldura>
+      {preVisualizacao && <FaixaPreVisualizacao />}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-8 space-y-6">
         <div>
           <p className="text-sm text-gray-500">Cliente</p>

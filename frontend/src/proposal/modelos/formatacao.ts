@@ -38,6 +38,7 @@ export const formatarMesAno = (mes: number, ano: number) => `${MESES_ABREV[mes -
 
 export function formatarPagamento(entrada: number | null | undefined): string {
   if (!entrada) return '100% após conclusão';
+  if (entrada >= 100) return '100% antecipado';
   return `${entrada}% de entrada + ${100 - entrada}% após conclusão`;
 }
 

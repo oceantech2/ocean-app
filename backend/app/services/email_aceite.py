@@ -29,7 +29,7 @@ def links(p: Proposta) -> dict:
     return {
         "ver": f"{base}/p/{p.codigo}",
         "pdf": None if p.modelo == MODELO_SIMPLES else f"{base}/p/{p.codigo}?pdf=1",
-        "proposal": f"{base}/propostas/{p.id}",
+        "proposal": f"{settings.consultant_panel_url()}/propostas/{p.id}",
     }
 
 
@@ -153,7 +153,7 @@ def montar_email_interno(p: Proposta) -> tuple[str, str]:
         for rotulo, valor in linhas
     )
     botoes = (
-        _botao("Abrir no Proposal", lk["proposal"])
+        _botao("Abrir no Consultant Panel", lk["proposal"])
         + _botao("Ver proposta", lk["ver"], False)
         + (_botao("Baixar PDF", lk["pdf"], False) if lk["pdf"] else "")
     )
@@ -162,7 +162,7 @@ def montar_email_interno(p: Proposta) -> tuple[str, str]:
         f"<table style='border-collapse:collapse;width:100%'>{tabela}</table>"
         f"<p style='margin-top:16px'>{botoes}</p>"
     )
-    return f"[Proposal] Proposta aceita — {p.cliente_nome}", _layout("Proposta aceita", corpo)
+    return f"[Consultant Panel] Proposta aceita — {p.cliente_nome}", _layout("Proposta aceita", corpo)
 
 
 def enviar_emails_aceite(proposta_id: int) -> None:

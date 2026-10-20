@@ -28,6 +28,7 @@ from app.services.propostas import (
     eh_simples,
     gerar_codigo,
     hoje_sp,
+    pode_alterar,
     pode_ver,
     serializar_detalhe,
     serializar_item,
@@ -49,6 +50,15 @@ def _obter_visivel(db: Session, proposta_id: int, user: dict, travar: bool = Fal
     if not p or not pode_ver(p, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=MSG_NAO_ENCONTRADA)
     return p
+
+
+def _exigir_autor(db: Session, p: Proposta, user: dict) -> None:
+    if not pode_alterar(p, user):
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas quem criou a proposta ou um administrador pode alterá-la",
+        )
 
 
 def _exigir_admin(user: dict) -> None:
@@ -84,14 +94,12 @@ def listar_propostas(
     data_ate: Optional[date] = Query(None),
     criado_por: Optional[str] = Query(None, max_length=255),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
     user: dict = Depends(get_proposal_user),
 ):
     q = db.query(Proposta)
-    if user["papel"] != "admin":
-        q = q.filter(Proposta.criado_por_id == user["id"])
-    elif criado_por and criado_por.strip():
+    if criado_por and criado_por.strip():
         q = q.filter(Proposta.criado_por_usuario == criado_por.strip())
 
     if empresa and empresa.strip():
@@ -149,9 +157,8 @@ def obter_imposto_vigente(
 @router.get("/autores")
 def listar_autores(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_proposal_user),
+    _: dict = Depends(get_proposal_user),
 ):
-    _exigir_admin(user)
     linhas = db.query(Proposta.criado_por_usuario).distinct().order_by(Proposta.criado_por_usuario).all()
     return [linha[0] for linha in linhas]
 
@@ -206,6 +213,7 @@ def editar_proposta(
     user: dict = Depends(get_proposal_user),
 ):
     p = _obter_visivel(db, proposta_id, user, travar=True)
+    _exigir_autor(db, p, user)
     status_atual = status_efetivo(p)
     if status_atual == "assinada":
         db.rollback()
@@ -265,6 +273,7 @@ def cancelar_proposta(
     user: dict = Depends(get_proposal_user),
 ):
     p = _obter_visivel(db, proposta_id, user)
+    _exigir_autor(db, p, user)
     if status_efetivo(p) not in STATUS_PENDENTES:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Proposta não pode ser cancelada")
     atualizadas = (

@@ -52,7 +52,7 @@ export default function Convite() {
       const r = await aceitarConvite(token, senha);
       window.history.replaceState(null, '', window.location.pathname);
       salvarSessao(r.access_token, r.usuario, r.papel);
-      toast.success('Senha criada. Bem-vindo ao Proposal!');
+      toast.success('Senha criada. Bem-vindo ao Consultant Panel!');
       navigate('/', { replace: true });
     } catch (error: any) {
       if (error?.response?.status === 404) setInvalido(true);
@@ -70,7 +70,7 @@ export default function Convite() {
       <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <img src="/logo.png" alt="Ocean" className="h-16 w-auto mx-auto mb-3" />
-          <h1 className="text-2xl font-semibold text-ocean-900">Proposal</h1>
+          <h1 className="text-2xl font-semibold text-ocean-900">Consultant Panel</h1>
         </div>
 
         {carregando ? (

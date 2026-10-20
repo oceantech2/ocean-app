@@ -22,7 +22,7 @@ import Modal from '../components/Modal';
 import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScroll';
 import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
-const ITENS_POR_PAGINA = 15;
+const ITENS_POR_PAGINA = 100;
 const FORM_INICIAL = {
   colaborador_id: '',
   ano: String(new Date().getFullYear()),

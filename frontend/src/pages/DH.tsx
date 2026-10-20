@@ -13,7 +13,7 @@ import { TABLE_SCROLL_CONTAINER_CLASS, TH_STICKY_CLASS } from '../utils/tableScr
 import { PAGE_TITLE_STICKY_CLASS, PAGE_FILTERS_STICKY_CLASS } from '../utils/pageHeaderSticky';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const ITENS_POR_PAGINA = 15;
+const ITENS_POR_PAGINA = 100;
 
 // Fundo por trimestre conforme solicitado
 function trimestreBg(mes: number) {

@@ -584,6 +584,20 @@ class PropostaCreate(BaseModel):
     validade_dias: Optional[int] = None
 
 
+class ModeloPropostaIn(BaseModel):
+    divisao: str = ""
+    nome: str = ""
+    idioma: Optional[str] = None
+    moeda: Optional[str] = None
+    setor: str = ""
+    projeto_escopo: Optional[str] = None
+    projetos: Optional[List[ProjetoIn]] = None
+    shortlist: Optional[str] = None
+    sla: Optional[str] = None
+    garantia: Optional[str] = None
+    validade_dias: Optional[int] = None
+
+
 class PerfilConsultorIn(BaseModel):
     nome: Optional[str] = None
     cargo: Optional[str] = None

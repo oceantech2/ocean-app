@@ -232,7 +232,7 @@ export default function NFs() {
   const [loading, setLoading] = useState(true);
   const [resumo, setResumo] = useState<any>(null);
   const [pagina, setPagina] = useState(0);
-  const [itensPorPagina, setItensPorPagina] = useState(15);
+  const [itensPorPagina, setItensPorPagina] = useState(100);
   const [sortField, setSortField] = useState<string>('data_emissao');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 

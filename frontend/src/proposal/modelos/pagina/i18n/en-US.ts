@@ -25,7 +25,8 @@ const textos: TextosPagina = {
     taxaSub: 'of annual compensation',
     pagamento: 'Payment terms',
     tipos: { retainer: 'Retainer', sucesso: 'Success fee', 'valor-fechado': 'Fixed fee' },
-    comEntrada: (entrada, final) => `${entrada}% upfront + ${final}% upon completion`,
+    comEntrada: (entrada, final) =>
+      final > 0 ? `${entrada}% upfront + ${final}% upon completion` : '100% upfront',
     semEntrada: '100% upon completion',
     observacoesTitulo: 'Notes',
   },

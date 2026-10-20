@@ -9,6 +9,7 @@ _DEFAULT_CORS = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5193",
     "http://proposal.localhost:5193",
+    "http://consultantpanel.localhost:5193",
 ]
 _DEFAULT_HOSTS = ["localhost", "127.0.0.1"]
 
@@ -57,6 +58,11 @@ class Settings(BaseSettings):
 
     # Endereço público do Proposal, usado nos links dos e-mails de aceite (sem barra final)
     PROPOSAL_PUBLIC_URL: str = os.getenv("PROPOSAL_PUBLIC_URL", "http://proposal.localhost:5193")
+    # Painel do consultor (feature 099); vazio usa PROPOSAL_PUBLIC_URL, que redireciona para o painel
+    CONSULTANT_PANEL_URL: str = os.getenv("CONSULTANT_PANEL_URL", "")
+
+    def consultant_panel_url(self) -> str:
+        return (self.CONSULTANT_PANEL_URL or self.PROPOSAL_PUBLIC_URL).rstrip("/")
 
     # Upload de documentos
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/app/uploads")

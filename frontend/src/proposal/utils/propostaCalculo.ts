@@ -1,4 +1,5 @@
 import type { StatusProposta } from '../services/proposalApi';
+import { urlCliente } from '../dominios';
 
 const TZ_SP = 'America/Sao_Paulo';
 export const DIAS_VALIDADE_PADRAO = 30;
@@ -80,8 +81,12 @@ export function formatarDataHora(iso: string | null | undefined): string {
 }
 
 export function montarLinkPublico(codigo: string): string {
-  const base = (import.meta.env.VITE_PROPOSAL_PUBLIC_URL || window.location.origin).replace(/\/+$/, '');
-  return `${base}/p/${codigo}`;
+  return `${urlCliente()}/p/${codigo}`;
+}
+
+/** Página do cliente aberta no próprio painel: com a sessão do consultor, não conta como visualização. */
+export function montarLinkPreVisualizacao(codigo: string): string {
+  return `${window.location.origin}/p/${codigo}`;
 }
 
 export async function copiarTexto(texto: string): Promise<boolean> {

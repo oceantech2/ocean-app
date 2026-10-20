@@ -25,7 +25,8 @@ const textos: TextosPagina = {
     taxaSub: 'sobre a remuneração anual',
     pagamento: 'Forma de pagamento',
     tipos: { retainer: 'Retainer', sucesso: 'Sucesso', 'valor-fechado': 'Valor fechado' },
-    comEntrada: (entrada, final) => `${entrada}% de entrada + ${final}% após conclusão`,
+    comEntrada: (entrada, final) =>
+      final > 0 ? `${entrada}% de entrada + ${final}% após conclusão` : '100% antecipado',
     semEntrada: '100% após conclusão',
     observacoesTitulo: 'Observações',
   },

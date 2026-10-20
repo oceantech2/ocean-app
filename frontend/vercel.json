@@ -5,6 +5,11 @@
       "has": [{ "type": "host", "value": "proposal.oceantalentsolutions.com" }],
       "destination": "/proposal.html"
     },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "consultantpanel.oceantalentsolutions.com" }],
+      "destination": "/proposal.html"
+    },
     { "source": "/(.*)", "destination": "/app.html" }
   ]
 }

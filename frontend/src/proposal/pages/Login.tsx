@@ -63,7 +63,7 @@ export default function Login() {
       <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <img src="/logo.png" alt="Ocean" className="h-16 w-auto mx-auto mb-3" />
-          <h1 className="text-2xl font-semibold text-ocean-900">Proposal</h1>
+          <h1 className="text-2xl font-semibold text-ocean-900">Consultant Panel</h1>
         </div>
 
         <form onSubmit={entrar} className="space-y-4">

@@ -16,8 +16,10 @@ const ENTIDADES: { valor: string; rotulo: string }[] = [
   { valor: 'Ferias', rotulo: 'Ferias' },
   { valor: 'MetaFinanceira', rotulo: 'MetaFinanceira' },
   { valor: 'DocumentoColaborador', rotulo: 'DocumentoColaborador' },
+  { valor: 'Proposta', rotulo: 'Proposta' },
+  { valor: 'ModeloProposta', rotulo: 'Modelo de proposta' },
 ];
-const ACOES = ['criar', 'editar', 'deletar'];
+const ACOES = ['criar', 'editar', 'deletar', 'excluir'];
 
 function rotuloEntidade(valor: string) {
   return ENTIDADES.find((e) => e.valor === valor)?.rotulo ?? valor;
@@ -25,7 +27,7 @@ function rotuloEntidade(valor: string) {
 
 const acaoBadge = (acao: string) => {
   if (acao === 'criar') return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400';
-  if (acao === 'deletar') return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400';
+  if (acao === 'deletar' || acao === 'excluir') return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400';
   return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400';
 };
 
@@ -35,7 +37,7 @@ export default function Auditoria() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pagina, setPagina] = useState(0);
-  const [itensPorPagina, setItensPorPagina] = useState(25);
+  const [itensPorPagina, setItensPorPagina] = useState(100);
   const [filtroEntidade, setFiltroEntidade] = useState('');
   const [filtroAcao, setFiltroAcao] = useState('');
 
