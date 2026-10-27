@@ -2,10 +2,10 @@ import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // Em dev, proposal.localhost:5193 (cliente) e consultantpanel.localhost:5193 (painel) servem o app do
-// Proposal (espelha o rewrite por host do vercel.json).
-function proposalHostDev(): Plugin {
+// Proposal e site.localhost:5193 serve o site institucional (espelha o rewrite por host do vercel.json).
+function hostsDev(): Plugin {
   return {
-    name: 'proposal-host-dev',
+    name: 'hosts-dev',
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
         const host = req.headers.host ?? ''
@@ -13,9 +13,12 @@ function proposalHostDev(): Plugin {
         const caminho = url.split('?')[0]
         const ehInterno = /^\/(@|src\/|node_modules\/|api\/)/.test(caminho)
         const temExtensao = /\.[a-zA-Z0-9]+$/.test(caminho)
-        const hostProposal = host.startsWith('proposal.') || host.startsWith('consultantpanel.')
-        if (hostProposal && !ehInterno && !temExtensao) {
-          req.url = '/proposal.html'
+        if (!ehInterno && !temExtensao) {
+          if (host.startsWith('proposal.') || host.startsWith('consultantpanel.')) {
+            req.url = '/proposal.html'
+          } else if (host.startsWith('site.')) {
+            req.url = '/site.html'
+          }
         }
         next()
       })
@@ -40,7 +43,7 @@ function erpHtmlSemIndex(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), proposalHostDev(), erpHtmlSemIndex()],
+  plugins: [react(), hostsDev(), erpHtmlSemIndex()],
   server: {
     port: 5193,
     strictPort: true,
@@ -58,6 +61,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         proposal: 'proposal.html',
+        site: 'site.html',
       },
     },
   }

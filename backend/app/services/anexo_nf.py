@@ -3,6 +3,8 @@
 Com SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY definidos, os arquivos vão para o
 Supabase Storage e o caminho salvo no banco tem o prefixo `supabase:`. Sem eles,
 os arquivos ficam em UPLOAD_DIR (desenvolvimento local / Docker com volume).
+Em produção (Render ou DEBUG desligado) o disco é apagado a cada reinício, então
+sem Storage o upload é recusado em vez de gravar um arquivo que vai sumir.
 """
 from __future__ import annotations
 
@@ -31,6 +33,9 @@ MSG_TAMANHO = "Arquivo excede 2 MB"
 MSG_VAZIO = "Arquivo vazio"
 MSG_ARQUIVO_PERDIDO = "Arquivo não encontrado no servidor. Anexe o arquivo novamente."
 MSG_STORAGE_INDISPONIVEL = "Não foi possível acessar o armazenamento de arquivos. Tente novamente."
+MSG_STORAGE_NAO_CONFIGURADO = (
+    "Armazenamento de arquivos não configurado no servidor. O arquivo não foi salvo; avise o administrador."
+)
 
 PREFIXO_STORAGE = "supabase:"
 _TIMEOUT = httpx.Timeout(30.0)
@@ -60,8 +65,18 @@ def usa_storage() -> bool:
     return bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY)
 
 
+def disco_efemero() -> bool:
+    # O Render define RENDER=true; DEBUG fica True por padrão quando a variável não existe
+    return bool(os.getenv("RENDER")) or not settings.DEBUG
+
+
 def eh_storage(caminho: str | None) -> bool:
     return bool(caminho) and caminho.startswith(PREFIXO_STORAGE)
+
+
+def arquivo_perdido(caminho: str | None) -> bool:
+    """Anexo gravado no disco local que não existe mais (apagado num reinício do servidor)."""
+    return bool(caminho) and not eh_storage(caminho) and not os.path.exists(caminho)
 
 
 def _url_objeto(chave: str) -> str:
@@ -134,6 +149,10 @@ def gravar(prefixo: str, entidade_id: int, nome_original: str | None, conteudo: 
         _storage_upload(chave, conteudo, MEDIA_TYPE[ext])
         remover_arquivo(caminho_anterior)
         return f"{PREFIXO_STORAGE}{chave}"
+
+    if disco_efemero():
+        logger.error("Upload de %s recusado: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY ausentes em produção", nome_arquivo)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_STORAGE_NAO_CONFIGURADO)
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     remover_arquivo(caminho_anterior)

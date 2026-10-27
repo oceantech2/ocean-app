@@ -765,6 +765,11 @@ def download_comprovante(
     db_conta = db.query(ContaPagar).filter(ContaPagar.id == conta_id).first()
     if not db_conta or not db_conta.comprovante_path:
         raise HTTPException(status_code=404, detail="Comprovante não encontrado")
+    if anexo_nf.arquivo_perdido(db_conta.comprovante_path):
+        db_conta.comprovante_path = None
+        db_conta.comprovante_nome = None
+        db.commit()
+        raise HTTPException(status_code=404, detail=anexo_nf.MSG_ARQUIVO_PERDIDO)
     return anexo_nf.resposta_inline(db_conta.comprovante_path, db_conta.comprovante_nome, "comprovante")
 
 

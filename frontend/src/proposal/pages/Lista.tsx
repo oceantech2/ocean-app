@@ -19,6 +19,7 @@ import { resumoProjetos } from '../modelos/formatoProposta';
 import { rotuloIdiomaMoeda } from '../modelos/idioma';
 import { useProposalAuthStore } from '../store';
 import { IconExcluir, IconExibir, IconLink } from '../../components/actionIcons';
+import Tooltip from '../../components/Tooltip';
 import {
   copiarTexto,
   formatarData,
@@ -277,38 +278,41 @@ export default function Lista() {
                     <td className="px-3 py-3 text-gray-600 break-all">{p.criado_por_usuario || '—'}</td>
                     <td className="px-3 py-3">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => copiarLink(p.codigo)}
-                          title="Copiar link"
-                          aria-label="Copiar link"
-                          className={`${botaoIcone} bg-ocean-50 text-ocean-700 hover:bg-sky-100`}
-                        >
-                          <IconLink className="w-4 h-4" />
-                        </button>
-                        <Link
-                          to={`/propostas/${p.id}`}
-                          title="Ver proposta"
-                          aria-label="Ver proposta"
-                          className={`${botaoIcone} bg-gray-100 text-gray-700 hover:bg-gray-200`}
-                        >
-                          <IconExibir className="w-4 h-4" />
-                        </Link>
-                        {isAdmin && (
+                        <Tooltip texto="Copiar link">
                           <button
                             type="button"
-                            onClick={() => excluir(p)}
-                            disabled={excluindo === p.id}
-                            title="Excluir proposta"
-                            aria-label="Excluir proposta"
-                            className={`${botaoIcone} bg-red-50 text-red-600 hover:bg-red-100`}
+                            onClick={() => copiarLink(p.codigo)}
+                            aria-label="Copiar link"
+                            className={`${botaoIcone} bg-ocean-50 text-ocean-700 hover:bg-sky-100`}
                           >
-                            {excluindo === p.id ? (
-                              <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-red-600" />
-                            ) : (
-                              <IconExcluir className="w-4 h-4" />
-                            )}
+                            <IconLink className="w-4 h-4" />
                           </button>
+                        </Tooltip>
+                        <Tooltip texto="Ver proposta">
+                          <Link
+                            to={`/propostas/${p.id}`}
+                            aria-label="Ver proposta"
+                            className={`${botaoIcone} bg-gray-100 text-gray-700 hover:bg-gray-200`}
+                          >
+                            <IconExibir className="w-4 h-4" />
+                          </Link>
+                        </Tooltip>
+                        {isAdmin && (
+                          <Tooltip texto="Excluir proposta">
+                            <button
+                              type="button"
+                              onClick={() => excluir(p)}
+                              disabled={excluindo === p.id}
+                              aria-label="Excluir proposta"
+                              className={`${botaoIcone} bg-red-50 text-red-600 hover:bg-red-100`}
+                            >
+                              {excluindo === p.id ? (
+                                <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-red-600" />
+                              ) : (
+                                <IconExcluir className="w-4 h-4" />
+                              )}
+                            </button>
+                          </Tooltip>
                         )}
                       </div>
                     </td>

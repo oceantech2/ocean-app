@@ -4,6 +4,7 @@ module.exports = {
     "./index.html",
     "./proposal.html",
     "./src/**/*.{js,ts,jsx,tsx}",
+    "!./src/site/**",
   ],
   theme: {
     extend: {

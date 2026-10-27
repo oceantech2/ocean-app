@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import ProposalLayout from '../components/ProposalLayout';
 import { IconEditar, IconExcluir, IconExibir } from '../../components/actionIcons';
+import Tooltip from '../../components/Tooltip';
 import { modelosDisponiveis } from '../modelos';
 import { rotuloIdiomaMoeda } from '../modelos/idioma';
 import { resumoProjetos } from '../modelos/formatoProposta';
@@ -173,38 +174,41 @@ export default function Modelos() {
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center justify-end gap-1.5">
-                        <Link
-                          to={`/modelos/${m.id}`}
-                          title="Ver modelo"
-                          aria-label="Ver modelo"
-                          className={`${botaoIcone} bg-gray-100 text-gray-700 hover:bg-gray-200`}
-                        >
-                          <IconExibir className="w-4 h-4" />
-                        </Link>
+                        <Tooltip texto="Ver modelo">
+                          <Link
+                            to={`/modelos/${m.id}`}
+                            aria-label="Ver modelo"
+                            className={`${botaoIcone} bg-gray-100 text-gray-700 hover:bg-gray-200`}
+                          >
+                            <IconExibir className="w-4 h-4" />
+                          </Link>
+                        </Tooltip>
                         {isAdmin && (
                           <>
-                            <Link
-                              to={`/modelos/${m.id}/editar`}
-                              title="Editar modelo"
-                              aria-label="Editar modelo"
-                              className={`${botaoIcone} bg-blue-50 text-blue-700 hover:bg-blue-100`}
-                            >
-                              <IconEditar className="w-4 h-4" />
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => excluir(m)}
-                              disabled={excluindo === m.id}
-                              title="Excluir modelo"
-                              aria-label="Excluir modelo"
-                              className={`${botaoIcone} bg-red-50 text-red-600 hover:bg-red-100`}
-                            >
-                              {excluindo === m.id ? (
-                                <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-red-600" />
-                              ) : (
-                                <IconExcluir className="w-4 h-4" />
-                              )}
-                            </button>
+                            <Tooltip texto="Editar modelo">
+                              <Link
+                                to={`/modelos/${m.id}/editar`}
+                                aria-label="Editar modelo"
+                                className={`${botaoIcone} bg-blue-50 text-blue-700 hover:bg-blue-100`}
+                              >
+                                <IconEditar className="w-4 h-4" />
+                              </Link>
+                            </Tooltip>
+                            <Tooltip texto="Excluir modelo">
+                              <button
+                                type="button"
+                                onClick={() => excluir(m)}
+                                disabled={excluindo === m.id}
+                                aria-label="Excluir modelo"
+                                className={`${botaoIcone} bg-red-50 text-red-600 hover:bg-red-100`}
+                              >
+                                {excluindo === m.id ? (
+                                  <div className="w-4 h-4 animate-spin rounded-full border-b-2 border-red-600" />
+                                ) : (
+                                  <IconExcluir className="w-4 h-4" />
+                                )}
+                              </button>
+                            </Tooltip>
                           </>
                         )}
                       </div>

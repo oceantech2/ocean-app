@@ -10,6 +10,16 @@
       "has": [{ "type": "host", "value": "consultantpanel.oceantalentsolutions.com" }],
       "destination": "/proposal.html"
     },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "oceantalentsolutions.com" }],
+      "destination": "/site.html"
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.oceantalentsolutions.com" }],
+      "destination": "/site.html"
+    },
     { "source": "/(.*)", "destination": "/app.html" }
   ]
 }

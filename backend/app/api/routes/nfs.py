@@ -589,6 +589,10 @@ def download_anexo_nf(
     db_nf = _exigir_nf_visivel(db.query(NF).filter(NF.id == nf_id).first())
     if not db_nf.anexo_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
+    if anexo_nf.arquivo_perdido(db_nf.anexo_path):
+        _limpar_anexo_disco(db_nf)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=anexo_nf.MSG_ARQUIVO_PERDIDO)
     return anexo_nf.resposta_inline(db_nf.anexo_path, db_nf.anexo_nome, "nota-fiscal")
 
 
