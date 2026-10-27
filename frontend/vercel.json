@@ -12,6 +12,11 @@
     },
     {
       "source": "/(.*)",
+      "has": [{ "type": "host", "value": "landing.oceantalentsolutions.com" }],
+      "destination": "/site.html"
+    },
+    {
+      "source": "/(.*)",
       "has": [{ "type": "host", "value": "oceantalentsolutions.com" }],
       "destination": "/site.html"
     },

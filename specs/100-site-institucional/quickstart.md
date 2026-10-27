@@ -58,6 +58,7 @@ cd frontend && npx tsc --noEmit && npx vite build
 ## 4. Publicação
 
 1. Deploy normal (push → Vercel). O rewrite só vale para os hosts do site, então publicar antes do DNS não muda nada para ERP e Proposal.
-2. Vercel → projeto → Domains: adicionar `oceantalentsolutions.com` e `www.oceantalentsolutions.com` (um redirecionando para o outro, a critério da Ocean).
-3. DNS: registro A do domínio raiz para a Vercel e CNAME `www` → `cname.vercel-dns.com` (valores exibidos pela Vercel).
-4. Repetir 2.1–2.4 no domínio de produção. Backend/Render: nada a fazer (o site não chama a API).
+2. Teste: Vercel → projeto → Domains: adicionar `landing.oceantalentsolutions.com`; na Hostinger, CNAME `landing` → valor exibido pela Vercel. Validar 2.1–2.4 em `https://landing.oceantalentsolutions.com`.
+3. Produção (depois de aprovado no teste): Vercel → projeto → Domains: adicionar `oceantalentsolutions.com` e `www.oceantalentsolutions.com` (um redirecionando para o outro, a critério da Ocean).
+4. DNS: registro A do domínio raiz para a Vercel e CNAME `www` → `cname.vercel-dns.com` (valores exibidos pela Vercel), sem mexer em MX/TXT.
+5. Repetir 2.1–2.4 no domínio de produção. Backend/Render: nada a fazer (o site não chama a API).

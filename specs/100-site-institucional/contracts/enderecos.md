@@ -4,7 +4,7 @@
 
 | Host | Entrada servida | App |
 |------|-----------------|-----|
-| `oceantalentsolutions.com`, `www.oceantalentsolutions.com` (prod) · `site.localhost:5193` (dev) | `site.html` | Site institucional (este) |
+| `landing.oceantalentsolutions.com` (teste) · `oceantalentsolutions.com`, `www.oceantalentsolutions.com` (prod) · `site.localhost:5193` (dev) | `site.html` | Site institucional (este) |
 | `proposal.oceantalentsolutions.com`, `consultantpanel.oceantalentsolutions.com` · `proposal.localhost:5193`, `consultantpanel.localhost:5193` | `proposal.html` | Proposal / Consultant Panel (inalterado) |
 | Qualquer outro (`app.oceantalentsolutions.com`, `localhost:5193`, `*.vercel.app`) | `app.html` (prod) · `index.html` (dev) | ERP (inalterado) |
 
