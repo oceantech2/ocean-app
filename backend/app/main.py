@@ -14,7 +14,7 @@ from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrim
 from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
-from app.api.routes import proposal_acessos, proposal_modelos
+from app.api.routes import proposal_acessos, proposal_modelos, proposal_vagas, public_vagas
 from app.models import (
     CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_IDIOMA,
     CK_PROPOSTAS_MOEDA,
@@ -24,6 +24,50 @@ from app.models import (
 Base.metadata.create_all(bind=engine)
 
 # Migrações inline — adiciona colunas/valores sem recriar tabelas
+_VAGAS_INICIAIS_102 = [
+    {
+        "titulo": "CFO",
+        "area": "financas",
+        "nivel": "c-level",
+        "localidade": "São Paulo / SP",
+        "resumo": "Indústria de bens de consumo, controle de planejamento e M&A.",
+        "requisitos": "Experiência como CFO ou diretor financeiro\nVivência em planejamento financeiro e M&A",
+    },
+    {
+        "titulo": "VP de Engenharia",
+        "area": "tecnologia",
+        "nivel": "vp",
+        "localidade": "Remoto · Brasil",
+        "resumo": "Scale-up SaaS B2B, liderança de 4 squads e cultura técnica.",
+        "requisitos": "Liderança de múltiplos squads de engenharia\nExperiência em SaaS B2B",
+    },
+    {
+        "titulo": "Diretor Comercial",
+        "area": "comercial",
+        "nivel": "diretoria",
+        "localidade": "São Paulo / SP",
+        "resumo": "Varejo premium, expansão multicanal e gestão de KAMs.",
+        "requisitos": "Experiência em varejo premium\nGestão de equipes de key accounts",
+    },
+    {
+        "titulo": "Head de RH",
+        "area": "rh",
+        "nivel": "diretoria",
+        "localidade": "Híbrido · SP",
+        "resumo": "Reestruturação organizacional e desenho de cultura.",
+        "requisitos": "Condução de reestruturações organizacionais\nExperiência em desenho de cultura",
+    },
+    {
+        "titulo": "Gerente de Operações",
+        "area": "operacoes",
+        "nivel": "gerencia",
+        "localidade": "São Paulo / SP",
+        "resumo": "Logística e melhoria contínua em operação industrial.",
+        "requisitos": "Experiência em logística industrial\nVivência em melhoria contínua",
+    },
+]
+
+
 def _migrar():
     from sqlalchemy import text
 
@@ -731,6 +775,31 @@ def _migrar():
             conn.rollback()
             logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 098)")
 
+    # Vagas e candidaturas (feature 102): tabelas do create_all fechadas para a API pública do Supabase
+    # e as 5 vagas que eram fixas no site criadas uma única vez (não voltam se excluídas)
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE vagas ENABLE ROW LEVEL SECURITY"))
+            conn.execute(text("ALTER TABLE candidaturas ENABLE ROW LEVEL SECURITY"))
+            semeada = conn.execute(
+                text("SELECT 1 FROM configuracao_app WHERE chave = 'seed_vagas_102'")
+            ).first()
+            if not semeada:
+                for vaga in _VAGAS_INICIAIS_102:
+                    conn.execute(
+                        text(
+                            "INSERT INTO vagas (titulo, area, nivel, localidade, resumo, requisitos, cliente, "
+                            "status, criado_por_usuario, criado_em) VALUES (:titulo, :area, :nivel, :localidade, "
+                            ":resumo, :requisitos, 'Confidencial', 'aberta', 'sistema', NOW())"
+                        ),
+                        vaga,
+                    )
+                conn.execute(text("INSERT INTO configuracao_app (chave, valor) VALUES ('seed_vagas_102', '1')"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.getLogger("ocean.migracao").exception("Falha na migração das vagas (feature 102)")
+
     # Pendentes passam para a versão vigente do modelo (formato novo); o hash precisa ser regravado,
     # senão o aceite é recusado. Assinadas e canceladas ficam na versão com que foram emitidas.
     from app.models import Proposta
@@ -817,6 +886,8 @@ app.include_router(proposal_propostas.router, prefix="/api/proposal/propostas", 
 app.include_router(proposal_perfil.router, prefix="/api/proposal/perfil", tags=["Proposal · Perfil"])
 app.include_router(proposal_modelos.router, prefix="/api/proposal/modelos", tags=["Proposal · Modelos"])
 app.include_router(public_propostas.router, prefix="/api/public/propostas", tags=["Proposal · Público"])
+app.include_router(proposal_vagas.router, prefix="/api/proposal/vagas", tags=["Proposal · Vagas"])
+app.include_router(public_vagas.router, prefix="/api/public/vagas", tags=["Site · Vagas"])
 
 # Wipe destrutivo: só monta rotas em DEBUG (dev local)
 if settings.DEBUG:

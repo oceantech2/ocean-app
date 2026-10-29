@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "site:css": "npm --prefix scripts/site-css install --no-audit --no-fund && npm --prefix scripts/site-css run build"
   },
   "dependencies": {
     "react": "^18.2.0",

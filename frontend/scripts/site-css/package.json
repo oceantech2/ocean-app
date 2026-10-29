@@ -1,0 +1,12 @@
+{
+  "name": "ocean-site-css",
+  "private": true,
+  "description": "Compila o CSS do site institucional (Tailwind 4) separado do Tailwind 3 do ERP.",
+  "scripts": {
+    "build": "tailwindcss -i site.css -o ../../public/site/site.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.1",
+    "tailwindcss": "^4.2.1"
+  }
+}

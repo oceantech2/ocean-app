@@ -12,6 +12,7 @@ export default function ProposalLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const emModelos = pathname.startsWith('/modelos');
+  const emVagas = pathname.startsWith('/vagas') || pathname.startsWith('/candidaturas');
 
   const sair = () => {
     logout();
@@ -28,11 +29,14 @@ export default function ProposalLayout({ children }: { children: ReactNode }) {
               <span className="hidden md:inline text-lg font-semibold text-ocean-900 whitespace-nowrap">Consultant Panel</span>
             </Link>
             <nav className="flex items-center gap-1">
-              <NavLink to="/" className={navCls({ isActive: !emModelos && pathname !== '/perfil' })}>
+              <NavLink to="/" className={navCls({ isActive: !emModelos && !emVagas && pathname !== '/perfil' })}>
                 Propostas
               </NavLink>
               <NavLink to="/modelos" className={navCls}>
                 Modelos
+              </NavLink>
+              <NavLink to="/vagas" className={navCls({ isActive: emVagas })}>
+                Vagas
               </NavLink>
             </nav>
           </div>

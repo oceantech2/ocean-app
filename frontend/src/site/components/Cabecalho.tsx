@@ -1,13 +1,22 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { IconeFechar, IconeMenu } from '../icones';
+import { IDIOMAS, TROCA_IDIOMA, useIdioma, type Txt } from '../idioma';
 import { useIrParaContato } from '../navegacao';
+import type { Pagina } from '../rotas';
+import { LANG } from '../seo';
 
-const LINKS = [
-  { para: '/', rotulo: 'Home', exato: true },
-  { para: '/solucoes', rotulo: 'Soluções', exato: false },
-  { para: '/vagas', rotulo: 'Vagas', exato: false },
+const LINKS: { pagina: Pagina; rotulo: Txt; exato: boolean }[] = [
+  { pagina: 'home', rotulo: { pt: 'Home', en: 'Home' }, exato: true },
+  { pagina: 'solucoes', rotulo: { pt: 'Soluções', en: 'Solutions' }, exato: false },
+  { pagina: 'vagas', rotulo: { pt: 'Vagas', en: 'Jobs' }, exato: false },
+  { pagina: 'noticias', rotulo: { pt: 'Notícias', en: 'News' }, exato: false },
 ];
+
+const TEXTOS = {
+  pt: { contato: 'Contato', abrirMenu: 'Abrir menu', fecharMenu: 'Fechar menu', idioma: 'Idioma' },
+  en: { contato: 'Contact', abrirMenu: 'Open menu', fecharMenu: 'Close menu', idioma: 'Language' },
+};
 
 export function Logo() {
   return (
@@ -28,9 +37,46 @@ export function Logo() {
   );
 }
 
+function SeletorIdioma() {
+  const { idioma, caminhoEm } = useIdioma();
+  return (
+    <div
+      role="group"
+      aria-label={TEXTOS[idioma].idioma}
+      className="inline-flex items-center gap-1 text-xs font-semibold tracking-wider"
+    >
+      {IDIOMAS.map((opcao, i) => {
+        const ativo = opcao.id === idioma;
+        return (
+          <Fragment key={opcao.id}>
+            {i > 0 && (
+              <span className="text-foreground/30" aria-hidden="true">
+                |
+              </span>
+            )}
+            <Link
+              to={caminhoEm(opcao.id)}
+              state={TROCA_IDIOMA}
+              lang={LANG[opcao.id]}
+              hrefLang={LANG[opcao.id]}
+              aria-label={opcao.nome}
+              aria-current={ativo ? 'true' : undefined}
+              className={ativo ? 'text-primary' : 'text-foreground/60 hover:text-primary'}
+            >
+              {opcao.sigla}
+            </Link>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Cabecalho() {
   const [aberto, setAberto] = useState(false);
   const irParaContato = useIrParaContato();
+  const { idioma, caminho } = useIdioma();
+  const t = TEXTOS[idioma];
 
   const contato = (e: React.MouseEvent) => {
     setAberto(false);
@@ -40,34 +86,36 @@ export default function Cabecalho() {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-surface">
       <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6 lg:px-10">
-        <Link to="/" aria-label="Ocean Talent Solutions" className="flex items-center" onClick={() => setAberto(false)}>
+        <Link to={caminho('home')} aria-label="Ocean Talent Solutions" className="flex items-center" onClick={() => setAberto(false)}>
           <Logo />
         </Link>
         <nav className="hidden items-center gap-8 lg:flex">
           {LINKS.map((l) => (
             <NavLink
-              key={l.para}
-              to={l.para}
+              key={l.pagina}
+              to={caminho(l.pagina)}
               end={l.exato}
               className={({ isActive }) =>
                 `text-sm text-foreground/80 transition-colors hover:text-primary${isActive ? ' text-primary font-medium' : ''}`
               }
             >
-              {l.rotulo}
+              {l.rotulo[idioma]}
             </NavLink>
           ))}
           <a
-            href="/#contato"
+            href={caminho('home', 'contato')}
             onClick={contato}
             className="inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-secondary"
           >
-            Contato
+            {t.contato}
           </a>
+          <SeletorIdioma />
         </nav>
         <div className="flex items-center gap-3 lg:hidden">
+          <SeletorIdioma />
           <button
             type="button"
-            aria-label={aberto ? 'Fechar menu' : 'Abrir menu'}
+            aria-label={aberto ? t.fecharMenu : t.abrirMenu}
             aria-expanded={aberto}
             className="inline-flex h-10 w-10 items-center justify-center rounded-md text-primary"
             onClick={() => setAberto((v) => !v)}
@@ -81,23 +129,23 @@ export default function Cabecalho() {
           <nav className="mx-auto flex max-w-7xl flex-col gap-1 px-6 py-4">
             {LINKS.map((l) => (
               <NavLink
-                key={l.para}
-                to={l.para}
+                key={l.pagina}
+                to={caminho(l.pagina)}
                 end={l.exato}
                 onClick={() => setAberto(false)}
                 className={({ isActive }) =>
                   `rounded-md px-3 py-2 text-sm text-foreground/85 hover:bg-surface${isActive ? ' text-primary font-medium' : ''}`
                 }
               >
-                {l.rotulo}
+                {l.rotulo[idioma]}
               </NavLink>
             ))}
             <a
-              href="/#contato"
+              href={caminho('home', 'contato')}
               onClick={contato}
               className="mt-2 inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground"
             >
-              Contato
+              {t.contato}
             </a>
           </nav>
         </div>

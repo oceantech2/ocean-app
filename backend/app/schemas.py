@@ -598,6 +598,20 @@ class ModeloPropostaIn(BaseModel):
     validade_dias: Optional[int] = None
 
 
+class VagaIn(BaseModel):
+    titulo: str = ""
+    area: str = ""
+    nivel: str = ""
+    localidade: str = ""
+    resumo: str = ""
+    descricao: Optional[str] = None
+    responsabilidades: Optional[str] = None
+    requisitos: str = ""
+    diferenciais: Optional[str] = None
+    cliente: Optional[str] = None
+    codigo_planilha: Optional[str] = None
+
+
 class PerfilConsultorIn(BaseModel):
     nome: Optional[str] = None
     cargo: Optional[str] = None

@@ -27,6 +27,8 @@ MEDIA_TYPE = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".png": "image/png",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 MSG_FORMATO = "Formato não permitido. Envie PDF, JPEG ou PNG."
 MSG_TAMANHO = "Arquivo excede 2 MB"
@@ -50,14 +52,21 @@ def media_type(path: str, nome_original: str | None) -> str:
     return MEDIA_TYPE.get(ext, "application/octet-stream")
 
 
-def validar(nome: str | None, conteudo: bytes) -> str:
+def validar(
+    nome: str | None,
+    conteudo: bytes,
+    extensoes: set[str] = EXTENSOES,
+    max_bytes: int = MAX_BYTES,
+    msg_formato: str = MSG_FORMATO,
+    msg_tamanho: str = MSG_TAMANHO,
+) -> str:
     ext = extensao(nome)
-    if ext not in EXTENSOES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_FORMATO)
+    if ext not in extensoes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg_formato)
     if len(conteudo) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_VAZIO)
-    if len(conteudo) > MAX_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=MSG_TAMANHO)
+    if len(conteudo) > max_bytes:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=msg_tamanho)
     return ext
 
 
@@ -140,8 +149,16 @@ def remover_arquivo(caminho: str | None) -> None:
         os.remove(caminho)
 
 
-def gravar(prefixo: str, entidade_id: int, nome_original: str | None, conteudo: bytes, caminho_anterior: str | None) -> str:
-    ext = validar(nome_original, conteudo)
+def gravar(
+    prefixo: str,
+    entidade_id: int,
+    nome_original: str | None,
+    conteudo: bytes,
+    caminho_anterior: str | None,
+    ext: str | None = None,
+) -> str:
+    """`ext` já validada pelo chamador (validações diferentes das de NF); senão valida como anexo de NF."""
+    ext = ext or validar(nome_original, conteudo)
     nome_arquivo = f"{prefixo}_{entidade_id}_{uuid.uuid4().hex}{ext}"
 
     if usa_storage():

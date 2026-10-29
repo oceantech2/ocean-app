@@ -30,10 +30,11 @@ function lucide(nome: string, filhos: ReactNode, larguraPadrao = 2) {
 }
 
 export const IconeSeta = lucide('IconeSeta', <><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></>);
-export const IconeSetaCima = lucide('IconeSetaCima', <><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></>);
 export const IconeMenu = lucide('IconeMenu', <><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></>);
 export const IconeFechar = lucide('IconeFechar', <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>);
 export const IconeChevronBaixo = lucide('IconeChevronBaixo', <path d="m6 9 6 6 6-6" />);
+export const IconeChevronEsquerda = lucide('IconeChevronEsquerda', <path d="m15 18-6-6 6-6" />);
+export const IconeChevronDireita = lucide('IconeChevronDireita', <path d="m9 18 6-6-6-6" />);
 export const IconeAlvo = lucide(
   'IconeAlvo',
   <><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></>,

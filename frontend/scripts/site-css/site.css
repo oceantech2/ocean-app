@@ -1,0 +1,276 @@
+/*
+ * Fonte do CSS do site institucional (Tailwind 4, tema do projeto Lovable "Ocean Talent").
+ * O ERP usa Tailwind 3, então este arquivo NÃO passa pelo PostCSS do Vite: é compilado à parte
+ * (pacote próprio nesta pasta) para public/site/site.css com `npm run site:css`, que deve ser
+ * rodado sempre que classes novas forem usadas em src/site/.
+ */
+@import "tailwindcss" source(none);
+@source "../../src/site";
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Poppins", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-surface: var(--surface);
+  --color-gray-light: var(--gray-light);
+  --color-navy: var(--navy);
+  --color-tint: var(--tint);
+  --color-dark-gray: var(--dark-gray);
+  --color-body-gray: var(--body-gray);
+  --color-division-executive: var(--division-executive);
+  --color-division-offshore: var(--division-offshore);
+  --color-division-outsourcing: var(--division-outsourcing);
+  --color-division-development: var(--division-development);
+  --color-tab-executive: var(--tab-executive);
+  --color-tab-offshore: var(--tab-offshore);
+  --color-tab-outsourcing: var(--tab-outsourcing);
+  --color-tab-development: var(--tab-development);
+  --color-tab-foreground: var(--tab-foreground);
+  --color-sector-kicker: var(--sector-kicker);
+  --color-sector-text: var(--sector-text);
+}
+
+:root {
+  --radius: 0.375rem;
+
+  --navy: #374c68;
+  --tint: #eef2f6;
+
+  --background: #ffffff;
+  --surface: #f1f3f5;
+  --foreground: #374c68;
+
+  --card: #ffffff;
+  --card-foreground: #263343;
+
+  --primary: #374c68;
+  --primary-foreground: #ffffff;
+
+  --secondary: #2976b1;
+  --secondary-foreground: #ffffff;
+
+  --muted: #e7e9ec;
+  --muted-foreground: #7d7d7d;
+
+  --accent: #359cef;
+  --accent-foreground: #ffffff;
+  --accent-soft: #b8ddf8;
+
+  --gray-light: #cccccc;
+  --dark-gray: #4a4a4a;
+  --body-gray: #6f6f6f;
+
+  --division-executive: var(--navy);
+  --division-offshore: var(--navy);
+  --division-outsourcing: var(--navy);
+  --division-development: var(--navy);
+  --tab-executive: var(--navy);
+  --tab-offshore: var(--navy);
+  --tab-outsourcing: var(--navy);
+  --tab-development: var(--navy);
+  --tab-foreground: #1f2937;
+
+  --sector-kicker: #7fb8ec;
+  --sector-text: #a9c3e0;
+
+  --destructive: oklch(0.577 0.245 27.325);
+
+  --border: #cccccc;
+  --input: #cccccc;
+  --ring: #359cef;
+}
+
+.sector-card {
+  background: linear-gradient(180deg, rgb(59 155 232 / 0.10), rgb(59 155 232 / 0.02));
+  border: 1px solid rgb(127 184 236 / 0.16);
+  transition: border-color 300ms ease-out;
+  margin-right: 1.25rem;
+  width: 80vw;
+}
+.sector-card:hover { border-color: rgb(95 179 245 / 0.6); }
+.sector-marquee { overflow: hidden; }
+.sector-marquee-track { animation: sector-marquee 45s linear infinite; }
+.sector-marquee:hover .sector-marquee-track { animation-play-state: paused; }
+@keyframes sector-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (min-width: 640px) {
+  .sector-card { width: calc((100vw - 5.5rem) / 2); }
+}
+@media (min-width: 1024px) {
+  .sector-card { width: calc((min(100vw, 80rem) - 7.5rem) / 3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sector-marquee-track { animation: none; }
+}
+
+/* Entrada das seções ao rolar (equivalente ao SectionReveal do Lovable, sem framer-motion). */
+.revelar {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.revelar.revelado {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .revelar { opacity: 1; transform: none; transition: none; }
+}
+
+@utility home-hero-overlay {
+  background: linear-gradient(
+    90deg,
+    var(--primary) 0%,
+    var(--primary) 34%,
+    color-mix(in oklab, var(--primary) 94%, transparent) 43%,
+    color-mix(in oklab, var(--primary) 72%, transparent) 54%,
+    color-mix(in oklab, var(--primary) 38%, transparent) 68%,
+    color-mix(in oklab, var(--primary) 8%, transparent) 84%,
+    transparent 100%
+  );
+}
+
+@utility home-site-parallax {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+
+  &::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--primary);
+    background-image: linear-gradient(
+        color-mix(in oklab, var(--primary) 52%, transparent),
+        color-mix(in oklab, var(--primary) 52%, transparent)
+      ),
+      url("/site/img/home-hero.jpg");
+    background-repeat: no-repeat;
+    background-size: cover, cover;
+    background-position: center center, center center;
+  }
+}
+
+@media (max-width: 767px) {
+  .home-site-parallax::before {
+    background-position: center center, 70% center;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-primary);
+  }
+}
+
+@keyframes ocean-glow-drift {
+  0%, 100% { transform: translate3d(-10%, -5%, 0); }
+  50% { transform: translate3d(10%, 5%, 0); }
+}
+
+@utility sector-deep-bg {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background-color: var(--primary);
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--primary);
+    background-image: linear-gradient(
+        color-mix(in oklab, color-mix(in oklab, var(--secondary) 30%, black) 88%, transparent),
+        color-mix(in oklab, color-mix(in oklab, var(--secondary) 30%, black) 88%, transparent)
+      );
+  }
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 30% 40%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 40%),
+      radial-gradient(circle at 75% 65%, color-mix(in oklab, var(--secondary) 25%, transparent), transparent 45%);
+    animation: ocean-glow-drift 18s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &::after { animation: none; }
+  }
+}
+
+@utility ocean-dark-motion {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background-color: color-mix(in oklab, var(--primary) 30%, black 70%);
+  background-color: color-mix(in oklab, color-mix(in oklab, var(--primary) 35%, black) 88%, transparent);
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 30% 40%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 40%),
+      radial-gradient(circle at 75% 65%, color-mix(in oklab, var(--secondary) 25%, transparent), transparent 45%);
+    animation: ocean-glow-drift 18s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &::before, &::after { animation: none; }
+  }
+}

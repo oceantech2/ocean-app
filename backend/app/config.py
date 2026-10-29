@@ -10,6 +10,7 @@ _DEFAULT_CORS = [
     "http://127.0.0.1:5193",
     "http://proposal.localhost:5193",
     "http://consultantpanel.localhost:5193",
+    "http://site.localhost:5193",
 ]
 _DEFAULT_HOSTS = ["localhost", "127.0.0.1"]
 
@@ -63,6 +64,11 @@ class Settings(BaseSettings):
 
     def consultant_panel_url(self) -> str:
         return (self.CONSULTANT_PANEL_URL or self.PROPOSAL_PUBLIC_URL).rstrip("/")
+
+    # Web App (Apps Script) da planilha "Formulário de candidatura em vaga" (feature 102);
+    # sem URL as candidaturas ficam gravadas como pendentes de envio
+    SHEETS_WEBHOOK_URL: str = os.getenv("SHEETS_WEBHOOK_URL", "")
+    SHEETS_WEBHOOK_SECRET: str = os.getenv("SHEETS_WEBHOOK_SECRET", "")
 
     # Upload de documentos
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/app/uploads")

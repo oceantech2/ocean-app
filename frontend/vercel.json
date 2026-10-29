@@ -1,30 +1,42 @@
 {
+  "headers": [
+    {"source":"/(.*)","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"headers":[{"key":"X-Robots-Tag","value":"noindex"}]}
+  ],
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "proposal.oceantalentsolutions.com" }],
-      "destination": "/proposal.html"
-    },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "consultantpanel.oceantalentsolutions.com" }],
-      "destination": "/proposal.html"
-    },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "landing.oceantalentsolutions.com" }],
-      "destination": "/site.html"
-    },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "oceantalentsolutions.com" }],
-      "destination": "/site.html"
-    },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "www.oceantalentsolutions.com" }],
-      "destination": "/site.html"
-    },
-    { "source": "/(.*)", "destination": "/app.html" }
+    {"source":"/robots.txt","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/robots.txt"},
+    {"source":"/sitemap.xml","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/sitemap.xml"},
+    {"source":"/robots.txt","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/robots.txt"},
+    {"source":"/sitemap.xml","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/sitemap.xml"},
+    {"source":"/robots.txt","destination":"/robots-bloqueado.txt"},
+    {"source":"/","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/index.html"},
+    {"source":"/solucoes","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/solucoes.html"},
+    {"source":"/vagas","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/vagas.html"},
+    {"source":"/en","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/en.html"},
+    {"source":"/en/solutions","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/en/solutions.html"},
+    {"source":"/en/jobs","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/en/jobs.html"},
+    {"source":"/noticias","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/noticias.html"},
+    {"source":"/en/news","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site/paginas/en/news.html"},
+    {"source":"/","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/index.html"},
+    {"source":"/solucoes","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/solucoes.html"},
+    {"source":"/vagas","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/vagas.html"},
+    {"source":"/en","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/en.html"},
+    {"source":"/en/solutions","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/en/solutions.html"},
+    {"source":"/en/jobs","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/en/jobs.html"},
+    {"source":"/noticias","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/noticias.html"},
+    {"source":"/en/news","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site/paginas/en/news.html"},
+    {"source":"/","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/index.html"},
+    {"source":"/solucoes","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/solucoes.html"},
+    {"source":"/vagas","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/vagas.html"},
+    {"source":"/en","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/en.html"},
+    {"source":"/en/solutions","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/en/solutions.html"},
+    {"source":"/en/jobs","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/en/jobs.html"},
+    {"source":"/noticias","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/noticias.html"},
+    {"source":"/en/news","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site/paginas/en/news.html"},
+    {"source":"/(.*)","has":[{"type":"host","value":"proposal.oceantalentsolutions.com"}],"destination":"/proposal.html"},
+    {"source":"/(.*)","has":[{"type":"host","value":"consultantpanel.oceantalentsolutions.com"}],"destination":"/proposal.html"},
+    {"source":"/(.*)","has":[{"type":"host","value":"landing.oceantalentsolutions.com"}],"destination":"/site.html"},
+    {"source":"/(.*)","has":[{"type":"host","value":"oceantalentsolutions.com"}],"destination":"/site.html"},
+    {"source":"/(.*)","has":[{"type":"host","value":"www.oceantalentsolutions.com"}],"destination":"/site.html"},
+    {"source":"/(.*)","destination":"/app.html"}
   ]
 }

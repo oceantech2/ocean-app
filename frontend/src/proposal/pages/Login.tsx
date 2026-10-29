@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { login } from '../services/proposalApi';
+import { login, VOLTAR_KEY } from '../services/proposalApi';
 import { useProposalAuthStore } from '../store';
 import CampoSenha from '../../components/CampoSenha';
 
@@ -33,7 +33,9 @@ export default function Login() {
     try {
       const r = await login(username, password, precisa2fa ? totpCode : undefined);
       salvarSessao(r.access_token, r.usuario, r.papel);
-      navigate('/', { replace: true });
+      const voltar = (location.state as { voltar?: string } | null)?.voltar ?? sessionStorage.getItem(VOLTAR_KEY);
+      sessionStorage.removeItem(VOLTAR_KEY);
+      navigate(voltar?.startsWith('/') && !voltar.startsWith('//') ? voltar : '/', { replace: true });
     } catch (error: any) {
       if (!error.response) {
         toast.error(MSG_REDE);

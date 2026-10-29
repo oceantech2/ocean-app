@@ -616,6 +616,79 @@ class ModeloProposta(Base):
     atualizado_em = Column(DateTime, nullable=True)
 
 
+class Vaga(Base):
+    """Vaga publicada no site pelo Consultant Panel (feature 102)."""
+    __tablename__ = "vagas"
+    __table_args__ = (
+        CheckConstraint("status IN ('aberta','encerrada')", name="ck_vagas_status"),
+        CheckConstraint(
+            "area IN ('financas','tecnologia','comercial','rh','operacoes')", name="ck_vagas_area"
+        ),
+        CheckConstraint("nivel IN ('gerencia','diretoria','vp','c-level')", name="ck_vagas_nivel"),
+        Index("ix_vagas_status_criado_em", "status", "criado_em"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    titulo = Column(String(120), nullable=False)
+    area = Column(String(20), nullable=False)
+    nivel = Column(String(20), nullable=False)
+    localidade = Column(String(120), nullable=False)
+    resumo = Column(String(300), nullable=False)
+    descricao = Column(Text, nullable=True)
+    responsabilidades = Column(Text, nullable=True)
+    requisitos = Column(Text, nullable=False)
+    diferenciais = Column(Text, nullable=True)
+    # Uso interno: nunca sai nas rotas públicas
+    cliente = Column(String(160), nullable=True)
+    codigo_planilha = Column(String(20), nullable=True)
+    status = Column(String(10), nullable=False, default="aberta")
+    criado_por_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="SET NULL"), nullable=True)
+    criado_por_usuario = Column(String(255), nullable=False)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    atualizado_por_usuario = Column(String(255), nullable=True)
+    atualizado_em = Column(DateTime, nullable=True)
+    encerrada_em = Column(DateTime, nullable=True)
+
+
+class Candidatura(Base):
+    """Candidatura recebida pelo site; enviada depois à planilha de candidaturas (feature 102)."""
+    __tablename__ = "candidaturas"
+    __table_args__ = (
+        CheckConstraint("pretensao_max >= pretensao_min", name="ck_candidaturas_pretensao"),
+        Index("ix_candidaturas_vaga_criada_em", "vaga_id", "criada_em"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    vaga_id = Column(Integer, ForeignKey("vagas.id", ondelete="RESTRICT"), nullable=False)
+    nome = Column(String(120), nullable=False)
+    email = Column(String(180), nullable=False)
+    telefone = Column(String(30), nullable=False)
+    linkedin = Column(String(200), nullable=True)
+    localidade = Column(String(120), nullable=False)
+    cargo_atual = Column(String(120), nullable=False)
+    empresa_atual = Column(String(120), nullable=False)
+    formacao = Column(String(300), nullable=True)
+    experiencia = Column(Text, nullable=True)
+    ingles = Column(String(20), nullable=True)
+    outros_idiomas = Column(String(200), nullable=True)
+    pretensao_min = Column(Numeric(12, 2), nullable=False)
+    pretensao_max = Column(Numeric(12, 2), nullable=False)
+    disponibilidade = Column(String(20), nullable=True)
+    mobilidade = Column(String(20), nullable=True)
+    consentimento_em = Column(DateTime, nullable=False)
+    curriculo_path = Column(Text, nullable=True)
+    curriculo_nome = Column(String(255), nullable=True)
+    criada_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ip = Column(String(64), nullable=True)
+    planilha_enviada_em = Column(DateTime, nullable=True)
+    planilha_id_candidatura = Column(String(40), nullable=True)
+    planilha_id_pessoa = Column(String(40), nullable=True)
+    planilha_tentativas = Column(Integer, nullable=False, default=0)
+    planilha_erro = Column(String(500), nullable=True)
+
+    vaga = relationship("Vaga")
+
+
 # ==================== CONFIGURAÇÃO GLOBAL DO APP ====================
 class ConfiguracaoApp(Base):
     """Configurações globais key-value (ex.: visibilidade de páginas)."""

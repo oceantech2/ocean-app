@@ -39,7 +39,7 @@ Um potencial cliente ou profissional acessa `oceantalentsolutions.com` e vê a p
 1. **Given** o visitante em `oceantalentsolutions.com` ou `www.oceantalentsolutions.com`, **When** a página carrega, **Then** vê a página inicial com todas as seções da exportação aprovada, na mesma ordem, com os mesmos textos e imagens.
 2. **Given** a página inicial, **When** o visitante clica em "Fale com um consultor" ou em "Contato" no menu, **Then** a página rola até a seção de contato.
 3. **Given** a seção Equipe, **When** o visitante clica no ícone de LinkedIn de um consultor, **Then** o perfil do consultor abre em nova aba.
-4. **Given** qualquer página do site, **When** o visitante clica no botão flutuante de WhatsApp, **Then** abre uma conversa com o número comercial da Ocean (+55 21 96632-6588) com a mensagem inicial já preenchida.
+4. **Given** qualquer página do site, **When** o visitante clica no botão flutuante de WhatsApp, **Then** abre uma conversa com o número comercial da Ocean (+55 21 97554-0224) com a mensagem inicial já preenchida.
 5. **Given** um celular, **When** o visitante navega pela página inicial, **Then** todo o conteúdo fica legível, sem rolagem horizontal, e o menu permite chegar a Soluções, Vagas e Contato.
 
 ---
@@ -120,7 +120,7 @@ Na seção Contato da página inicial, o visitante preenche nome, e-mail, telefo
 - **FR-007**: A página Soluções MUST reproduzir o conteúdo do protótipo (4 soluções em abas, metodologia, áreas e cargos offshore, benefícios do outsourcing, setores, diferenciais e chamada final), e o endereço MUST permitir abrir diretamente uma solução específica.
 - **FR-008**: O formulário de contato MUST validar os campos obrigatórios (nome, e-mail, telefone, cargo, empresa, "Sou...") e mostrar confirmação ao enviar.
 - **FR-009**: Nesta entrega, os formulários de contato e de interesse MUST NOT enviar, gravar ou encaminhar os dados preenchidos para nenhum lugar.
-- **FR-010**: O botão flutuante de WhatsApp e o telefone da seção Contato MUST abrir conversa com +55 21 96632-6588 com a mensagem "Olá! Vim pelo site da Ocean e gostaria de saber mais."
+- **FR-010**: O botão flutuante de WhatsApp e o telefone da seção Contato MUST abrir conversa com +55 21 97554-0224 com a mensagem "Olá! Vim pelo site da Ocean e gostaria de saber mais."
 - **FR-011**: O site MUST funcionar em computador e celular, com menu acessível em telas pequenas.
 - **FR-012**: O ERP, o Proposal e o Consultant Panel MUST continuar funcionando sem alteração nos seus endereços atuais.
 - **FR-013**: O site MUST NOT exibir Notícias nem o seletor de idioma EN nesta entrega.

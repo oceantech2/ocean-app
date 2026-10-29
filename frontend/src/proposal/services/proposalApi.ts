@@ -5,6 +5,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api'
 export const TOKEN_KEY = 'proposal_access_token';
 export const USUARIO_KEY = 'proposal_usuario';
 export const PAPEL_KEY = 'proposal_papel';
+// Endereço a reabrir depois do login quando a sessão expira no meio da navegação
+export const VOLTAR_KEY = 'proposal_voltar';
 
 export type StatusProposta = 'aguardando' | 'visualizada' | 'assinada' | 'cancelada' | 'expirada';
 
@@ -210,6 +212,7 @@ proposalHttp.interceptors.response.use(
       localStorage.removeItem(USUARIO_KEY);
       localStorage.removeItem(PAPEL_KEY);
       if (window.location.pathname !== '/login') {
+        sessionStorage.setItem(VOLTAR_KEY, `${window.location.pathname}${window.location.search}`);
         window.location.href = '/login';
       }
     }
@@ -377,6 +380,117 @@ export async function editarModeloProposta(id: number | string, payload: ModeloP
 
 export async function excluirModeloProposta(id: number | string): Promise<void> {
   await proposalHttp.delete(`/proposal/modelos/${id}`);
+}
+
+export type AreaVaga = 'financas' | 'tecnologia' | 'comercial' | 'rh' | 'operacoes';
+export type NivelVaga = 'gerencia' | 'diretoria' | 'vp' | 'c-level';
+export type StatusVaga = 'aberta' | 'encerrada';
+
+export interface VagaPayload {
+  titulo: string;
+  area: AreaVaga | '';
+  nivel: NivelVaga | '';
+  localidade: string;
+  resumo: string;
+  descricao: string | null;
+  responsabilidades: string | null;
+  requisitos: string;
+  diferenciais: string | null;
+  cliente: string | null;
+  codigo_planilha: string | null;
+}
+
+export interface Vaga extends Omit<VagaPayload, 'area' | 'nivel'> {
+  id: number;
+  slug: string;
+  area: AreaVaga;
+  nivel: NivelVaga;
+  status: StatusVaga;
+  criado_por_usuario: string;
+  criado_em: string | null;
+  atualizado_por_usuario: string | null;
+  atualizado_em: string | null;
+  encerrada_em: string | null;
+  candidaturas_total: number;
+  candidaturas_pendentes: number;
+  pode_editar: boolean;
+}
+
+export interface Candidatura {
+  id: number;
+  nome: string;
+  email: string;
+  telefone: string;
+  linkedin: string | null;
+  localidade: string;
+  cargo_atual: string;
+  empresa_atual: string;
+  formacao: string | null;
+  experiencia: string | null;
+  ingles: string | null;
+  outros_idiomas: string | null;
+  pretensao_min: string;
+  pretensao_max: string;
+  disponibilidade: string | null;
+  mobilidade: string | null;
+  curriculo_nome: string | null;
+  criada_em: string | null;
+  planilha_status: 'enviada' | 'pendente';
+  planilha_enviada_em: string | null;
+  planilha_erro: string | null;
+}
+
+export async function listarVagas(params: { status?: StatusVaga | ''; busca?: string } = {}): Promise<Vaga[]> {
+  const query = Object.fromEntries(
+    Object.entries(params)
+      .map(([chave, valor]) => [chave, typeof valor === 'string' ? valor.trim() : valor])
+      .filter(([, valor]) => valor),
+  );
+  const { data } = await proposalHttp.get<{ items: Vaga[] }>('/proposal/vagas/', { params: query });
+  return data.items;
+}
+
+export async function obterVaga(id: number | string): Promise<Vaga> {
+  const { data } = await proposalHttp.get<Vaga>(`/proposal/vagas/${id}`);
+  return data;
+}
+
+export async function criarVaga(payload: VagaPayload): Promise<Vaga> {
+  const { data } = await proposalHttp.post<Vaga>('/proposal/vagas/', payload);
+  return data;
+}
+
+export async function editarVaga(id: number | string, payload: VagaPayload): Promise<Vaga> {
+  const { data } = await proposalHttp.put<Vaga>(`/proposal/vagas/${id}`, payload);
+  return data;
+}
+
+export async function mudarStatusVaga(id: number | string, acao: 'encerrar' | 'reabrir'): Promise<Vaga> {
+  const { data } = await proposalHttp.post<Vaga>(`/proposal/vagas/${id}/${acao}`);
+  return data;
+}
+
+export async function excluirVaga(id: number | string): Promise<void> {
+  await proposalHttp.delete(`/proposal/vagas/${id}`);
+}
+
+export async function listarCandidaturas(vagaId: number | string): Promise<Candidatura[]> {
+  const { data } = await proposalHttp.get<Candidatura[]>(`/proposal/vagas/${vagaId}/candidaturas`);
+  return data;
+}
+
+export async function reenviarPlanilha(vagaId: number | string): Promise<{ enviadas: number; pendentes: number }> {
+  const { data } = await proposalHttp.post<{ enviadas: number; pendentes: number }>(
+    `/proposal/vagas/${vagaId}/reenviar-planilha`,
+  );
+  return data;
+}
+
+export async function baixarCurriculo(candidaturaId: number | string): Promise<Blob> {
+  const { data } = await proposalHttp.get<Blob>(`/proposal/vagas/candidaturas/${candidaturaId}/curriculo`, {
+    responseType: 'blob',
+  });
+  return data;
 }
 
 export interface PerfilConsultor {

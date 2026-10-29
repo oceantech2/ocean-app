@@ -29,7 +29,7 @@ Fontes analisadas: exportação estática aprovada (`ocean-talent-solutions (1).
   - Logo (`ocean-logo-wordmark.png`) e favicon da exportação.
   - Fundo/hero (`home-hero.jpg`): JPEG ~1920 px, qualidade ~80.
   - 8 fotos da equipe: JPEG 224×224 (exibidas a 112 px; 2× para telas retina). Na exportação cada uma tem 1–1,7 MB.
-  - 12 logos de clientes: PNG como estão (~5 KB cada).
+  - 12 logos de clientes: PNG como estão (~5 KB cada). *Substituídas na feature 101 por versões oficiais dos sites das empresas (SVG/WebP), porque as da exportação tinham só 74×45 px — ver `specs/101-site-equipe-carrossel-logos/research.md` §6.*
   - Soluções (do protótipo publicado): imagem de topo (`solucoes-hero.jpg`) e 6 ilustrações de setores (816 px PNG ~1 MB cada → WebP 400 px).
 - **Ferramenta**: Pillow num ambiente virtual temporário, fora do repositório. Só os arquivos finais entram no repositório.
 - **Rationale**: SC-004 (texto visível em até 3 s no celular) e peso total da página; a exportação tem ~15 MB só de imagens.
@@ -61,6 +61,6 @@ Fontes analisadas: exportação estática aprovada (`ocean-talent-solutions (1).
 
 ## 10. Conteúdo do protótipo que muda
 
-- WhatsApp flutuante: número de exemplo `5511999999999` → `5521966326588` (o da seção Contato).
+- WhatsApp flutuante: número de exemplo `5511999999999` → `5521975540224` (o da seção Contato).
 - Seletor PT | EN e "Notícias" removidos (menu, menu do celular e rodapé).
 - "Saiba mais" de cada card abre a aba da solução correspondente (no protótipo todos abriam a primeira aba).

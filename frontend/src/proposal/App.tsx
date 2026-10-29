@@ -14,10 +14,18 @@ import Convite from './pages/Convite';
 import Modelos from './pages/Modelos';
 import ModeloEditor from './pages/ModeloEditor';
 import ModeloVer from './pages/ModeloVer';
+import Vagas from './pages/Vagas';
+import VagaEditor from './pages/VagaEditor';
+import VagaDetalhe from './pages/VagaDetalhe';
+import CurriculoAbrir from './pages/CurriculoAbrir';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const isAuthenticated = useProposalAuthStore((s) => s.isAuthenticated);
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  const { pathname, search } = useLocation();
+  if (isAuthenticated) return <>{children}</>;
+  // Depois do login volta ao endereço pedido (ex.: link do currículo enviado à planilha)
+  const voltar = pathname === '/' ? undefined : `${pathname}${search}`;
+  return <Navigate to="/login" replace state={voltar ? { voltar } : undefined} />;
 }
 
 function LoginRoute() {
@@ -54,6 +62,11 @@ export default function App() {
         <Route path="/modelos/novo" element={<ProtectedRoute><ModeloEditor /></ProtectedRoute>} />
         <Route path="/modelos/:id" element={<ProtectedRoute><ModeloVer /></ProtectedRoute>} />
         <Route path="/modelos/:id/editar" element={<ProtectedRoute><ModeloEditor /></ProtectedRoute>} />
+        <Route path="/vagas" element={<ProtectedRoute><Vagas /></ProtectedRoute>} />
+        <Route path="/vagas/nova" element={<ProtectedRoute><VagaEditor /></ProtectedRoute>} />
+        <Route path="/vagas/:id" element={<ProtectedRoute><VagaDetalhe /></ProtectedRoute>} />
+        <Route path="/vagas/:id/editar" element={<ProtectedRoute><VagaEditor /></ProtectedRoute>} />
+        <Route path="/candidaturas/:id/curriculo" element={<ProtectedRoute><CurriculoAbrir /></ProtectedRoute>} />
         <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

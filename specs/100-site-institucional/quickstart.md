@@ -17,7 +17,7 @@ Conferir que `http://localhost:5193` continua abrindo o ERP e `http://proposal.l
 1. Comparar seção a seção com a exportação aprovada: cabeçalho, hero e números, Quem Somos + 4 cards, Valores, Equipe (8 fotos), 12 logos de clientes, 3 casos, Contato, rodapé.
 2. "Fale com um consultor" e "Contato" no menu rolam até o formulário.
 3. Ícone de LinkedIn de um consultor abre o perfil em nova aba.
-4. Botão verde flutuante abre `wa.me/5521966326588` com a mensagem preenchida.
+4. Botão verde flutuante abre `wa.me/5521975540224` com a mensagem preenchida.
 5. DevTools em 375 px: sem rolagem horizontal; o botão de menu abre Home, Soluções, Vagas e Contato.
 6. Não há "Notícias" nem "PT | EN" em lugar nenhum.
 
