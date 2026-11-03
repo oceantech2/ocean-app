@@ -400,7 +400,7 @@ export default function Solucoes() {
             {DIFERENCIAIS.map((d, i) => (
               <Revelar key={d.titulo.pt} atraso={i * 0.05}>
                 <article className="flex h-full flex-col bg-surface p-8 ring-1 ring-primary/5">
-                  <span className="font-display text-sm font-bold uppercase tracking-[0.06em] text-accent">
+                  <span className="font-display text-[1.75rem] font-bold uppercase leading-none tracking-[0.06em] text-accent">
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   <h3 className="mt-6 font-display text-xl font-bold leading-snug text-primary">{d.titulo[idioma]}</h3>

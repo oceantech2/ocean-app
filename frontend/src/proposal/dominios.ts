@@ -30,13 +30,13 @@ export function urlCliente(): string {
   return trocarPrefixoHost(PREFIXO_PAINEL, PREFIXO_CLIENTE) ?? window.location.origin;
 }
 
-/** Base do site institucional, para o link "Ver no site" das vagas. */
+/** Base do site institucional (link "Ver no site" das vagas e contato da proposta). */
 export function urlSite(): string {
   const configurada = import.meta.env.VITE_SITE_URL as string | undefined;
   if (configurada) return semBarra(configurada);
   const { protocol, hostname, port } = window.location;
   if (hostname.endsWith('localhost')) return `${protocol}//site.localhost${port ? `:${port}` : ''}`;
-  return 'https://www.oceantalentsolutions.com';
+  return 'https://landing.oceantalentsolutions.com';
 }
 
 /** Host do cliente com a separação ativa: só /p/<código> é atendido aqui. */

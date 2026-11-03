@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { urlSite } from '../../dominios';
 import { assinarPublica } from '../../services/proposalApi';
 import type { Idioma } from '../../services/proposalApi';
 import { dataHoraSP, EMAIL_RE, formatarDataISO, formatarDataSP, formatarPercentual, formatarTaxa } from '../formatacao';
@@ -401,7 +402,7 @@ export default function PaginaModelo({ dados, codigo, onRecarregar, divisao, rec
             </li>
             <li>
               <span>{t.contato.site}</span>
-              <a href="https://www.oceantalentsolutions.com">www.oceantalentsolutions.com</a>
+              <a href={urlSite()}>{new URL(urlSite()).host}</a>
             </li>
           </ul>
         </div>
