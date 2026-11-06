@@ -1,11 +1,12 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
+import { enviarContato, ErroApi } from '../api';
 import { AREA_TEXTO, BOTAO, CAMPO, ERRO, ROTULO, SELECAO } from '../classes';
 import { IconeChevronBaixo } from '../icones';
 import { useIdioma } from '../idioma';
 import { emailValido, tamanhoEntre } from '../validacao';
 
-const VAZIO = { nome: '', email: '', telefone: '', linkedin: '', cargo: '', empresa: '', tipo: '', mensagem: '' };
+const VAZIO = { nome: '', email: '', telefone: '', linkedin: '', cargo: '', empresa: '', tipo: '', mensagem: '', site: '' };
 type Dados = typeof VAZIO;
 type Erros = Partial<Record<keyof Dados, string>>;
 
@@ -40,6 +41,9 @@ const TEXTOS = {
     mensagem: 'Mensagem',
     mensagemPlaceholder: 'Como podemos ajudar?',
     enviar: 'Enviar mensagem',
+    enviando: 'Enviando...',
+    falha: 'Não foi possível enviar agora. Tente novamente em instantes.',
+    revisar: 'Revise os campos destacados.',
   },
   en: {
     erros: {
@@ -71,6 +75,9 @@ const TEXTOS = {
     mensagem: 'Message',
     mensagemPlaceholder: 'How can we help?',
     enviar: 'Send message',
+    enviando: 'Sending...',
+    falha: 'We could not send it right now. Please try again shortly.',
+    revisar: 'Please review the highlighted fields.',
   },
 };
 
@@ -105,20 +112,47 @@ export default function FormularioContato() {
   const t = TEXTOS[idioma];
   const [dados, setDados] = useState<Dados>(VAZIO);
   const [tentou, setTentou] = useState(false);
-  const erros = tentou ? validar(dados, t.erros) : {};
+  const [errosApi, setErrosApi] = useState<Erros>({});
+  const [enviando, setEnviando] = useState(false);
+  const erros: Erros = tentou ? { ...errosApi, ...validar(dados, t.erros) } : {};
 
-  const alterar = (campo: keyof Dados) => (e: { target: { value: string } }) =>
+  const alterar = (campo: keyof Dados) => (e: { target: { value: string } }) => {
     setDados((d) => ({ ...d, [campo]: e.target.value }));
+    setErrosApi((a) => ({ ...a, [campo]: undefined }));
+  };
 
-  const enviar = (e: FormEvent) => {
+  const enviar = async (e: FormEvent) => {
     e.preventDefault();
+    setErrosApi({});
     if (Object.keys(validar(dados, t.erros)).length > 0) {
       setTentou(true);
       return;
     }
-    toast.success(t.sucesso);
-    setDados(VAZIO);
-    setTentou(false);
+    const corpo = Object.fromEntries(Object.entries(dados).map(([campo, valor]) => [campo, valor.trim()]));
+
+    setEnviando(true);
+    try {
+      await enviarContato(corpo);
+      toast.success(t.sucesso);
+      setDados(VAZIO);
+      setTentou(false);
+    } catch (erro) {
+      const detalhe = erro instanceof ErroApi && erro.status === 422 ? erro.detalhe : null;
+      if (detalhe && typeof detalhe === 'object' && !Array.isArray(detalhe)) {
+        const porCampo: Erros = {};
+        const mensagens: Record<string, string> = t.erros;
+        for (const [campo, texto] of Object.entries(detalhe as Record<string, string>)) {
+          porCampo[campo as keyof Dados] = mensagens[campo] ?? String(texto);
+        }
+        setErrosApi(porCampo);
+        setTentou(true);
+        toast.error(t.revisar);
+      } else {
+        toast.error(t.falha);
+      }
+    } finally {
+      setEnviando(false);
+    }
   };
 
   const entrada = (campo: keyof Dados, placeholder: string, tipo = 'text') => (
@@ -137,6 +171,12 @@ export default function FormularioContato() {
 
   return (
     <form className="grid gap-5" onSubmit={enviar} noValidate>
+      {/* Campo isca: invisível para pessoas, preenchido por robôs */}
+      <div className="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
+        <label htmlFor="contato-site">Site</label>
+        <input id="contato-site" name="site" tabIndex={-1} autoComplete="off" value={dados.site} onChange={alterar('site')} />
+      </div>
+
       <div className="grid gap-5 sm:grid-cols-2">
         <Campo id="contato-nome" rotulo={t.nome} erro={erros.nome}>
           {entrada('nome', t.nomePlaceholder)}
@@ -149,7 +189,7 @@ export default function FormularioContato() {
         <Campo id="contato-telefone" rotulo={t.telefone} erro={erros.telefone}>
           {entrada('telefone', t.telefonePlaceholder, 'tel')}
         </Campo>
-        <Campo id="contato-linkedin" rotulo="LinkedIn">
+        <Campo id="contato-linkedin" rotulo="LinkedIn" erro={erros.linkedin}>
           {entrada('linkedin', t.linkedinPlaceholder)}
         </Campo>
       </div>
@@ -181,7 +221,7 @@ export default function FormularioContato() {
           <IconeChevronBaixo className="pointer-events-none absolute right-3 top-2.5 h-4 w-4 opacity-50" />
         </div>
       </Campo>
-      <Campo id="contato-mensagem" rotulo={t.mensagem}>
+      <Campo id="contato-mensagem" rotulo={t.mensagem} erro={erros.mensagem}>
         <textarea
           id="contato-mensagem"
           name="mensagem"
@@ -195,9 +235,10 @@ export default function FormularioContato() {
       </Campo>
       <button
         type="submit"
+        disabled={enviando}
         className={`${BOTAO} bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 rounded-md px-8 w-full sm:w-auto`}
       >
-        {t.enviar}
+        {enviando ? t.enviando : t.enviar}
       </button>
     </form>
   );

@@ -14,7 +14,7 @@ from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrim
 from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
-from app.api.routes import proposal_acessos, proposal_modelos, proposal_vagas, public_vagas
+from app.api.routes import proposal_acessos, proposal_modelos, proposal_vagas, public_vagas, public_contato
 from app.models import (
     CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_IDIOMA,
     CK_PROPOSTAS_MOEDA,
@@ -888,6 +888,7 @@ app.include_router(proposal_modelos.router, prefix="/api/proposal/modelos", tags
 app.include_router(public_propostas.router, prefix="/api/public/propostas", tags=["Proposal · Público"])
 app.include_router(proposal_vagas.router, prefix="/api/proposal/vagas", tags=["Proposal · Vagas"])
 app.include_router(public_vagas.router, prefix="/api/public/vagas", tags=["Site · Vagas"])
+app.include_router(public_contato.router, prefix="/api/public/contato", tags=["Site · Contato"])
 
 # Wipe destrutivo: só monta rotas em DEBUG (dev local)
 if settings.DEBUG:

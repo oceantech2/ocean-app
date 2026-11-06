@@ -34,3 +34,11 @@ export function obterVaga(id: number) {
 export function enviarCandidatura(vagaId: number, dados: FormData) {
   return requisitar<{ ok: true }>(`/public/vagas/${vagaId}/candidaturas`, { method: 'POST', body: dados });
 }
+
+export function enviarContato(dados: Record<string, string>) {
+  return requisitar<{ ok: true }>('/public/contato/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dados),
+  });
+}

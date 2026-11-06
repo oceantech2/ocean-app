@@ -56,6 +56,31 @@ def montar_payload(c: Candidatura) -> dict:
     return {chave: valor for chave, valor in payload.items() if valor not in (None, "")}
 
 
+class ErroPlanilha(Exception):
+    pass
+
+
+def postar(corpo: dict) -> dict:
+    """Envia ao Web App com o secret; devolve a resposta `ok` ou levanta ErroPlanilha com o motivo."""
+    if not settings.SHEETS_WEBHOOK_URL:
+        raise ErroPlanilha(MSG_NAO_CONFIGURADA)
+    corpo = {**corpo, "secret": settings.SHEETS_WEBHOOK_SECRET}
+    try:
+        r = httpx.post(settings.SHEETS_WEBHOOK_URL, json=corpo, timeout=_TIMEOUT, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        raise ErroPlanilha(f"Planilha indisponível: {exc.__class__.__name__}") from exc
+    if r.status_code >= 400:
+        raise ErroPlanilha(f"Planilha respondeu HTTP {r.status_code}")
+    try:
+        dados = r.json()
+    except ValueError as exc:
+        raise ErroPlanilha("Planilha respondeu em formato inesperado") from exc
+    if not isinstance(dados, dict) or not dados.get("ok"):
+        erro = dados.get("error") if isinstance(dados, dict) else None
+        raise ErroPlanilha(f"Planilha recusou: {erro or 'sem detalhe'}")
+    return dados
+
+
 def _falhar(c: Candidatura, erro: str) -> bool:
     c.planilha_tentativas = (c.planilha_tentativas or 0) + 1
     c.planilha_erro = erro[:500]
@@ -67,22 +92,10 @@ def enviar(c: Candidatura) -> bool:
     """Tenta enviar e atualiza o status na candidatura (sem commit). Devolve True se a planilha aceitou."""
     if c.planilha_enviada_em:
         return True
-    if not settings.SHEETS_WEBHOOK_URL:
-        return _falhar(c, MSG_NAO_CONFIGURADA)
-    corpo = {**montar_payload(c), "secret": settings.SHEETS_WEBHOOK_SECRET}
     try:
-        r = httpx.post(settings.SHEETS_WEBHOOK_URL, json=corpo, timeout=_TIMEOUT, follow_redirects=True)
-    except httpx.HTTPError as exc:
-        return _falhar(c, f"Planilha indisponível: {exc.__class__.__name__}")
-    if r.status_code >= 400:
-        return _falhar(c, f"Planilha respondeu HTTP {r.status_code}")
-    try:
-        dados = r.json()
-    except ValueError:
-        return _falhar(c, "Planilha respondeu em formato inesperado")
-    if not isinstance(dados, dict) or not dados.get("ok"):
-        erro = dados.get("error") if isinstance(dados, dict) else None
-        return _falhar(c, f"Planilha recusou: {erro or 'sem detalhe'}")
+        dados = postar({**montar_payload(c), "tipo": "candidatura"})
+    except ErroPlanilha as exc:
+        return _falhar(c, str(exc))
 
     c.planilha_tentativas = (c.planilha_tentativas or 0) + 1
     c.planilha_enviada_em = datetime.utcnow().replace(microsecond=0)
