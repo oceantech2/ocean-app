@@ -58,8 +58,8 @@ function registrarCandidatura_(d) {
     var shV = ss.getSheetByName('Vagas'), hV = whHeaders_(shV), dadosV = whDados_(shV);
     for (var v = 0; v < dadosV.length; v++) {
       if (String(dadosV[v][hV['ID Vaga']]) === String(vaga.id)) {
-        vaga.titulo = vaga.titulo || dadosV[v][hV['Vaga']];
-        vaga.cliente = vaga.cliente || dadosV[v][hV['Empresa']];
+        vaga.titulo = dadosV[v][hV['Vaga']] || vaga.titulo;
+        vaga.cliente = dadosV[v][hV['Empresa']] || vaga.cliente;
         vaga.link = dadosV[v][hV['Link da planilha da vaga']] || '';
         break;
       }

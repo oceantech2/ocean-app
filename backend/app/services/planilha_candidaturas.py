@@ -47,12 +47,10 @@ def montar_payload(c: Candidatura) -> dict:
         "disponibilidade": DISPONIBILIDADE.get(c.disponibilidade or ""),
         "mobilidade": MOBILIDADE.get(c.mobilidade or ""),
         "linkCv": link_curriculo(c) if c.curriculo_path else None,
+        "vagaId": vaga.codigo_planilha,
+        "vaga": vaga.titulo,
+        "cliente": vaga.cliente,
     }
-    if vaga.codigo_planilha:
-        payload["vagaId"] = vaga.codigo_planilha
-    else:
-        payload["vaga"] = vaga.titulo
-        payload["cliente"] = vaga.cliente
     return {chave: valor for chave, valor in payload.items() if valor not in (None, "")}
 
 

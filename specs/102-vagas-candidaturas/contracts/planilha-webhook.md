@@ -38,7 +38,7 @@ Web App do Google Apps Script mantido pela Ocean. Configuração no servidor:
 
 Regras:
 
-- `vagaId` só quando a vaga tem `codigo_planilha`; sem ele, envia `vaga` (título) e `cliente`.
+- `vaga` (título) e `cliente` sempre; `vagaId` quando a vaga tem `codigo_planilha`. A planilha usa título e cliente da aba Vagas quando acha o `vagaId` e os enviados quando não acha.
 - Opcionais vazios são omitidos.
 - `ingles`, `disponibilidade` e `mobilidade` vão com o rótulo em português.
 - Timeout de 30 s.
