@@ -268,6 +268,11 @@ export default function Nova() {
               </>
             )}
           </select>
+          {modelosDaDivisao.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              Preenche todas as seções. Para usar outro modelo em uma seção, escolha no canto dela.
+            </p>
+          )}
         </div>
       </div>
 
@@ -279,6 +284,8 @@ export default function Nova() {
         <ModeloForm
           key={versaoForm}
           inicial={inicial}
+          modelosSecao={modelosDaDivisao}
+          modeloSecaoInicial={modeloPropostaSel}
           modelo={modelo}
           rotuloSalvar="Gerar proposta"
           rotuloSalvando="Gerando..."

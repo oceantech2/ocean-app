@@ -129,6 +129,9 @@ function projetoParaForm(projeto: Projeto): ProjetoForm {
   return { chave: novaChave(), nome: projeto.nome, investimentos };
 }
 
+const setorValido = (setor: string | null | undefined): setor is SetorId =>
+  !!setor && SETORES.some((s) => s.chave === setor);
+
 /** Formulário de nova proposta a partir de um modelo de proposta: cliente vazio, data de hoje e consultor do perfil. */
 export function formDeModeloProposta(m: ModeloProposta, consultor?: PerfilConsultor | null): FormModelo {
   const base = formModeloInicial(consultor);
@@ -137,7 +140,7 @@ export function formDeModeloProposta(m: ModeloProposta, consultor?: PerfilConsul
     ...base,
     idioma: m.idioma,
     moeda: m.moeda,
-    setor: m.setor && SETORES.some((s) => s.chave === m.setor) ? m.setor : '',
+    setor: setorValido(m.setor) ? m.setor : '',
     projeto_escopo: m.projeto_escopo ?? '',
     projetos: projetos.length ? projetos : [projetoVazio()],
     shortlist: m.shortlist ?? '',
@@ -264,9 +267,92 @@ const semErrosDeProjeto = (e: Erros): Erros =>
 // 'modelo': cadastro de modelo de proposta, sem empresa, data e consultor e com setor opcional
 type Variante = 'proposta' | 'modelo';
 
+// Seções que podem ser preenchidas, uma a uma, a partir de um modelo de proposta diferente
+type SecaoModelo = 'apresentacao' | 'cliente' | 'escopo' | 'projetos' | 'garantias' | 'validade';
+const SECOES_MODELO: SecaoModelo[] = ['apresentacao', 'cliente', 'escopo', 'projetos', 'garantias', 'validade'];
+
+// Modelo aplicado por último na seção e o conteúdo que ele trouxe; editar a seção desfaz a origem
+interface OrigemSecao {
+  id: string;
+  assinatura: string;
+}
+
+const CAMPO_ERRO_SECAO: Partial<Record<SecaoModelo, keyof FormModelo>> = {
+  cliente: 'setor',
+  escopo: 'projeto_escopo',
+  validade: 'validade_dias',
+};
+
+// Troca só os textos que ainda são o padrão do idioma anterior; o que o consultor digitou fica
+function comIdioma(f: FormModelo, idioma: Idioma): FormModelo {
+  const antes = TEXTOS_PADRAO_GARANTIAS[f.idioma];
+  const depois = TEXTOS_PADRAO_GARANTIAS[idioma];
+  return {
+    ...f,
+    idioma,
+    shortlist: f.shortlist === antes.shortlist ? depois.shortlist : f.shortlist,
+    sla: f.sla === antes.sla ? depois.sla : f.sla,
+  };
+}
+
+function conteudoDoModeloNaSecao(f: FormModelo, secao: SecaoModelo, m: ModeloProposta): FormModelo {
+  switch (secao) {
+    case 'apresentacao':
+      return { ...comIdioma(f, m.idioma), moeda: m.moeda };
+    case 'cliente':
+      return { ...f, setor: setorValido(m.setor) ? m.setor : f.setor };
+    case 'escopo':
+      return { ...f, projeto_escopo: m.projeto_escopo ?? '' };
+    case 'projetos': {
+      const projetos = (m.projetos || []).map(projetoParaForm);
+      return { ...f, projetos: projetos.length ? projetos : [projetoVazio()] };
+    }
+    case 'garantias':
+      return { ...f, shortlist: m.shortlist ?? '', sla: m.sla ?? '', garantia: m.garantia ?? '' };
+    case 'validade':
+      return { ...f, validade_dias: String(m.validade_dias) };
+  }
+}
+
+function assinaturaSecao(f: FormModelo, secao: SecaoModelo): string {
+  switch (secao) {
+    case 'apresentacao':
+      return JSON.stringify([f.idioma, f.moeda]);
+    case 'cliente':
+      return f.setor;
+    case 'escopo':
+      return f.projeto_escopo;
+    case 'projetos':
+      return JSON.stringify(f.projetos.map(({ nome, investimentos }) => [nome, investimentos]));
+    case 'garantias':
+      return JSON.stringify([f.shortlist, f.sla, f.garantia]);
+    case 'validade':
+      return f.validade_dias;
+  }
+}
+
+const projetoEmBranco = (p: ProjetoForm) =>
+  !p.nome.trim() && TIPOS.every(({ tipo }) => !p.investimentos[tipo].ativo);
+
+// Apresentação e validade são escolhas simples de desfazer: trocam sem confirmação
+function secaoPreenchida(form: FormModelo, secao: SecaoModelo): boolean {
+  if (secao === 'cliente') return form.setor !== '';
+  if (secao === 'escopo') return contarCaracteres(form.projeto_escopo) > 0;
+  if (secao === 'projetos') return !form.projetos.every(projetoEmBranco);
+  if (secao === 'garantias') {
+    const padrao = TEXTOS_PADRAO_GARANTIAS[form.idioma];
+    return form.shortlist !== padrao.shortlist || form.sla !== padrao.sla || form.garantia.trim() !== '';
+  }
+  return false;
+}
+
 interface Props {
   inicial: FormModelo;
   variante?: Variante;
+  // Modelos de proposta oferecidos no cabeçalho de cada seção (Nova proposta)
+  modelosSecao?: ModeloProposta[];
+  // Modelo que preencheu o formulário inteiro, mostrado como origem de todas as seções
+  modeloSecaoInicial?: string;
   // Chamado na primeira alteração feita pelo usuário depois de carregar `inicial`
   onAlterado?: () => void;
   modelo: ModeloId;
@@ -308,6 +394,8 @@ function ResumoImposto({ vigente, atual }: { vigente: ImpostoVigente | null; atu
 export default function ModeloForm({
   inicial,
   variante = 'proposta',
+  modelosSecao,
+  modeloSecaoInicial = '',
   onAlterado,
   modelo,
   rotuloSalvar,
@@ -335,19 +423,16 @@ export default function ModeloForm({
     setErros((e) => ({ ...e, [campo]: undefined }));
   };
 
-  // Troca só os textos que ainda são o padrão do idioma anterior; o que o consultor digitou fica
-  const trocarIdioma = (idioma: Idioma) => {
-    setForm((f) => {
-      const antes = TEXTOS_PADRAO_GARANTIAS[f.idioma];
-      const depois = TEXTOS_PADRAO_GARANTIAS[idioma];
-      return {
-        ...f,
-        idioma,
-        shortlist: f.shortlist === antes.shortlist ? depois.shortlist : f.shortlist,
-        sla: f.sla === antes.sla ? depois.sla : f.sla,
-      };
-    });
-  };
+  const trocarIdioma = (idioma: Idioma) => setForm((f) => comIdioma(f, idioma));
+
+  const [origemSecao, setOrigemSecao] = useState<Record<SecaoModelo, OrigemSecao>>(
+    () =>
+      Object.fromEntries(
+        SECOES_MODELO.map((s) => [s, { id: modeloSecaoInicial, assinatura: assinaturaSecao(inicial, s) }]),
+      ) as Record<SecaoModelo, OrigemSecao>,
+  );
+  // O editor de escopo só lê o valor ao montar; remontado quando um modelo substitui o escopo
+  const [versaoEscopo, setVersaoEscopo] = useState(0);
 
   const setProjeto = (i: number, mudanca: Partial<ProjetoForm>) => {
     setForm((f) => ({ ...f, projetos: f.projetos.map((p, j) => (j === i ? { ...p, ...mudanca } : p)) }));
@@ -385,6 +470,31 @@ export default function ModeloForm({
       [copia[i], copia[destino]] = [copia[destino], copia[i]];
       return copia;
     });
+
+  const opcoesDaSecao = (secao: SecaoModelo): ModeloProposta[] => {
+    const todos = modelosSecao ?? [];
+    return secao === 'cliente' ? todos.filter((m) => setorValido(m.setor)) : todos;
+  };
+
+  const aplicarModeloNaSecao = (secao: SecaoModelo, id: string, nomeSecao: string) => {
+    const m = opcoesDaSecao(secao).find((item) => String(item.id) === id);
+    if (!m) return;
+    const novo = conteudoDoModeloNaSecao(form, secao, m);
+    const assinatura = assinaturaSecao(novo, secao);
+    if (
+      secaoPreenchida(form, secao) &&
+      assinaturaSecao(form, secao) !== assinatura &&
+      !window.confirm(`Substituir o conteúdo de ${nomeSecao} pelo do modelo "${m.nome}"?`)
+    ) {
+      return;
+    }
+    setForm(novo);
+    const campoErro = CAMPO_ERRO_SECAO[secao];
+    if (secao === 'projetos') setErros(semErrosDeProjeto);
+    else if (campoErro) setErros((e) => ({ ...e, [campoErro]: undefined }));
+    if (secao === 'escopo') setVersaoEscopo((v) => v + 1);
+    setOrigemSecao((o) => ({ ...o, [secao]: { id, assinatura } }));
+  };
 
   const salvar = (e: React.FormEvent) => {
     e.preventDefault();
@@ -446,6 +556,41 @@ export default function ModeloForm({
     </div>
   );
 
+  const cabecalhoSecao = (titulo: string, secao?: SecaoModelo, nomeSecao = titulo) => {
+    const opcoes = secao ? opcoesDaSecao(secao) : [];
+    const origem = secao ? origemSecao[secao] : null;
+    const valor =
+      secao &&
+      origem &&
+      opcoes.some((m) => String(m.id) === origem.id) &&
+      assinaturaSecao(form, secao) === origem.assinatura
+        ? origem.id
+        : '';
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold text-gray-900">{titulo}</h2>
+        {secao && opcoes.length > 0 && (
+          <select
+            value={valor}
+            onChange={(e) => aplicarModeloNaSecao(secao, e.target.value, nomeSecao)}
+            aria-label={`Modelo da seção ${nomeSecao}`}
+            title="Preenche só esta seção com o conteúdo do modelo escolhido"
+            className="max-w-[14rem] px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-ocean-600"
+          >
+            <option value="" disabled>
+              Usar modelo…
+            </option>
+            {opcoes.map((m) => (
+              <option key={m.id} value={String(m.id)}>
+                {m.nome}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    );
+  };
+
   const validade = validadeCalculada(form);
   const garantiaResumo = form.garantia.trim();
 
@@ -455,7 +600,7 @@ export default function ModeloForm({
       <form onSubmit={salvar} noValidate className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Apresentação</h2>
+            {cabecalhoSecao('Apresentação', idiomaMoedaFixos ? undefined : 'apresentacao')}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Idioma da apresentação</label>
@@ -517,7 +662,7 @@ export default function ModeloForm({
           ) : (
             <>
               <section className={secaoCls}>
-                <h2 className="font-semibold text-gray-900">Cliente</h2>
+                {cabecalhoSecao('Cliente', 'cliente')}
                 {texto('cliente_nome', 'Empresa')}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -587,7 +732,7 @@ export default function ModeloForm({
           )}
 
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">{registro.rotuloEscopo} (opcional)</h2>
+            {cabecalhoSecao(`${registro.rotuloEscopo} (opcional)`, 'escopo', registro.rotuloEscopo)}
             <div>
               <Suspense
                 fallback={
@@ -597,6 +742,7 @@ export default function ModeloForm({
                 }
               >
                 <EditorEscopo
+                  key={versaoEscopo}
                   valor={form.projeto_escopo}
                   onChange={(html) => set('projeto_escopo', html)}
                   erro={erros.projeto_escopo}
@@ -611,7 +757,7 @@ export default function ModeloForm({
           </section>
 
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Projetos</h2>
+            {cabecalhoSecao('Projetos', 'projetos')}
             {form.projetos.map((projeto, i) => {
               const p = `projeto.${i}`;
               return (
@@ -748,7 +894,7 @@ export default function ModeloForm({
           </section>
 
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Garantias e condições</h2>
+            {cabecalhoSecao('Garantias e condições', 'garantias')}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {condicao('shortlist', 'Shortlist', TEXTOS_PADRAO_GARANTIAS[form.idioma].shortlist)}
               {condicao('sla', 'SLA', TEXTOS_PADRAO_GARANTIAS[form.idioma].sla)}
@@ -763,7 +909,7 @@ export default function ModeloForm({
           </section>
 
           <section className={secaoCls}>
-            <h2 className="font-semibold text-gray-900">Validade</h2>
+            {cabecalhoSecao('Validade', 'validade')}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <div>
                 <label className={labelCls}>Validade (dias)</label>
