@@ -13,8 +13,14 @@ const VAZIO = {
   telefone: '',
   linkedin: '',
   localidade: '',
+  idade: '',
+  nacionalidade: '',
   cargo_atual: '',
   empresa_atual: '',
+  cargo_2: '',
+  empresa_2: '',
+  cargo_3: '',
+  empresa_3: '',
   pretensao_min: '',
   pretensao_max: '',
   formacao: '',
@@ -40,8 +46,14 @@ const TEXTOS = {
       telefone: 'Informe um telefone com DDD',
       linkedin: 'URL inválida',
       localidade: 'Informe sua localidade',
-      cargo_atual: 'Informe seu cargo atual',
-      empresa_atual: 'Informe sua empresa atual',
+      idade: 'Informe uma idade válida',
+      nacionalidade: 'Informe sua nacionalidade',
+      cargo_atual: 'Informe seu último cargo',
+      empresa_atual: 'Informe sua última empresa',
+      cargo_2: 'Informe o cargo',
+      empresa_2: 'Informe a empresa',
+      cargo_3: 'Informe o cargo',
+      empresa_3: 'Informe a empresa',
       pretensao_min: 'Informe a pretensão mínima',
       pretensao_max: 'Informe a pretensão salarial',
       pretensaoOrdem: 'A pretensão salarial deve ser maior ou igual à mínima',
@@ -59,8 +71,11 @@ const TEXTOS = {
     linkedinPlaceholder: 'https://linkedin.com/in/seu-perfil',
     localidade: 'Localidade *',
     localidadePlaceholder: 'Cidade / UF',
-    cargo: 'Cargo atual *',
-    empresa: 'Empresa atual *',
+    idade: 'Idade *',
+    nacionalidade: 'Nacionalidade *',
+    nacionalidadePlaceholder: 'Ex.: Brasileira',
+    cargos: ['Último cargo *', 'Penúltimo cargo', 'Antepenúltimo cargo'],
+    empresas: ['Última empresa *', 'Penúltima empresa', 'Antepenúltima empresa'],
     pretensaoMin: 'Pretensão salarial mínima (R$/mês) *',
     pretensaoMax: 'Pretensão salarial (R$/mês) *',
     pretensaoPlaceholder: 'Ex.: 25.000',
@@ -89,8 +104,14 @@ const TEXTOS = {
       telefone: 'Please enter a phone with area code',
       linkedin: 'Invalid URL',
       localidade: 'Please enter your location',
-      cargo_atual: 'Please enter your current role',
-      empresa_atual: 'Please enter your current company',
+      idade: 'Please enter a valid age',
+      nacionalidade: 'Please enter your nationality',
+      cargo_atual: 'Please enter your most recent role',
+      empresa_atual: 'Please enter your most recent company',
+      cargo_2: 'Please enter the role',
+      empresa_2: 'Please enter the company',
+      cargo_3: 'Please enter the role',
+      empresa_3: 'Please enter the company',
       pretensao_min: 'Please enter your minimum salary expectation',
       pretensao_max: 'Please enter your salary expectation',
       pretensaoOrdem: 'The salary expectation must be greater than or equal to the minimum',
@@ -108,8 +129,11 @@ const TEXTOS = {
     linkedinPlaceholder: 'https://linkedin.com/in/your-profile',
     localidade: 'Location *',
     localidadePlaceholder: 'City / State',
-    cargo: 'Current role *',
-    empresa: 'Current company *',
+    idade: 'Age *',
+    nacionalidade: 'Nationality *',
+    nacionalidadePlaceholder: 'E.g.: Brazilian',
+    cargos: ['Most recent role *', 'Previous role', 'Role before that'],
+    empresas: ['Most recent company *', 'Previous company', 'Company before that'],
     pretensaoMin: 'Minimum salary expectation (BRL/month) *',
     pretensaoMax: 'Salary expectation (BRL/month) *',
     pretensaoPlaceholder: 'E.g.: 25,000',
@@ -147,8 +171,15 @@ function validar(d: Dados, arquivo: File | null, consentimento: boolean, m: Reco
   const linkedin = d.linkedin.trim();
   if (linkedin && (!urlValida(linkedin) || linkedin.length > 200)) e.linkedin = m.linkedin;
   if (!tamanhoEntre(d.localidade.trim(), 2, 120)) e.localidade = m.localidade;
+  if (!/^\d{1,2}$/.test(d.idade.trim()) || Number(d.idade) < 16) e.idade = m.idade;
+  if (!tamanhoEntre(d.nacionalidade.trim(), 2, 60)) e.nacionalidade = m.nacionalidade;
   if (!tamanhoEntre(d.cargo_atual.trim(), 2, 120)) e.cargo_atual = m.cargo_atual;
   if (!tamanhoEntre(d.empresa_atual.trim(), 2, 120)) e.empresa_atual = m.empresa_atual;
+  for (const [cargo, empresa] of [['cargo_2', 'empresa_2'], ['cargo_3', 'empresa_3']] as const) {
+    if (!d[cargo].trim() && !d[empresa].trim()) continue;
+    if (!tamanhoEntre(d[cargo].trim(), 2, 120)) e[cargo] = m[cargo];
+    if (!tamanhoEntre(d[empresa].trim(), 2, 120)) e[empresa] = m[empresa];
+  }
   const minimo = valorMonetario(d.pretensao_min);
   const maximo = valorMonetario(d.pretensao_max);
   if (!minimo || minimo <= 0 || minimo > 10_000_000) e.pretensao_min = m.pretensao_min;
@@ -314,13 +345,29 @@ export default function FormularioCandidatura({ vaga, onIndisponivel }: { vaga: 
         </Campo>
       </div>
       <div className="grid gap-5 sm:grid-cols-2">
-        <Campo id="candidatura-cargo_atual" rotulo={t.cargo} erro={erros.cargo_atual}>
-          {entrada('cargo_atual')}
+        <Campo id="candidatura-idade" rotulo={t.idade} erro={erros.idade}>
+          {entrada('idade', { max: 2, inputMode: 'numeric' })}
         </Campo>
-        <Campo id="candidatura-empresa_atual" rotulo={t.empresa} erro={erros.empresa_atual}>
-          {entrada('empresa_atual')}
+        <Campo id="candidatura-nacionalidade" rotulo={t.nacionalidade} erro={erros.nacionalidade}>
+          {entrada('nacionalidade', { placeholder: t.nacionalidadePlaceholder, max: 60 })}
         </Campo>
       </div>
+      {(
+        [
+          ['cargo_atual', 'empresa_atual'],
+          ['cargo_2', 'empresa_2'],
+          ['cargo_3', 'empresa_3'],
+        ] as const
+      ).map(([cargo, empresa], i) => (
+        <div key={cargo} className="grid gap-5 sm:grid-cols-2">
+          <Campo id={`candidatura-${cargo}`} rotulo={t.cargos[i]} erro={erros[cargo]}>
+            {entrada(cargo)}
+          </Campo>
+          <Campo id={`candidatura-${empresa}`} rotulo={t.empresas[i]} erro={erros[empresa]}>
+            {entrada(empresa)}
+          </Campo>
+        </div>
+      ))}
       <div className="grid gap-5 sm:grid-cols-2">
         <Campo id="candidatura-pretensao_min" rotulo={t.pretensaoMin} erro={erros.pretensao_min}>
           {entrada('pretensao_min', { placeholder: t.pretensaoPlaceholder, max: 20, inputMode: 'decimal' })}

@@ -23,7 +23,7 @@ Erros: 403 "Ação permitida apenas ao autor da vaga ou administradores"; 404 "V
 
 **`VagaPainel`**: entrada + `id, slug, status, criado_por_usuario, criado_em, atualizado_por_usuario, atualizado_em, encerrada_em, candidaturas_total, candidaturas_pendentes, pode_editar`.
 
-**`CandidaturaPainel`**: `id, nome, email, telefone, linkedin, localidade, cargo_atual, empresa_atual, formacao, experiencia, ingles, outros_idiomas, pretensao_min, pretensao_max, disponibilidade, mobilidade, curriculo_nome, criada_em, planilha_status ('enviada'|'pendente'), planilha_enviada_em, planilha_erro`.
+**`CandidaturaPainel`**: `id, nome, email, telefone, linkedin, localidade, cargo_atual, empresa_atual, cargo_2, empresa_2, cargo_3, empresa_3, idade, nacionalidade, formacao, experiencia, ingles, outros_idiomas, pretensao_min, pretensao_max, disponibilidade, mobilidade, curriculo_nome, criada_em, planilha_status ('enviada'|'pendente'), planilha_enviada_em, planilha_erro`.
 
 Auditoria (`registrar_auditoria`, entidade `Vaga`): `criar`, `editar`, `encerrar`, `reabrir`, `excluir`.
 
@@ -37,6 +37,6 @@ Auditoria (`registrar_auditoria`, entidade `Vaga`): `criar`, `editar`, `encerrar
 
 **`VagaPublica`**: `id, slug, titulo, area, nivel, localidade, resumo, descricao, responsabilidades, requisitos, diferenciais, criado_em`. **Nunca** `cliente`, `codigo_planilha`, autor ou contagens.
 
-**Candidatura (multipart/form-data)**: `nome, email, telefone, localidade, cargo_atual, empresa_atual, pretensao_min, pretensao_max, consentimento ('true'), curriculo (arquivo)` obrigatórios; `linkedin, formacao, experiencia, ingles, outros_idiomas, disponibilidade, mobilidade` opcionais; `site` = campo isca (preenchido → 201 sem gravar).
+**Candidatura (multipart/form-data)**: `nome, email, telefone, localidade, idade (16–99), nacionalidade, cargo_atual, empresa_atual (último cargo/empresa), pretensao_min, pretensao_max, consentimento ('true'), curriculo (arquivo)` obrigatórios; `cargo_2, empresa_2, cargo_3, empresa_3` (penúltimo e antepenúltimo; cargo e empresa vêm em par), `linkedin, formacao, experiencia, ingles, outros_idiomas, disponibilidade, mobilidade` opcionais; `site` = campo isca (preenchido → 201 sem gravar).
 
 Erros de validação: 422 com `detail` = `{ campo: mensagem }` (chaves iguais aos nomes dos campos) para o site destacar cada campo; o site traduz pelas chaves e só usa o texto da API como fallback.

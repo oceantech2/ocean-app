@@ -782,6 +782,15 @@ def _migrar():
         try:
             conn.execute(text("ALTER TABLE vagas ENABLE ROW LEVEL SECURITY"))
             conn.execute(text("ALTER TABLE candidaturas ENABLE ROW LEVEL SECURITY"))
+            for coluna in (
+                "cargo_2 VARCHAR(120)",
+                "empresa_2 VARCHAR(120)",
+                "cargo_3 VARCHAR(120)",
+                "empresa_3 VARCHAR(120)",
+                "idade INTEGER",
+                "nacionalidade VARCHAR(60)",
+            ):
+                conn.execute(text(f"ALTER TABLE candidaturas ADD COLUMN IF NOT EXISTS {coluna}"))
             semeada = conn.execute(
                 text("SELECT 1 FROM configuracao_app WHERE chave = 'seed_vagas_102'")
             ).first()

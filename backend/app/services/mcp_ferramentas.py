@@ -477,8 +477,8 @@ FERRAMENTAS = (
     Ferramenta(
         "listar_candidaturas",
         "Listar candidaturas da vaga",
-        "Lista as candidaturas de uma vaga (mais recentes primeiro) com contatos, cargo e empresa atuais, pretensões, "
-        "demais respostas do formulário, status do envio à planilha e o link do painel para abrir o currículo.",
+        "Lista as candidaturas de uma vaga (mais recentes primeiro) com contatos, idade, nacionalidade, "
+        "últimos 3 cargos e empresas (cargo_atual/empresa_atual é o mais recente), pretensões, demais respostas do formulário, status do envio à planilha e o link do painel para abrir o currículo.",
         _objeto({"vaga_id": {**_ID, "description": "id da vaga"}}, ("vaga_id",)),
         _listar_candidaturas,
         True,

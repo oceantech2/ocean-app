@@ -425,6 +425,12 @@ export interface Candidatura {
   localidade: string;
   cargo_atual: string;
   empresa_atual: string;
+  cargo_2: string | null;
+  empresa_2: string | null;
+  cargo_3: string | null;
+  empresa_3: string | null;
+  idade: number | null;
+  nacionalidade: string | null;
   formacao: string | null;
   experiencia: string | null;
   ingles: string | null;

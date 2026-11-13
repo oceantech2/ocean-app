@@ -39,6 +39,8 @@ MSG_SEM_PERMISSAO = "Ação permitida apenas ao autor da vaga ou administradores
 CURRICULO_EXTENSOES = {".pdf", ".doc", ".docx"}
 CURRICULO_MAX_BYTES = 5 * 1024 * 1024
 PRETENSAO_MAXIMA = Decimal("10000000")
+IDADE_MINIMA = 16
+IDADE_MAXIMA = 99
 
 _CODIGO_PLANILHA = re.compile(r"^[A-Z0-9._-]{1,20}$")
 _EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -166,6 +168,12 @@ def serializar_candidatura(c: Candidatura) -> dict:
         "localidade": c.localidade,
         "cargo_atual": c.cargo_atual,
         "empresa_atual": c.empresa_atual,
+        "cargo_2": c.cargo_2,
+        "empresa_2": c.empresa_2,
+        "cargo_3": c.cargo_3,
+        "empresa_3": c.empresa_3,
+        "idade": c.idade,
+        "nacionalidade": c.nacionalidade,
         "formacao": c.formacao,
         "experiencia": c.experiencia,
         "ingles": c.ingles,
@@ -212,8 +220,16 @@ def validar_candidatura(campos: dict, erros_extra: Optional[dict] = None) -> dic
     if not (10 <= len(digitos) <= 13) or len(d.get("telefone", "")) > 30:
         erros["telefone"] = "Telefone inválido"
     exigir("localidade", 2, 120, "Informe sua localidade")
-    exigir("cargo_atual", 2, 120, "Informe seu cargo atual")
-    exigir("empresa_atual", 2, 120, "Informe sua empresa atual")
+    exigir("cargo_atual", 2, 120, "Informe seu último cargo")
+    exigir("empresa_atual", 2, 120, "Informe sua última empresa")
+    for cargo, empresa in (("cargo_2", "empresa_2"), ("cargo_3", "empresa_3")):
+        if d.get(cargo) or d.get(empresa):
+            exigir(cargo, 2, 120, "Informe o cargo")
+            exigir(empresa, 2, 120, "Informe a empresa")
+    exigir("nacionalidade", 2, 60, "Informe sua nacionalidade")
+    idade = int(d["idade"]) if d.get("idade", "").isdigit() else None
+    if idade is None or not (IDADE_MINIMA <= idade <= IDADE_MAXIMA):
+        erros["idade"] = "Informe uma idade válida"
 
     linkedin = d.get("linkedin", "")
     if linkedin and (not re.match(r"^https?://\S+\.\S+", linkedin) or len(linkedin) > 200):
@@ -248,6 +264,12 @@ def validar_candidatura(campos: dict, erros_extra: Optional[dict] = None) -> dic
         "localidade": d["localidade"],
         "cargo_atual": d["cargo_atual"],
         "empresa_atual": d["empresa_atual"],
+        "cargo_2": d.get("cargo_2") or None,
+        "empresa_2": d.get("empresa_2") or None,
+        "cargo_3": d.get("cargo_3") or None,
+        "empresa_3": d.get("empresa_3") or None,
+        "idade": idade,
+        "nacionalidade": d["nacionalidade"],
         "formacao": d.get("formacao") or None,
         "experiencia": d.get("experiencia") or None,
         "ingles": d.get("ingles") or None,

@@ -67,8 +67,12 @@ function registrarCandidatura_(d) {
   }
 
   // 3) Pessoa (por e-mail, depois LinkedIn)
+  var anteriores = [[d.cargo2, d.empresa2], [d.cargo3, d.empresa3]]
+    .filter(function (p) { return whTem_(p[0]); })
+    .map(function (p) { return p[0] + ' — ' + p[1]; }).join('; ');
   var campos = {
     'Nome': d.nome, 'Empresa': d.empresaAtual, 'Cargo': d.cargoAtual, 'E-mail': String(d.email).trim().toLowerCase(),
+    'Cargos anteriores': whSeguro_(anteriores), 'Idade': d.idade, 'Nacionalidade': whSeguro_(d.nacionalidade),
     'Telefone': d.telefone ? normalizarTelefone_(d.telefone) : '',
     'LinkedIn': d.linkedin ? normalizarLinkedin_(d.linkedin) : '', 'Localização': d.localizacao,
     'Mobilidade': d.mobilidade, 'Formação': d.formacao, 'Experiência': d.experiencia,

@@ -147,7 +147,7 @@ function Candidaturas({ vaga, onAtualizar }: { vaga: Vaga; onAtualizar: () => vo
             <thead className="bg-gray-50 text-left text-gray-600">
               <tr>
                 <th className="px-3 py-2 font-medium">Candidato</th>
-                <th className="px-3 py-2 font-medium">Atual</th>
+                <th className="px-3 py-2 font-medium">Último cargo</th>
                 <th className="px-3 py-2 font-medium">Pretensão</th>
                 <th className="px-3 py-2 font-medium">Planilha</th>
                 <th className="px-3 py-2 font-medium text-right">Currículo</th>
@@ -216,6 +216,16 @@ function Candidaturas({ vaga, onAtualizar }: { vaga: Vaga; onAtualizar: () => vo
                             ) : (
                               '—'
                             )}
+                          </Campo>
+                          <Campo label="Idade">{c.idade ?? '—'}</Campo>
+                          <Campo label="Nacionalidade">{c.nacionalidade || '—'}</Campo>
+                          <Campo label="Cargos anteriores">
+                            {[c.cargo_2 && `${c.cargo_2} — ${c.empresa_2}`, c.cargo_3 && `${c.cargo_3} — ${c.empresa_3}`]
+                              .filter(Boolean)
+                              .map((linha) => (
+                                <div key={linha as string}>{linha}</div>
+                              ))}
+                            {!c.cargo_2 && !c.cargo_3 && '—'}
                           </Campo>
                           <Campo label="Formação">{c.formacao || '—'}</Campo>
                           <Campo label="Inglês">{c.ingles ? INGLES[c.ingles] ?? c.ingles : '—'}</Campo>

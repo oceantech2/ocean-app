@@ -40,8 +40,12 @@
 | `telefone` | texto ≤ 30 | obrigatório, 10 a 13 dígitos |
 | `linkedin` | texto ≤ 200 | opcional, URL http(s) |
 | `localidade` | texto ≤ 120 | obrigatório |
-| `cargo_atual` | texto ≤ 120 | obrigatório |
-| `empresa_atual` | texto ≤ 120 | obrigatório |
+| `idade` | inteiro 16–99 | obrigatório no site (nulo nas candidaturas antigas) |
+| `nacionalidade` | texto ≤ 60 | obrigatório no site (nulo nas candidaturas antigas) |
+| `cargo_atual` | texto ≤ 120 | obrigatório (último cargo) |
+| `empresa_atual` | texto ≤ 120 | obrigatório (última empresa) |
+| `cargo_2`, `empresa_2` | texto ≤ 120 | opcional, em par (penúltimo cargo) |
+| `cargo_3`, `empresa_3` | texto ≤ 120 | opcional, em par (antepenúltimo cargo) |
 | `formacao` | texto ≤ 300 | opcional |
 | `experiencia` | texto ≤ 2000 | opcional |
 | `ingles` | texto ≤ 20 | opcional: `basico`, `intermediario`, `avancado`, `fluente`, `nativo` |
