@@ -15,6 +15,7 @@ from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
 from app.api.routes import proposal_acessos, proposal_modelos, proposal_vagas, public_vagas, public_contato
+from app.api.routes import mcp_oauth, mcp_servidor
 from app.models import (
     CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_IDIOMA,
     CK_PROPOSTAS_MOEDA,
@@ -800,6 +801,16 @@ def _migrar():
             conn.rollback()
             logging.getLogger("ocean.migracao").exception("Falha na migração das vagas (feature 102)")
 
+    # Conector do Claude (feature 103): tabelas do create_all fechadas para a API pública do Supabase
+    with engine.connect() as conn:
+        try:
+            for tabela in ("mcp_clientes", "mcp_conexoes", "mcp_tokens"):
+                conn.execute(text(f"ALTER TABLE {tabela} ENABLE ROW LEVEL SECURITY"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.getLogger("ocean.migracao").exception("Falha na migração do conector do Claude (feature 103)")
+
     # Pendentes passam para a versão vigente do modelo (formato novo); o hash precisa ser regravado,
     # senão o aceite é recusado. Assinadas e canceladas ficam na versão com que foram emitidas.
     from app.models import Proposta
@@ -889,6 +900,12 @@ app.include_router(public_propostas.router, prefix="/api/public/propostas", tags
 app.include_router(proposal_vagas.router, prefix="/api/proposal/vagas", tags=["Proposal · Vagas"])
 app.include_router(public_vagas.router, prefix="/api/public/vagas", tags=["Site · Vagas"])
 app.include_router(public_contato.router, prefix="/api/public/contato", tags=["Site · Contato"])
+
+# Conector do Claude (MCP): OAuth próprio (token app=mcp) com consentimento pelo painel
+app.include_router(mcp_oauth.router_descoberta, tags=["Claude · OAuth"])
+app.include_router(mcp_oauth.router, prefix="/api/mcp/oauth", tags=["Claude · OAuth"])
+app.include_router(mcp_oauth.router_conexoes, prefix="/api/mcp/conexoes", tags=["Claude · Conexões"])
+app.include_router(mcp_servidor.router, prefix="/api/mcp", tags=["Claude · MCP"])
 
 # Wipe destrutivo: só monta rotas em DEBUG (dev local)
 if settings.DEBUG:

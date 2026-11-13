@@ -8,8 +8,14 @@ Uso típico dentro de uma rota:
 Não dá commit por conta própria — assume que a rota já fará commit logo em seguida.
 Se ocorrer qualquer erro ao registrar, é silenciado para nunca quebrar a operação principal.
 """
+from contextvars import ContextVar
+from typing import Optional
+
 from sqlalchemy.orm import Session
 from app.models import AuditLog
+
+# Canal que originou a ação (ex.: "Claude" no conector MCP); acrescentado à descrição
+origem_auditoria: ContextVar[Optional[str]] = ContextVar("origem_auditoria", default=None)
 
 
 def registrar_auditoria(
@@ -21,6 +27,9 @@ def registrar_auditoria(
     descricao: str | None = None,
 ):
     try:
+        origem = origem_auditoria.get()
+        if origem:
+            descricao = f"{descricao or ''} · via {origem}".lstrip(" ·")
         log = AuditLog(
             usuario=usuario or "desconhecido",
             acao=acao,

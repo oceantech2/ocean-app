@@ -511,6 +511,44 @@ export async function salvarPerfil(payload: PerfilConsultor): Promise<PerfilCons
   return data;
 }
 
+// Conector do Claude (feature 103)
+export interface PedidoClaude {
+  cliente_nome: string;
+  usuario: string;
+  mcp_url: string;
+}
+
+export interface ConexaoClaude {
+  id: number;
+  cliente_nome: string;
+  criado_em: string;
+  ultimo_uso_em: string | null;
+}
+
+export interface ConexoesClaude {
+  mcp_url: string;
+  items: ConexaoClaude[];
+}
+
+export async function obterPedidoClaude(pedido: string): Promise<PedidoClaude> {
+  const { data } = await proposalHttp.get<PedidoClaude>('/mcp/oauth/pedido', { params: { pedido } });
+  return data;
+}
+
+export async function responderPedidoClaude(pedido: string, aprovar: boolean): Promise<string> {
+  const { data } = await proposalHttp.post<{ redirect_url: string }>('/mcp/oauth/consentir', { pedido, aprovar });
+  return data.redirect_url;
+}
+
+export async function listarConexoesClaude(): Promise<ConexoesClaude> {
+  const { data } = await proposalHttp.get<ConexoesClaude>('/mcp/conexoes');
+  return data;
+}
+
+export async function desconectarClaude(id: number): Promise<void> {
+  await proposalHttp.delete(`/mcp/conexoes/${id}`);
+}
+
 export async function consultarPublica(codigo: string): Promise<PropostaPublicaData> {
   // Com sessão do Proposal na mesma origem, a abertura pela Ocean não conta como visualização do cliente
   const token = localStorage.getItem(TOKEN_KEY);

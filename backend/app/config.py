@@ -65,6 +65,20 @@ class Settings(BaseSettings):
     def consultant_panel_url(self) -> str:
         return (self.CONSULTANT_PANEL_URL or self.PROPOSAL_PUBLIC_URL).rstrip("/")
 
+    # Conector do Claude (feature 103): URL pública desta API (issuer do OAuth; o MCP fica em /api/mcp)
+    # e endereços de retorno OAuth extras em CSV, além dos do Claude e de loopback
+    MCP_PUBLIC_URL: str = os.getenv("MCP_PUBLIC_URL", "http://localhost:8001")
+    MCP_REDIRECT_URIS: str = os.getenv("MCP_REDIRECT_URIS", "")
+
+    def mcp_base_url(self) -> str:
+        return self.MCP_PUBLIC_URL.rstrip("/")
+
+    def mcp_resource_url(self) -> str:
+        return f"{self.mcp_base_url()}/api/mcp"
+
+    def mcp_redirect_uris_extra(self) -> List[str]:
+        return parse_csv_list(self.MCP_REDIRECT_URIS, [])
+
     # Web App (Apps Script) da planilha "Formulário de candidatura em vaga" (feature 102);
     # sem URL as candidaturas ficam gravadas como pendentes de envio
     SHEETS_WEBHOOK_URL: str = os.getenv("SHEETS_WEBHOOK_URL", "")

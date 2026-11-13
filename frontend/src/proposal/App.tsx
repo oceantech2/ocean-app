@@ -18,6 +18,7 @@ import Vagas from './pages/Vagas';
 import VagaEditor from './pages/VagaEditor';
 import VagaDetalhe from './pages/VagaDetalhe';
 import CurriculoAbrir from './pages/CurriculoAbrir';
+import ConectarClaude from './pages/ConectarClaude';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const isAuthenticated = useProposalAuthStore((s) => s.isAuthenticated);
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="/vagas/:id/editar" element={<ProtectedRoute><VagaEditor /></ProtectedRoute>} />
         <Route path="/candidaturas/:id/curriculo" element={<ProtectedRoute><CurriculoAbrir /></ProtectedRoute>} />
         <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
+        <Route path="/conectar-claude" element={<ProtectedRoute><ConectarClaude /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

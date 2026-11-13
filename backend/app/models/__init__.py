@@ -689,6 +689,55 @@ class Candidatura(Base):
     vaga = relationship("Vaga")
 
 
+# ==================== CONECTOR DO CLAUDE (MCP) ====================
+class McpCliente(Base):
+    """Aplicativo registrado pelo registro dinâmico do OAuth (ex.: Claude)."""
+    __tablename__ = "mcp_clientes"
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(String(64), unique=True, nullable=False)
+    client_secret_hash = Column(String(64), nullable=True)
+    auth_method = Column(String(30), nullable=False, default="none")
+    client_name = Column(String(255), nullable=False)
+    redirect_uris = Column(JSONB, nullable=False)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class McpConexao(Base):
+    """Autorização dada por um consultor a um aplicativo; revogada, corta o acesso na chamada seguinte."""
+    __tablename__ = "mcp_conexoes"
+
+    id = Column(Integer, primary_key=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="CASCADE"), nullable=False, index=True)
+    cliente_id = Column(Integer, ForeignKey("mcp_clientes.id", ondelete="CASCADE"), nullable=False)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # Primeira troca do código por token; antes disso a conexão não aparece no perfil
+    ativada_em = Column(DateTime, nullable=True)
+    ultimo_uso_em = Column(DateTime, nullable=True)
+    revogada_em = Column(DateTime, nullable=True)
+
+    cliente = relationship("McpCliente")
+
+
+class McpToken(Base):
+    """Código de autorização (uso único) ou refresh token de uma conexão; só o hash é gravado."""
+    __tablename__ = "mcp_tokens"
+
+    id = Column(Integer, primary_key=True)
+    conexao_id = Column(Integer, ForeignKey("mcp_conexoes.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo = Column(String(10), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    redirect_uri = Column(Text, nullable=True)
+    code_challenge = Column(String(128), nullable=True)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expira_em = Column(DateTime, nullable=False)
+    usado_em = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("tipo IN ('codigo','refresh')", name="ck_mcp_tokens_tipo"),
+    )
+
+
 # ==================== CONFIGURAÇÃO GLOBAL DO APP ====================
 class ConfiguracaoApp(Base):
     """Configurações globais key-value (ex.: visibilidade de páginas)."""

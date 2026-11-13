@@ -76,6 +76,15 @@ frontend/src/
 - `dhService` — CRUD + `marcarEnviado(id, 'financeiro'|'ceo')`
 - `relatoriosService` — múltiplos endpoints
 
+## Conector do Claude (MCP) — feature 103
+
+- Endpoint MCP: `POST /api/mcp` (Streamable HTTP sem sessão, respostas JSON; protocolo implementado à mão em `api/routes/mcp_servidor.py` porque o SDK `mcp` exige versões incompatíveis do stack)
+- OAuth 2.1 próprio em `api/routes/mcp_oauth.py` + `services/mcp_auth.py`: `/.well-known/*`, registro dinâmico, PKCE S256, refresh com rotação; consentimento na página `/conectar-claude` do painel (sessão do Proposal)
+- Token do conector: JWT `app="mcp"` + `aud` = URL do MCP; recusado no ERP e no Proposal; cada chamada reconfere conexão e usuário
+- Ferramentas em `services/mcp_ferramentas.py` chamam as funções das rotas `proposal_*` (mesmas regras); auditoria marcada "via Claude"
+- Variáveis: `MCP_PUBLIC_URL` (URL pública da API, padrão `http://localhost:8001`), `MCP_REDIRECT_URIS` (CSV extra)
+- Teste: `docker exec -w /app ocean_backend python scripts/smoke_mcp.py <login> [<outro_login_nao_admin>]` (cria proposta e vaga de teste)
+
 ## Credenciais de desenvolvimento
 
 - Sem usuário/senha padrão (feature 093): o login só aceita contas de `usuarios_app`. Banco vazio → `docker exec -it ocean_backend python scripts/criar_admin.py <login>`
