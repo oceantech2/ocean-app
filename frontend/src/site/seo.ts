@@ -13,26 +13,26 @@ const IMAGEM = { caminho: '/site/img/home-hero.jpg', largura: 1376, altura: 768 
 const SEO: Record<Pagina, Record<Idioma, { titulo: string; descricao: string }>> = {
   home: {
     pt: {
-      titulo: 'Ocean Talent Solutions | Recrutamento & Seleção e Capital Humano',
+      titulo: 'Ocean Talent Solutions | Recrutamento e Seleção e Capital Humano',
       descricao:
-        'Consultoria boutique de capital humano: Inteligência de Mercado, Recrutamento & Seleção, Assessment, Outplacement e Soluções Personalizadas em Petróleo & Gás, Energia, Mineração e mais.',
+        'Consultoria boutique de capital humano: Inteligência de Mercado, Recrutamento e Seleção, Assessment, Outplacement e Soluções Personalizadas em Petróleo & Gás, Energia, Mineração e mais.',
     },
     en: {
-      titulo: 'Ocean Talent Solutions | Recruitment & Selection and Human Capital',
+      titulo: 'Ocean Talent Solutions | Recruitment and Selection and Human Capital',
       descricao:
-        'Boutique human capital consultancy: Market Intelligence, Recruitment & Selection, Assessment, Outplacement and Customized Solutions in Oil & Gas, Energy, Mining and more.',
+        'Boutique human capital consultancy: Market Intelligence, Recruitment and Selection, Assessment, Outplacement and Customized Solutions in Oil & Gas, Energy, Mining and more.',
     },
   },
   solucoes: {
     pt: {
       titulo: 'Soluções em Capital Humano | Ocean Talent Solutions',
       descricao:
-        'Inteligência de Mercado, Recrutamento & Seleção, Assessment, Outplacement e Soluções Personalizadas: soluções para toda a cadeia de capital humano.',
+        'Inteligência de Mercado, Recrutamento e Seleção, Assessment, Outplacement e Soluções Personalizadas: soluções para toda a cadeia de capital humano.',
     },
     en: {
       titulo: 'Human Capital Solutions | Ocean Talent Solutions',
       descricao:
-        'Market intelligence, recruitment & selection, assessment, outplacement and customized solutions across the entire human capital chain.',
+        'Market intelligence, recruitment and selection, assessment, outplacement and customized solutions across the entire human capital chain.',
     },
   },
   vagas: {

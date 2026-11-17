@@ -114,7 +114,7 @@ export const SOLUCOES: Solucao[] = [
   },
   {
     id: 'recrutamento-e-selecao',
-    titulo: { pt: "Recrutamento & Seleção", en: "Recruitment & Selection" },
+    titulo: { pt: "Recrutamento e Seleção", en: "Recruitment and Selection" },
     lead: { pt: "Encontramos os profissionais que fazem a diferença, do especialista técnico ao C-level.", en: "We find the professionals who make the difference, from technical specialists to C-level." },
     short: { pt: "Para lideranças e posições estratégicas (onshore e offshore)", en: "For leadership and strategic positions (onshore and offshore)" },
     texto: { pt: "Nosso processo vai além da captação de currículos. Começamos entendendo a posição, a cultura e os desafios da sua empresa, buscamos ativamente os profissionais mais aderentes e avaliamos cada um em aspectos técnicos, comportamentais e de expectativas. Acompanhamos todas as etapas, das entrevistas à negociação, checamos referências e seguimos próximos nos primeiros meses do contratado, para que a contratação seja assertiva e duradoura.", en: "Our process goes beyond collecting résumés. We start by understanding the role, culture and challenges of your company, actively seek the most aligned professionals and assess each one on technical, behavioral and expectation aspects. We support every stage, from interviews to negotiation, check references and stay close in the first months after hire, so the placement is assertive and lasting." },

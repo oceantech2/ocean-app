@@ -13,7 +13,7 @@ const TEXTOS = {
     noticias: 'Notícias',
     contato: 'Contato',
     direitos: 'Todos os direitos reservados.',
-    faixa: 'Inteligência de Mercado · Recrutamento & Seleção · Assessment · Outplacement · Soluções Personalizadas',
+    faixa: 'Inteligência de Mercado · Recrutamento e Seleção · Assessment · Outplacement · Soluções Personalizadas',
   },
   en: {
     descricao:
@@ -24,7 +24,7 @@ const TEXTOS = {
     noticias: 'News',
     contato: 'Contact',
     direitos: 'All rights reserved.',
-    faixa: 'Market Intelligence · Recruitment & Selection · Assessment · Outplacement · Customized Solutions',
+    faixa: 'Market Intelligence · Recruitment and Selection · Assessment · Outplacement · Customized Solutions',
   },
 };
 
