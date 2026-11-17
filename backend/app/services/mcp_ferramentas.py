@@ -14,10 +14,10 @@ from fastapi import HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.api.routes import proposal_modelos, proposal_propostas, proposal_vagas
+from app.api.routes import proposal_modelos, proposal_noticias, proposal_propostas, proposal_vagas
 from app.config import settings
 from app.models import PerfilConsultor
-from app.schemas import PropostaCreate, VagaIn
+from app.schemas import NoticiaIn, PropostaCreate, VagaIn
 from app.services.audit import origem_auditoria, registrar_auditoria
 from app.services.proposta_modelos import (
     IDIOMAS,
@@ -32,6 +32,7 @@ from app.services.proposta_modelos import (
     VALIDADE_DIAS_MAX,
 )
 from app.services.propostas import STATUS_FILTRO
+from app.services.noticias import SEGMENTOS, STATUS_NAO_PUBLICADA, STATUS_PUBLICADA, STATUS_VALIDOS
 from app.services.vagas import AREAS, NIVEIS, STATUS_ABERTA, STATUS_ENCERRADA
 
 logger = logging.getLogger("ocean.mcp")
@@ -50,6 +51,10 @@ CAMPOS_PROPOSTA = (
 CAMPOS_VAGA = (
     "titulo", "area", "nivel", "localidade", "resumo", "descricao", "responsabilidades", "requisitos",
     "diferenciais", "cliente", "codigo_planilha",
+)
+CAMPOS_NOTICIA = (
+    "titulo_pt", "titulo_en", "resumo_pt", "resumo_en", "conteudo_pt", "conteudo_en",
+    "segmento", "data_publicacao", "status",
 )
 
 
@@ -143,6 +148,10 @@ def _com_links_proposta(p: dict) -> dict:
 
 def _com_link_vaga(v: dict) -> dict:
     return {**v, "link_painel": _painel(f"/vagas/{v['id']}")}
+
+
+def _com_link_noticia(n: dict) -> dict:
+    return {**n, "link_painel": _painel(f"/noticias/{n['id']}")}
 
 
 # ==================== Propostas ====================
@@ -264,6 +273,44 @@ def _listar_candidaturas(db: Session, user: dict, args: dict) -> dict:
         "items": [{**c, "link_curriculo": _painel(f"/candidaturas/{c['id']}/curriculo")} for c in itens],
         "total": len(itens),
     }
+
+
+# ==================== Notícias ====================
+def _listar_noticias(db: Session, user: dict, args: dict) -> dict:
+    r = proposal_noticias.listar_noticias(
+        status_noticia=_texto(args, "status"),
+        segmento=_texto(args, "segmento"),
+        busca=_texto(args, "busca"),
+        db=db,
+        user=user,
+    )
+    return {"items": [_com_link_noticia(n) for n in r["items"]], "total": r["total"]}
+
+
+def _ver_noticia(db: Session, user: dict, args: dict) -> dict:
+    return _com_link_noticia(
+        proposal_noticias.obter_noticia(noticia_id=_inteiro(args, "id", obrigatorio=True), db=db, user=user)
+    )
+
+
+def _noticia_payload(dados: dict) -> NoticiaIn:
+    try:
+        return NoticiaIn(**dados)
+    except ValidationError as e:
+        raise ErroArgumento(_mensagem_validacao(e))
+
+
+def _criar_noticia(db: Session, user: dict, args: dict) -> dict:
+    payload = _noticia_payload(_mesclar({}, args, CAMPOS_NOTICIA))
+    return _com_link_noticia(proposal_noticias.criar_noticia(payload=payload, db=db, user=user))
+
+
+def _editar_noticia(db: Session, user: dict, args: dict) -> dict:
+    nid = _inteiro(args, "id", obrigatorio=True)
+    atual = proposal_noticias.obter_noticia(noticia_id=nid, db=db, user=user)
+    base = {campo: atual.get(campo) for campo in CAMPOS_NOTICIA if campo != "status"}
+    payload = _noticia_payload(_mesclar(base, args, CAMPOS_NOTICIA))
+    return _com_link_noticia(proposal_noticias.editar_noticia(noticia_id=nid, payload=payload, db=db, user=user))
 
 
 # ==================== Schemas ====================
@@ -396,6 +443,24 @@ _CAMPOS_VAGA_SCHEMA = {
     },
 }
 
+_CAMPOS_NOTICIA_SCHEMA = {
+    "titulo_pt": {"type": "string", "maxLength": 200, "description": "Título em português"},
+    "titulo_en": {"type": "string", "maxLength": 200, "description": "Título em inglês"},
+    "resumo_pt": {"type": "string", "maxLength": 500, "description": "Resumo em português (lista do site)"},
+    "resumo_en": {"type": "string", "maxLength": 500, "description": "Resumo em inglês"},
+    "conteudo_pt": {"type": "string", "maxLength": 20000, "description": "Conteúdo completo em português"},
+    "conteudo_en": {"type": "string", "maxLength": 20000, "description": "Conteúdo completo em inglês"},
+    "segmento": _enum(SEGMENTOS, f"Segmento: {_rotulos(SEGMENTOS)}"),
+    "data_publicacao": {
+        "type": "string", "format": "date",
+        "description": "Data de publicação (AAAA-MM-DD); no site só aparece a partir desta data",
+    },
+    "status": _enum(
+        STATUS_VALIDOS,
+        f"Status na criação (padrão {STATUS_NAO_PUBLICADA}): {STATUS_PUBLICADA} ou {STATUS_NAO_PUBLICADA}",
+    ),
+}
+
 
 def _objeto(propriedades: dict, obrigatorios: tuple = ()) -> dict:
     schema = {"type": "object", "properties": propriedades, "additionalProperties": False}
@@ -516,6 +581,49 @@ FERRAMENTAS = (
         _objeto({"vaga_id": {**_ID, "description": "id da vaga"}}, ("vaga_id",)),
         _listar_candidaturas,
         True,
+    ),
+    Ferramenta(
+        "listar_noticias",
+        "Listar notícias",
+        "Lista as notícias do painel (publicadas e não publicadas), mais recentes pela data de publicação, com link do painel. "
+        "Despublicar e excluir só pelo painel.",
+        _objeto({
+            "status": _enum(STATUS_VALIDOS, "Status da notícia"),
+            "segmento": _enum(SEGMENTOS, f"Segmento: {_rotulos(SEGMENTOS)}"),
+            "busca": {"type": "string", "description": "Parte do título (PT ou EN)"},
+        }),
+        _listar_noticias,
+        True,
+    ),
+    Ferramenta(
+        "ver_noticia",
+        "Ver notícia",
+        "Mostra todos os dados de uma notícia (títulos, resumos e conteúdos em PT e EN, segmento, data e status).",
+        _objeto({"id": {**_ID, "description": "id da notícia"}}, ("id",)),
+        _ver_noticia,
+        True,
+    ),
+    Ferramenta(
+        "criar_noticia",
+        "Criar notícia",
+        "Cria uma notícia com o consultor como autor. Informe título, resumo e conteúdo em português e em inglês, "
+        "segmento e data de publicação. Use status=publicada para liberar no site (a partir da data). "
+        "Confirme os dados com o consultor antes de criar. Não há ferramenta para despublicar ou excluir.",
+        _objeto(
+            _CAMPOS_NOTICIA_SCHEMA,
+            ("titulo_pt", "titulo_en", "resumo_pt", "resumo_en", "conteudo_pt", "conteudo_en", "segmento", "data_publicacao"),
+        ),
+        _criar_noticia,
+        False,
+    ),
+    Ferramenta(
+        "editar_noticia",
+        "Editar notícia",
+        "Altera uma notícia (só o autor ou admin). Envie apenas os campos que mudam; os demais são mantidos. "
+        "O status (publicar/despublicar) não muda por esta ferramenta — use o painel.",
+        _objeto({"id": {**_ID, "description": "id da notícia"}, **_CAMPOS_NOTICIA_SCHEMA}, ("id",)),
+        _editar_noticia,
+        False,
     ),
 )
 

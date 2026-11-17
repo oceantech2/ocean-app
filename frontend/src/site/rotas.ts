@@ -26,8 +26,20 @@ export function caminhoVaga(vaga: { id: number; slug: string }, idioma: Idioma) 
   return `${CAMINHOS.vagas[idioma]}/${vaga.slug}-${vaga.id}`;
 }
 
+/** Página de uma notícia: `/noticias/<slug>-<id>` ou `/en/news/<slug>-<id>`. */
+export function noticiaDoCaminho(caminho: string): { id: number; segmento: string } | undefined {
+  const m = caminho.match(/^(?:\/noticias|\/en\/news)\/([^/]+)\/?$/);
+  const id = m?.[1].match(/(?:^|-)(\d+)$/)?.[1];
+  return m && id ? { id: Number(id), segmento: m[1] } : undefined;
+}
+
+export function caminhoNoticia(noticia: { id: number; slug: string }, idioma: Idioma) {
+  return `${CAMINHOS.noticias[idioma]}/${noticia.slug}-${noticia.id}`;
+}
+
 export function paginaDoCaminho(caminho: string): Pagina | undefined {
   if (vagaDoCaminho(caminho)) return 'vagas';
+  if (noticiaDoCaminho(caminho)) return 'noticias';
   const normalizado = caminho.length > 1 ? caminho.replace(/\/+$/, '') : caminho;
   return PAGINAS.find((p) => CAMINHOS[p].pt === normalizado || CAMINHOS[p].en === normalizado);
 }

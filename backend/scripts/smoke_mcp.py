@@ -3,7 +3,7 @@
 Uso (dentro do contêiner): docker exec ocean_backend python scripts/smoke_mcp.py <login_autor> [<login_outro_nao_admin>]
 
 O consentimento é feito com um token do Proposal gerado aqui (sem senha), como o painel faria após o login.
-Cria uma proposta e uma vaga de teste em nome do autor.
+Cria uma proposta, uma vaga e uma notícia de teste em nome do autor.
 """
 import base64
 import hashlib
@@ -149,6 +149,20 @@ def main() -> None:
             erro, ve = ferramenta(c, acesso, "editar_vaga", {"id": v["id"], "localidade": "Remoto · Brasil"})
             checar(not erro and ve["localidade"] == "Remoto · Brasil" and ve["titulo"] == "Vaga Fumaça MCP",
                    "editar_vaga parcial", ve)
+
+        erro, r = ferramenta(c, acesso, "listar_noticias", {})
+        checar(not erro and "items" in r, "listar_noticias", r)
+        erro, n = ferramenta(c, acesso, "criar_noticia", {
+            "titulo_pt": "Notícia Fumaça MCP", "titulo_en": "MCP Smoke News",
+            "resumo_pt": "Resumo de teste", "resumo_en": "Test summary",
+            "conteudo_pt": "Conteúdo de teste da notícia.", "conteudo_en": "News smoke test body.",
+            "segmento": "tecnologia", "data_publicacao": date.today().isoformat(), "status": "publicada",
+        })
+        checar(not erro and n.get("status") == "publicada" and n.get("titulo_pt") == "Notícia Fumaça MCP", "criar_noticia", n)
+        if not erro:
+            erro, ne = ferramenta(c, acesso, "editar_noticia", {"id": n["id"], "titulo_en": "MCP Smoke News Updated"})
+            checar(not erro and ne["titulo_en"] == "MCP Smoke News Updated" and ne["titulo_pt"] == "Notícia Fumaça MCP",
+                   "editar_noticia parcial", ne)
 
         if outro and not erro:
             _, tokens_outro = conectar(c, outro)

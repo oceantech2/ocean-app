@@ -524,6 +524,76 @@ export async function reenviarPlanilha(vagaId: number | string): Promise<{ envia
   return data;
 }
 
+export type SegmentoNoticia =
+  | 'oil-gas'
+  | 'offshore'
+  | 'energia'
+  | 'infraestrutura'
+  | 'mineracao'
+  | 'industria'
+  | 'tecnologia';
+export type StatusNoticia = 'publicada' | 'nao_publicada';
+
+export interface NoticiaPayload {
+  titulo_pt: string;
+  titulo_en: string;
+  resumo_pt: string;
+  resumo_en: string;
+  conteudo_pt: string;
+  conteudo_en: string;
+  segmento: SegmentoNoticia | '';
+  data_publicacao: string;
+  status?: StatusNoticia;
+}
+
+export interface Noticia extends Omit<NoticiaPayload, 'segmento' | 'status'> {
+  id: number;
+  slug: string;
+  segmento: SegmentoNoticia;
+  status: StatusNoticia;
+  criado_por_usuario: string;
+  criado_em: string | null;
+  atualizado_por_usuario: string | null;
+  atualizado_em: string | null;
+  pode_editar: boolean;
+}
+
+export async function listarNoticias(
+  params: { status?: StatusNoticia | ''; segmento?: SegmentoNoticia | ''; busca?: string } = {},
+): Promise<Noticia[]> {
+  const query = Object.fromEntries(
+    Object.entries(params)
+      .map(([chave, valor]) => [chave, typeof valor === 'string' ? valor.trim() : valor])
+      .filter(([, valor]) => valor),
+  );
+  const { data } = await proposalHttp.get<{ items: Noticia[] }>('/proposal/noticias/', { params: query });
+  return data.items;
+}
+
+export async function obterNoticia(id: number | string): Promise<Noticia> {
+  const { data } = await proposalHttp.get<Noticia>(`/proposal/noticias/${id}`);
+  return data;
+}
+
+export async function criarNoticia(payload: NoticiaPayload): Promise<Noticia> {
+  const { data } = await proposalHttp.post<Noticia>('/proposal/noticias/', payload);
+  return data;
+}
+
+export async function editarNoticia(id: number | string, payload: NoticiaPayload): Promise<Noticia> {
+  const { data } = await proposalHttp.put<Noticia>(`/proposal/noticias/${id}`, payload);
+  return data;
+}
+
+export async function mudarStatusNoticia(id: number | string, acao: 'publicar' | 'despublicar'): Promise<Noticia> {
+  const { data } = await proposalHttp.post<Noticia>(`/proposal/noticias/${id}/${acao}`);
+  return data;
+}
+
+export async function excluirNoticia(id: number | string): Promise<void> {
+  await proposalHttp.delete(`/proposal/noticias/${id}`);
+}
+
 export async function baixarCurriculo(candidaturaId: number | string): Promise<Blob> {
   const { data } = await proposalHttp.get<Blob>(`/proposal/vagas/candidaturas/${candidaturaId}/curriculo`, {
     responseType: 'blob',

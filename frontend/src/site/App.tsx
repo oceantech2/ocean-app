@@ -7,6 +7,7 @@ import WhatsAppFlutuante from './components/WhatsAppFlutuante';
 import { ehTrocaIdioma, IDIOMAS } from './idioma';
 import Home from './pages/Home';
 import Noticias from './pages/Noticias';
+import NoticiaDetalhe from './pages/NoticiaDetalhe';
 import Solucoes from './pages/Solucoes';
 import Vagas from './pages/Vagas';
 import VagaDetalhe from './pages/VagaDetalhe';
@@ -60,6 +61,9 @@ export function Estrutura() {
           )}
           {IDIOMAS.map(({ id }) => (
             <Route key={`vaga-${id}`} path={`${CAMINHOS.vagas[id]}/:vaga`} element={<VagaDetalhe />} />
+          ))}
+          {IDIOMAS.map(({ id }) => (
+            <Route key={`noticia-${id}`} path={`${CAMINHOS.noticias[id]}/:noticia`} element={<NoticiaDetalhe />} />
           ))}
           <Route path="*" element={<Navigate to={CAMINHOS.home[idiomaDoCaminho(pathname)]} replace />} />
         </Routes>

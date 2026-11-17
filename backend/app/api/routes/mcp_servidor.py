@@ -19,12 +19,12 @@ VERSOES_PROTOCOLO = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 VERSAO_PADRAO = "2025-06-18"
 
 INSTRUCOES = (
-    "Ferramentas do Consultant Panel da Ocean (propostas, modelos de proposta, vagas e candidaturas). "
+    "Ferramentas do Consultant Panel da Ocean (propostas, modelos de proposta, vagas, candidaturas e notícias). "
     "Toda ação é feita em nome do consultor conectado, com as mesmas permissões e validações do painel. "
     "Antes de criar ou editar, confirme os dados com o consultor. Para editar, envie só os campos que mudam. "
     "Quando uma ferramenta devolver erro, explique a mensagem ao consultor e corrija os dados. "
-    "Excluir ou cancelar propostas, encerrar vagas, reenviar candidaturas à planilha e abrir currículos "
-    "são feitos no painel: use os links devolvidos (link_painel, link_cliente, link_curriculo)."
+    "Excluir ou cancelar propostas, encerrar vagas, despublicar ou excluir notícias, reenviar candidaturas à planilha "
+    "e abrir currículos são feitos no painel: use os links devolvidos (link_painel, link_cliente, link_curriculo)."
 )
 
 

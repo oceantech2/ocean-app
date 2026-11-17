@@ -1,3 +1,4 @@
+import type { Noticia } from './dados/noticias';
 import type { Vaga } from './dados/vagas';
 
 const API = (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:8001/api';
@@ -29,6 +30,15 @@ export function listarVagas() {
 
 export function obterVaga(id: number) {
   return requisitar<Vaga>(`/public/vagas/${id}`);
+}
+
+export function listarNoticias(segmento?: string) {
+  const q = segmento ? `?segmento=${encodeURIComponent(segmento)}` : '';
+  return requisitar<Noticia[]>(`/public/noticias/${q}`);
+}
+
+export function obterNoticia(id: number) {
+  return requisitar<Noticia>(`/public/noticias/${id}`);
 }
 
 export function enviarCandidatura(vagaId: number, dados: FormData) {

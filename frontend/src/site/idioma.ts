@@ -1,5 +1,12 @@
 import { useLocation } from 'react-router-dom';
-import { CAMINHOS, idiomaDoCaminho, paginaDoCaminho, vagaDoCaminho, type Pagina } from './rotas';
+import {
+  CAMINHOS,
+  idiomaDoCaminho,
+  noticiaDoCaminho,
+  paginaDoCaminho,
+  vagaDoCaminho,
+  type Pagina,
+} from './rotas';
 
 export type Idioma = 'pt' | 'en';
 export type Txt = Record<Idioma, string>;
@@ -25,6 +32,8 @@ export function useIdioma() {
   const caminhoEm = (outro: Idioma) => {
     const vaga = vagaDoCaminho(pathname);
     if (vaga) return `${CAMINHOS.vagas[outro]}/${vaga.segmento}${hash}`;
+    const noticia = noticiaDoCaminho(pathname);
+    if (noticia) return `${CAMINHOS.noticias[outro]}/${noticia.segmento}${hash}`;
     return `${CAMINHOS[paginaDoCaminho(pathname) ?? 'home'][outro]}${hash}`;
   };
 

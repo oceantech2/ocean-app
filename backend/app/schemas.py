@@ -620,6 +620,18 @@ class VagaIn(BaseModel):
     codigo_planilha: Optional[str] = None
 
 
+class NoticiaIn(BaseModel):
+    titulo_pt: str = ""
+    titulo_en: str = ""
+    resumo_pt: str = ""
+    resumo_en: str = ""
+    conteudo_pt: str = ""
+    conteudo_en: str = ""
+    segmento: str = ""
+    data_publicacao: str = ""  # YYYY-MM-DD
+    status: Optional[str] = None  # publicada | nao_publicada
+
+
 class PerfilConsultorIn(BaseModel):
     nome: Optional[str] = None
     cargo: Optional[str] = None

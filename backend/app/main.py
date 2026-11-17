@@ -14,7 +14,15 @@ from app.api.routes import saldos, impostos, historico, fluxo_movimentos, patrim
 from app.api.routes import arquivos_nfs, contas_correntes
 from app.api.routes.auth import require_erp
 from app.api.routes import proposal_auth, proposal_perfil, proposal_propostas, public_propostas
-from app.api.routes import proposal_acessos, proposal_modelos, proposal_vagas, public_vagas, public_contato
+from app.api.routes import (
+    proposal_acessos,
+    proposal_modelos,
+    proposal_noticias,
+    proposal_vagas,
+    public_contato,
+    public_noticias,
+    public_vagas,
+)
 from app.api.routes import mcp_oauth, mcp_servidor
 from app.models import (
     CK_PROPOSTAS_CAMPOS_MODELO, CK_PROPOSTAS_DATA_VALIDADE, CK_PROPOSTAS_ESCOPO, CK_PROPOSTAS_IDIOMA,
@@ -831,6 +839,15 @@ def _migrar():
             conn.rollback()
             logging.getLogger("ocean.migracao").exception("Falha na migração do conector do Claude (feature 103)")
 
+    # Notícias do site (feature 106)
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE noticias ENABLE ROW LEVEL SECURITY"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.getLogger("ocean.migracao").exception("Falha na migração das notícias (feature 106)")
+
     # Pendentes passam para a versão vigente do modelo (formato novo); o hash precisa ser regravado,
     # senão o aceite é recusado. Assinadas e canceladas ficam na versão com que foram emitidas.
     from app.models import Proposta
@@ -919,6 +936,8 @@ app.include_router(proposal_modelos.router, prefix="/api/proposal/modelos", tags
 app.include_router(public_propostas.router, prefix="/api/public/propostas", tags=["Proposal · Público"])
 app.include_router(proposal_vagas.router, prefix="/api/proposal/vagas", tags=["Proposal · Vagas"])
 app.include_router(public_vagas.router, prefix="/api/public/vagas", tags=["Site · Vagas"])
+app.include_router(proposal_noticias.router, prefix="/api/proposal/noticias", tags=["Proposal · Notícias"])
+app.include_router(public_noticias.router, prefix="/api/public/noticias", tags=["Site · Notícias"])
 app.include_router(public_contato.router, prefix="/api/public/contato", tags=["Site · Contato"])
 
 # Conector do Claude (MCP): OAuth próprio (token app=mcp) com consentimento pelo painel

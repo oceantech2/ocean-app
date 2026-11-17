@@ -705,6 +705,37 @@ class Candidatura(Base):
     vaga = relationship("Vaga")
 
 
+class Noticia(Base):
+    """Notícia de mercado publicada no site pelo Consultant Panel (feature 106)."""
+    __tablename__ = "noticias"
+    __table_args__ = (
+        CheckConstraint("status IN ('publicada','nao_publicada')", name="ck_noticias_status"),
+        CheckConstraint(
+            "segmento IN ("
+            "'oil-gas','offshore','energia','infraestrutura','mineracao','industria','tecnologia'"
+            ")",
+            name="ck_noticias_segmento",
+        ),
+        Index("ix_noticias_status_data", "status", "data_publicacao"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    titulo_pt = Column(String(200), nullable=False)
+    titulo_en = Column(String(200), nullable=False)
+    resumo_pt = Column(String(500), nullable=False)
+    resumo_en = Column(String(500), nullable=False)
+    conteudo_pt = Column(Text, nullable=False)
+    conteudo_en = Column(Text, nullable=False)
+    segmento = Column(String(30), nullable=False)
+    data_publicacao = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="nao_publicada")
+    criado_por_id = Column(Integer, ForeignKey("usuarios_app.id", ondelete="SET NULL"), nullable=True)
+    criado_por_usuario = Column(String(255), nullable=False)
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    atualizado_por_usuario = Column(String(255), nullable=True)
+    atualizado_em = Column(DateTime, nullable=True)
+
+
 # ==================== CONECTOR DO CLAUDE (MCP) ====================
 class McpCliente(Base):
     """Aplicativo registrado pelo registro dinâmico do OAuth (ex.: Claude)."""

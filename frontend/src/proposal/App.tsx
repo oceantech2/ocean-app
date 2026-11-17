@@ -17,6 +17,9 @@ import ModeloVer from './pages/ModeloVer';
 import Vagas from './pages/Vagas';
 import VagaEditor from './pages/VagaEditor';
 import VagaDetalhe from './pages/VagaDetalhe';
+import Noticias from './pages/Noticias';
+import NoticiaEditor from './pages/NoticiaEditor';
+import NoticiaDetalhe from './pages/NoticiaDetalhe';
 import CurriculoAbrir from './pages/CurriculoAbrir';
 import ConectarClaude from './pages/ConectarClaude';
 
@@ -67,6 +70,10 @@ export default function App() {
         <Route path="/vagas/nova" element={<ProtectedRoute><VagaEditor /></ProtectedRoute>} />
         <Route path="/vagas/:id" element={<ProtectedRoute><VagaDetalhe /></ProtectedRoute>} />
         <Route path="/vagas/:id/editar" element={<ProtectedRoute><VagaEditor /></ProtectedRoute>} />
+        <Route path="/noticias" element={<ProtectedRoute><Noticias /></ProtectedRoute>} />
+        <Route path="/noticias/nova" element={<ProtectedRoute><NoticiaEditor /></ProtectedRoute>} />
+        <Route path="/noticias/:id" element={<ProtectedRoute><NoticiaDetalhe /></ProtectedRoute>} />
+        <Route path="/noticias/:id/editar" element={<ProtectedRoute><NoticiaEditor /></ProtectedRoute>} />
         <Route path="/candidaturas/:id/curriculo" element={<ProtectedRoute><CurriculoAbrir /></ProtectedRoute>} />
         <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
         <Route path="/conectar-claude" element={<ProtectedRoute><ConectarClaude /></ProtectedRoute>} />

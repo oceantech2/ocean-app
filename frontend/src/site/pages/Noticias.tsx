@@ -1,48 +1,21 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { ErroApi, listarNoticias } from '../api';
 import { BOTAO } from '../classes';
 import Revelar from '../components/Revelar';
+import {
+  formatarDataNoticia,
+  resumoNoticia,
+  SEGMENTOS,
+  tituloNoticia,
+  type Noticia,
+  type SegmentoNoticia,
+} from '../dados/noticias';
 import { IconeSeta } from '../icones';
-import { useIdioma, type Txt } from '../idioma';
+import { useIdioma } from '../idioma';
+import { caminhoNoticia } from '../rotas';
 import { emailValido } from '../validacao';
-
-type Segmento = 'oil-gas' | 'offshore' | 'energia' | 'infraestrutura' | 'mineracao' | 'industria' | 'tecnologia';
-
-const SEGMENTOS: Record<Segmento, Txt> = {
-  'oil-gas': { pt: 'Petróleo & Gás', en: 'Oil & Gas' },
-  offshore: { pt: 'Offshore', en: 'Offshore' },
-  energia: { pt: 'Energia', en: 'Energy' },
-  infraestrutura: { pt: 'Infraestrutura', en: 'Infrastructure' },
-  mineracao: { pt: 'Mineração', en: 'Mining' },
-  industria: { pt: 'Indústria', en: 'Industry' },
-  tecnologia: { pt: 'Tecnologia', en: 'Technology' },
-};
-
-const RESUMO_PROVISORIO: Txt = {
-  pt: 'Placeholder — resumo da notícia. O conteúdo real será publicado semanalmente pela curadoria da Ocean.',
-  en: "Placeholder summary. Real content will be published weekly by Ocean's editorial curation.",
-};
-
-const POSTS: { segmento: Segmento; titulo: Txt; data: Txt }[] = [
-  {
-    segmento: 'tecnologia',
-    titulo: { pt: 'Como a disputa por talentos de dados mudou em 2026', en: 'How the race for data talent changed in 2026' },
-    data: { pt: '10 set 2026', en: 'Sep 10, 2026' },
-  },
-  {
-    segmento: 'oil-gas',
-    titulo: {
-      pt: 'Liderança técnica: o novo perfil dos executivos de petróleo e gás',
-      en: 'Technical leadership: the new profile of oil and gas executives',
-    },
-    data: { pt: '08 set 2026', en: 'Sep 8, 2026' },
-  },
-  {
-    segmento: 'mineracao',
-    titulo: { pt: 'Mineração e tecnologia: o que mudou nas contratações', en: 'Mining and technology: what changed in hiring' },
-    data: { pt: '05 set 2026', en: 'Sep 5, 2026' },
-  },
-];
 
 const CAMPO_ESCURO =
   'flex h-9 w-full rounded-md border border-primary-foreground/25 bg-primary-foreground/10 px-3 py-1 text-base text-primary-foreground shadow-sm transition-colors placeholder:text-primary-foreground/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm';
@@ -60,6 +33,8 @@ const TEXTOS = {
     todos: 'Todos',
     lerMais: 'Ler mais',
     nenhuma: 'Nenhuma notícia neste segmento por enquanto.',
+    erro: 'Não foi possível carregar as notícias. Tente novamente em instantes.',
+    carregando: 'Carregando notícias',
   },
   en: {
     rotulo: 'News',
@@ -73,16 +48,37 @@ const TEXTOS = {
     todos: 'All',
     lerMais: 'Read more',
     nenhuma: 'No news in this segment yet.',
+    erro: 'We could not load the news. Please try again shortly.',
+    carregando: 'Loading news',
   },
 };
 
 export default function Noticias() {
   const { idioma } = useIdioma();
   const t = TEXTOS[idioma];
-  const [segmento, setSegmento] = useState<Segmento | ''>('');
+  const [segmento, setSegmento] = useState<SegmentoNoticia | ''>('');
   const [email, setEmail] = useState('');
+  const [itens, setItens] = useState<Noticia[]>([]);
+  const [estado, setEstado] = useState<'carregando' | 'ok' | 'erro'>('carregando');
 
-  const filtradas = useMemo(() => (segmento ? POSTS.filter((p) => p.segmento === segmento) : POSTS), [segmento]);
+  useEffect(() => {
+    let ativo = true;
+    setEstado('carregando');
+    listarNoticias(segmento || undefined)
+      .then((lista) => {
+        if (!ativo) return;
+        setItens(lista);
+        setEstado('ok');
+      })
+      .catch((e) => {
+        if (!ativo) return;
+        setEstado('erro');
+        if (!(e instanceof ErroApi)) toast.error(t.erro);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [segmento, t.erro]);
 
   const assinar = (e: FormEvent) => {
     e.preventDefault();
@@ -94,9 +90,9 @@ export default function Noticias() {
     setEmail('');
   };
 
-  const opcoes: { valor: Segmento | ''; rotulo: string }[] = [
+  const opcoes: { valor: SegmentoNoticia | ''; rotulo: string }[] = [
     { valor: '', rotulo: t.todos },
-    ...(Object.keys(SEGMENTOS) as Segmento[]).map((valor) => ({ valor, rotulo: SEGMENTOS[valor][idioma] })),
+    ...(Object.keys(SEGMENTOS) as SegmentoNoticia[]).map((valor) => ({ valor, rotulo: SEGMENTOS[valor][idioma] })),
   ];
 
   return (
@@ -142,26 +138,37 @@ export default function Noticias() {
             ))}
           </div>
 
-          <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {filtradas.map((p, i) => (
-              <Revelar key={p.titulo.pt} atraso={i * 0.05}>
-                <article className="flex h-full flex-col rounded-lg bg-surface p-8 ring-1 ring-primary/5 transition-shadow hover:shadow-md">
-                  <span className="w-fit rounded-full bg-accent/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-accent">
-                    {SEGMENTOS[p.segmento][idioma]}
-                  </span>
-                  <h2 className="mt-5 font-display text-xl font-bold leading-snug text-primary">{p.titulo[idioma]}</h2>
-                  <p className="mt-3 flex-1 text-sm leading-relaxed text-foreground/75">{RESUMO_PROVISORIO[idioma]}</p>
-                  <div className="mt-6 flex items-center justify-between border-t border-primary/10 pt-4">
-                    <span className="text-xs text-muted-foreground">{p.data[idioma]}</span>
-                    <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.18em] text-accent">
-                      {t.lerMais} <IconeSeta className="h-3.5 w-3.5" />
+          {estado === 'carregando' ? (
+            <div className="mt-16 flex justify-center" role="status" aria-label={t.carregando}>
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+            </div>
+          ) : estado === 'erro' ? (
+            <p className="mt-10 text-sm text-muted-foreground">{t.erro}</p>
+          ) : (
+            <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {itens.map((n, i) => (
+                <Revelar key={n.id} atraso={i * 0.05}>
+                  <Link
+                    to={caminhoNoticia(n, idioma)}
+                    className="flex h-full flex-col rounded-lg bg-surface p-8 ring-1 ring-primary/5 transition-shadow hover:shadow-md"
+                  >
+                    <span className="w-fit rounded-full bg-accent/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-accent">
+                      {SEGMENTOS[n.segmento][idioma]}
                     </span>
-                  </div>
-                </article>
-              </Revelar>
-            ))}
-            {filtradas.length === 0 && <p className="text-sm text-muted-foreground">{t.nenhuma}</p>}
-          </div>
+                    <h2 className="mt-5 font-display text-xl font-bold leading-snug text-primary">{tituloNoticia(n, idioma)}</h2>
+                    <p className="mt-3 flex-1 text-sm leading-relaxed text-foreground/75">{resumoNoticia(n, idioma)}</p>
+                    <div className="mt-6 flex items-center justify-between border-t border-primary/10 pt-4">
+                      <span className="text-xs text-muted-foreground">{formatarDataNoticia(n.data_publicacao, idioma)}</span>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.18em] text-accent">
+                        {t.lerMais} <IconeSeta className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                  </Link>
+                </Revelar>
+              ))}
+              {itens.length === 0 && <p className="text-sm text-muted-foreground">{t.nenhuma}</p>}
+            </div>
+          )}
         </div>
       </section>
     </>
