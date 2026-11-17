@@ -8,14 +8,12 @@ import ModeloForm, {
   formModeloInicial,
 } from '../components/ModeloForm';
 import ProposalLayout from '../components/ProposalLayout';
-import { modelosDisponiveis } from '../modelos';
 import { resumoProjetos } from '../modelos/formatoProposta';
 import {
   criarProposta,
   ImpostoVigente,
   listarModelosProposta,
   mensagemErro,
-  ModeloId,
   ModeloProposta,
   obterImpostoVigente,
   obterModeloProposta,
@@ -27,8 +25,7 @@ import {
 } from '../services/proposalApi';
 import { copiarTexto, formatarData, montarLinkPublico } from '../utils/propostaCalculo';
 
-const MODELOS = modelosDisponiveis();
-const MODELO_PADRAO: ModeloId = MODELOS[0]?.id ?? 'executive-search';
+const MODELO_OCEAN = 'ocean' as const;
 
 const seletorCls =
   'w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-ocean-600 disabled:bg-gray-50 disabled:text-gray-500';
@@ -40,7 +37,6 @@ export default function Nova() {
   const [params, setParams] = useSearchParams();
   const copiarId = params.get('copiar');
   const modeloPropostaId = params.get('modelo');
-  const [modelo, setModelo] = useState<ModeloId>(MODELO_PADRAO);
   const [modelosProposta, setModelosProposta] = useState<ModeloProposta[]>([]);
   const [modeloPropostaSel, setModeloPropostaSel] = useState('');
   const [alterado, setAlterado] = useState(false);
@@ -82,7 +78,6 @@ export default function Nova() {
           const origem = await obterProposta(copiarId);
           if (!ativo) return;
           if (origem.modelo !== 'simples') {
-            setModelo(origem.modelo);
             setModeloPropostaSel('');
             setCopiando(true);
             reiniciarForm(formDeModelo(origem, { copia: true }));
@@ -97,7 +92,6 @@ export default function Nova() {
         try {
           const m = await obterModeloProposta(modeloPropostaId);
           if (!ativo) return;
-          setModelo(m.divisao);
           setModeloPropostaSel(String(m.id));
           setCopiando(false);
           reiniciarForm(formDeModeloProposta(m, perfilAtual));
@@ -107,7 +101,6 @@ export default function Nova() {
         }
       }
       if (!ativo) return;
-      setModelo(MODELO_PADRAO);
       setModeloPropostaSel('');
       setCopiando(false);
       reiniciarForm(formModeloInicial(perfilAtual));
@@ -117,12 +110,8 @@ export default function Nova() {
     };
   }, [copiarId, modeloPropostaId]);
 
-  const modelosDaDivisao = modelosProposta.filter((m) => m.divisao === modelo);
-
-  const trocarDivisao = (divisao: ModeloId) => {
-    setModelo(divisao);
-    setModeloPropostaSel('');
-  };
+  // Modelos de atalho: preferir ocean; ainda listar legados para reutilizar conteúdo
+  const modelosAtalho = [...modelosProposta].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   const aplicarModeloProposta = (id: string) => {
     if (id === modeloPropostaSel) return;
@@ -141,7 +130,7 @@ export default function Nova() {
   const salvar = async (payload: PropostaModeloPayload) => {
     setSalvando(true);
     try {
-      const p = await criarProposta(payload);
+      const p = await criarProposta({ ...payload, modelo: MODELO_OCEAN });
       setCriada(p);
       toast.success('Proposta criada');
     } catch (err) {
@@ -231,49 +220,33 @@ export default function Nova() {
         </Link>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Divisão</label>
-          <select
-            value={modelo}
-            onChange={(e) => trocarDivisao(e.target.value as ModeloId)}
-            disabled={carregando}
-            className={seletorCls}
-          >
-            {MODELOS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.nome}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Modelo</label>
-          <select
-            value={modeloPropostaSel}
-            onChange={(e) => aplicarModeloProposta(e.target.value)}
-            disabled={carregando || modelosDaDivisao.length === 0}
-            className={seletorCls}
-          >
-            {modelosDaDivisao.length === 0 ? (
-              <option value="">Nenhum modelo para esta divisão</option>
-            ) : (
-              <>
-                <option value="">Em branco</option>
-                {modelosDaDivisao.map((m) => (
-                  <option key={m.id} value={String(m.id)}>
-                    {m.nome}
-                  </option>
-                ))}
-              </>
-            )}
-          </select>
-          {modelosDaDivisao.length > 0 && (
-            <p className="text-xs text-gray-500 mt-1">
-              Preenche todas as seções. Para usar outro modelo em uma seção, escolha no canto dela.
-            </p>
+      <div className="mb-6 max-w-md">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Modelo (atalho)</label>
+        <select
+          value={modeloPropostaSel}
+          onChange={(e) => aplicarModeloProposta(e.target.value)}
+          disabled={carregando || modelosAtalho.length === 0}
+          className={seletorCls}
+        >
+          {modelosAtalho.length === 0 ? (
+            <option value="">Nenhum modelo cadastrado</option>
+          ) : (
+            <>
+              <option value="">Em branco</option>
+              {modelosAtalho.map((m) => (
+                <option key={m.id} value={String(m.id)}>
+                  {m.nome}
+                  {m.divisao !== MODELO_OCEAN ? ` (${m.divisao_nome})` : ''}
+                </option>
+              ))}
+            </>
           )}
-        </div>
+        </select>
+        {modelosAtalho.length > 0 && (
+          <p className="text-xs text-gray-500 mt-1">
+            Preenche seções do formulário. Os serviços e a marca Ocean são definidos abaixo.
+          </p>
+        )}
       </div>
 
       {carregando ? (
@@ -284,9 +257,9 @@ export default function Nova() {
         <ModeloForm
           key={versaoForm}
           inicial={inicial}
-          modelosSecao={modelosDaDivisao}
+          modelosSecao={modelosAtalho}
           modeloSecaoInicial={modeloPropostaSel}
-          modelo={modelo}
+          modelo={MODELO_OCEAN}
           rotuloSalvar="Gerar proposta"
           rotuloSalvando="Gerando..."
           salvando={salvando}

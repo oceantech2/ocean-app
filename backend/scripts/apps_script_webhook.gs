@@ -1,6 +1,6 @@
-/* WEBHOOK DO SITE (30/10/2026; leads em 06/11/2026)
- * Recebe do site (backend no Render) as candidaturas, gravadas nas abas Pessoas e Candidaturas,
- * e os contatos do formulário da landing ("tipo": "lead"), gravados nas abas Pessoas e Leads.
+/* WEBHOOK DO SITE (30/10/2026; leads em 06/11/2026; Job post e fim da aba Candidaturas em 13/11/2026)
+ * Recebe do site (backend no Render) as candidaturas, gravadas só na aba Pessoas (Data de cadastro, Última candidatura)
+ * e, se a vaga tem planilha (layout novo), numa linha "Job post" do Mapeamento; os contatos da landing ("tipo": "lead") vão para Pessoas e Leads.
  * Contrato: specs/102-vagas-candidaturas/contracts/planilha-webhook.md (repo ocean-app).
  * Cópia versionada: backend/scripts/apps_script_webhook.gs (repo ocean-app).
  * Configuração: Configurações do projeto > Propriedades do script > WEBHOOK_SECRET
@@ -35,25 +35,25 @@ function doPost(e) {
   }
 }
 
+var WH_STATUS_JOB_POST = 'Job post';
+
+/**
+ * Candidatura do site (a partir de 13/11/2026 não existe mais a aba Candidaturas; ela fica oculta, só como histórico):
+ * 1) Pessoa: por e-mail e depois LinkedIn; só preenche campo vazio; pessoa nova recebe Data de cadastro.
+ * 2) A linha da pessoa ganha "Última candidatura em" e "Última vaga candidatada".
+ * 3) Se a vaga tem planilha no layout novo, entra uma linha com Status "Job post" no Mapeamento.
+ * Pode ser repetida sem duplicar (o painel reenvia candidatura pendente).
+ */
 function registrarCandidatura_(d) {
   var ss = SpreadsheetApp.getActive();
   var shP = ss.getSheetByName('Pessoas');
-  var shC = ss.getSheetByName('Candidaturas');
-  var hC = whHeaders_(shC);
-  var externo = d.externalId != null ? String(d.externalId) : '';
-
-  // 1) Duplicado: mesmo ID Externo já gravado
-  if (externo) {
-    var dadosC = whDados_(shC);
-    for (var i = 0; i < dadosC.length; i++) {
-      if (String(dadosC[i][hC['ID Externo']]) === externo) {
-        return { ok: true, idCandidatura: dadosC[i][hC['ID Candidatura']], idPessoa: dadosC[i][hC['ID Pessoa']], pessoaNova: false, duplicado: true };
-      }
-    }
+  var hP = whHeaders_(shP);
+  if (hP['Última candidatura em'] == null || hP['Última vaga candidatada'] == null) {
+    throw new Error('A aba Pessoas está sem as colunas "Última candidatura em" e "Última vaga candidatada"');
   }
 
-  // 2) Vaga
-  var vaga = { id: d.vagaId || '', titulo: d.vaga || '', cliente: d.cliente || '', link: '' };
+  // 1) Vaga (ID Vaga em Vagas: título, cliente e link da planilha)
+  var vaga = { id: d.vagaId || '', titulo: d.vaga || '', cliente: d.cliente || '', link: '', achou: false };
   if (vaga.id) {
     var shV = ss.getSheetByName('Vagas'), hV = whHeaders_(shV), dadosV = whDados_(shV);
     for (var v = 0; v < dadosV.length; v++) {
@@ -61,15 +61,16 @@ function registrarCandidatura_(d) {
         vaga.titulo = dadosV[v][hV['Vaga']] || vaga.titulo;
         vaga.cliente = dadosV[v][hV['Empresa']] || vaga.cliente;
         vaga.link = dadosV[v][hV['Link da planilha da vaga']] || '';
+        vaga.achou = true;
         break;
       }
     }
   }
 
-  // 3) Pessoa (por e-mail, depois LinkedIn)
+  // 2) Pessoa (por e-mail, depois LinkedIn)
   var anteriores = [[d.cargo2, d.empresa2], [d.cargo3, d.empresa3]]
     .filter(function (p) { return whTem_(p[0]); })
-    .map(function (p) { return p[0] + ' — ' + p[1]; }).join('; ');
+    .map(function (p) { return p[0] + ' - ' + p[1]; }).join('; ');
   var campos = {
     'Nome': d.nome, 'Empresa': d.empresaAtual, 'Cargo': d.cargoAtual, 'E-mail': String(d.email).trim().toLowerCase(),
     'Cargos anteriores': whSeguro_(anteriores), 'Idade': d.idade, 'Nacionalidade': whSeguro_(d.nacionalidade),
@@ -77,30 +78,133 @@ function registrarCandidatura_(d) {
     'LinkedIn': d.linkedin ? normalizarLinkedin_(d.linkedin) : '', 'Localização': d.localizacao,
     'Mobilidade': d.mobilidade, 'Formação': d.formacao, 'Experiência': d.experiencia,
     'Inglês': d.ingles, 'Outros idiomas': d.outrosIdiomas,
-    'Pret. salarial (mín)': d.pretensaoMin, 'Pret. salarial (máx)': d.pretensaoMax,
+    'Pret. salarial (mín)': whNumero_(d.pretensaoMin), 'Pret. salarial (máx)': whNumero_(d.pretensaoMax),
     'Disponibilidade': d.disponibilidade, 'Link do CV': d.linkCv
   };
   var pessoa = whRegistrarPessoa_(shP, campos, 'Candidato', WH_ORIGEM, WH_ATUALIZADO_POR);
 
-  // 4) Candidatura
+  // 3) Última candidatura (data e vaga) na linha da pessoa
   var agora = new Date();
-  var dadosC2 = whDados_(shC);
-  var idCand = whProximoId_(dadosC2, hC['ID Candidatura'], 'C', 5);
-  var nc = new Array(shC.getLastColumn()).fill('');
-  nc[hC['ID Candidatura']] = idCand;
-  nc[hC['ID Pessoa']] = pessoa.idPessoa;
-  nc[hC['Vaga']] = vaga.titulo;
-  nc[hC['Cliente']] = vaga.cliente;
-  nc[hC['Data']] = agora;
-  nc[hC['Origem']] = WH_ORIGEM;
-  nc[hC['Etapa']] = 'Inscrito';
-  nc[hC['Link da planilha da vaga']] = vaga.link;
-  nc[hC['ID Vaga']] = vaga.id;
-  nc[hC['ID Externo']] = externo;
-  nc[hC['Recebido em']] = agora;
-  shC.getRange(whUltimaLinha_(shC, hC['ID Candidatura']) + 1, 1, 1, nc.length).setValues([nc]);
+  var rotulo = (vaga.id ? vaga.id + ' - ' : '') + (vaga.titulo || 'vaga sem título');
+  shP.getRange(pessoa.linha, hP['Última candidatura em'] + 1).setValue(agora);
+  shP.getRange(pessoa.linha, hP['Última vaga candidatada'] + 1).setValue(rotulo);
 
-  return { ok: true, idCandidatura: idCand, idPessoa: pessoa.idPessoa, pessoaNova: pessoa.pessoaNova, duplicado: false };
+  // 4) Linha "Job post" na planilha da vaga
+  var jp = whJobPost_(vaga, pessoa, campos, agora, shP, hP, rotulo);
+
+  return {
+    ok: true,
+    idCandidatura: '',
+    idPessoa: pessoa.idPessoa,
+    pessoaNova: pessoa.pessoaNova,
+    duplicado: jp.duplicado === true,
+    planilhaVaga: jp.gravado ? 'gravado' : jp.motivo,
+    linhaPlanilhaVaga: jp.linha || null
+  };
+}
+
+/** Acrescenta a linha do candidato (Status "Job post") ao Mapeamento da planilha da vaga (só layout novo). */
+function whJobPost_(vaga, pessoa, campos, agora, shP, hP, rotulo) {
+  var dataTxt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  var chave = 'pelo site em ' + dataTxt;
+  if (!vaga.id) return { gravado: false, motivo: 'vaga sem ID Vaga (sem planilha)' };
+  if (!vaga.achou) return { gravado: false, motivo: 'ID Vaga ' + vaga.id + ' não encontrado na aba Vagas' };
+  var idPlan = whIdPlanilha_(vaga.link);
+  if (!idPlan) return { gravado: false, motivo: 'vaga sem link da planilha' };
+
+  // Opt-out = Sim nunca entra em lista: fica só em Pessoas, com aviso nas Observações
+  var optout = String(shP.getRange(pessoa.linha, hP['Opt-out'] + 1).getValue()).trim().toLowerCase();
+  if (optout === 'sim') {
+    if (hP['Observações'] != null) {
+      whAnotar_(shP.getRange(pessoa.linha, hP['Observações'] + 1), chave,
+        'Candidatou-se ' + chave + ' à vaga ' + rotulo + ' (Opt-out = Sim: não entrou na planilha da vaga)');
+    }
+    return { gravado: false, motivo: 'opt-out: pessoa fica só em Pessoas' };
+  }
+
+  var plan, sh;
+  try {
+    plan = SpreadsheetApp.openById(idPlan);
+  } catch (err) {
+    throw new Error('Pessoa gravada na Base, mas não consegui abrir a planilha da vaga: ' + (err && err.message || err));
+  }
+  sh = plan.getSheetByName('Mapeamento');
+  if (!sh) return { gravado: false, motivo: 'planilha da vaga sem aba Mapeamento' };
+  if (String(sh.getRange(1, 1).getValue()).trim() !== 'Consultor') {
+    return { gravado: false, motivo: 'planilha da vaga no layout antigo: Job post só no layout novo' };
+  }
+  var hM = whHeaders_(sh), obrig = ['Status', 'Nome', 'Observações', 'ID Pessoa'];
+  for (var o = 0; o < obrig.length; o++) {
+    if (hM[obrig[o]] == null) return { gravado: false, motivo: 'Mapeamento sem a coluna ' + obrig[o] };
+  }
+
+  // Já está na vaga? (mesmo ID Pessoa, e-mail ou LinkedIn): não duplica, só anota
+  var nLin = sh.getLastRow() - 1;
+  var vals = nLin > 0 ? sh.getRange(2, 1, nLin, sh.getLastColumn()).getValues() : [];
+  var email = campos['E-mail'], linkedin = campos['LinkedIn'] ? normalizarLinkedin_(campos['LinkedIn']) : '';
+  for (var r = 0; r < vals.length; r++) {
+    var lm = vals[r];
+    var mesmoId = String(lm[hM['ID Pessoa']]).trim() === String(pessoa.idPessoa);
+    var mesmoEmail = hM['Email'] != null && email && String(lm[hM['Email']]).trim().toLowerCase() === email;
+    var mesmoLi = hM['LinkedIn (URL)'] != null && linkedin && normalizarLinkedin_(lm[hM['LinkedIn (URL)']]) === linkedin;
+    if (mesmoId || mesmoEmail || mesmoLi) {
+      whAnotar_(sh.getRange(r + 2, hM['Observações'] + 1), chave, 'Candidatou-se também ' + chave);
+      return { gravado: false, duplicado: true, linha: r + 2, motivo: 'pessoa já estava na planilha da vaga' };
+    }
+  }
+
+  // Linha nova no fim das linhas preenchidas (Job post é o último Status, então já nasce na ordem certa)
+  var linhaNova = whUltimaLinha_(sh, hM['Nome']) + 1;
+  var cel = function (nome) { return hM[nome] == null ? null : sh.getRange(linhaNova, hM[nome] + 1); };
+  var por = function (nome, v) { var c = cel(nome); if (c && whTem_(v)) c.setValue(v); };
+  por('Nome', campos['Nome']);
+  por('ID Pessoa', pessoa.idPessoa);
+  por('Status', WH_STATUS_JOB_POST);
+  por('Observações', 'Job post: candidatou-se ' + chave);
+  var cTel = cel('Telefone');
+  if (cTel && whTem_(campos['Telefone'])) { cTel.setNumberFormat('@'); cTel.setValue(campos['Telefone']); }
+  por('Email', campos['E-mail']);
+  por('Cargo', campos['Cargo']);
+  por('Empresa', campos['Empresa']);
+  por('Experiência', campos['Experiência']);
+  por('Pretensão salarial (mínima)', whNumero_(campos['Pret. salarial (mín)']));
+  por('Pretensão salarial', whNumero_(campos['Pret. salarial (máx)']));
+  por('Localização', campos['Localização']);
+  por('Inglês', campos['Inglês']);
+  por('Outros idiomas', campos['Outros idiomas']);
+  por('Idade', campos['Idade']);
+  por('Formação', campos['Formação']);
+  por('Mobilidade', campos['Mobilidade']);
+  por('Disponibilidade de início', campos['Disponibilidade']);
+  whLink_(cel('LinkedIn (URL)'), campos['LinkedIn']);
+  whLink_(cel('CV (Link)'), campos['Link do CV']);
+  return { gravado: true, linha: linhaNova };
+}
+
+function whIdPlanilha_(link) {
+  var m = String(link || '').match(/\/d\/([A-Za-z0-9_-]+)/);
+  return m ? m[1] : '';
+}
+
+/** Acrescenta a nota ao fim da célula, uma vez só (chave evita repetir no reenvio). */
+function whAnotar_(cel, chave, nota) {
+  var atual = String(cel.getValue() || '');
+  if (atual.indexOf(chave) >= 0) return false;
+  cel.setValue(atual ? atual + ' | ' + nota : nota);
+  return true;
+}
+
+function whNumero_(v) {
+  if (typeof v === 'string' && /^\d+([.,]\d+)?$/.test(v.trim())) return parseFloat(v.trim().replace(',', '.'));
+  return v;
+}
+
+/** URL como link clicável (regra do LinkedIn clicável); texto que não é URL vai como está. */
+function whLink_(cel, url) {
+  if (!cel || !whTem_(url)) return;
+  var u = String(url).trim();
+  if (!/^https?:\/\//i.test(u)) { cel.setValue(u); return; }
+  cel.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(u).setLinkUrl(u).build());
 }
 
 function registrarLead_(d) {
@@ -140,7 +244,8 @@ function registrarLead_(d) {
   return { ok: true, idLead: idLead, idPessoa: pessoa.idPessoa, pessoaNova: pessoa.pessoaNova };
 }
 
-/** Acha a pessoa por e-mail (principal ou 2) e depois LinkedIn; cria se não existir ou só preenche campos vazios. */
+/** Acha a pessoa por e-mail (principal ou 2) e depois LinkedIn; cria se não existir ou só preenche campos vazios.
+ *  Pessoa nova recebe Data de cadastro (coluna criada em 13/11/2026). Devolve idPessoa, pessoaNova e a linha da pessoa na aba. */
 function whRegistrarPessoa_(shP, campos, papel, origem, atualizadoPor) {
   var hP = whHeaders_(shP);
   var email = campos['E-mail'], linkedin = campos['LinkedIn'];
@@ -156,7 +261,7 @@ function whRegistrarPessoa_(shP, campos, papel, origem, atualizadoPor) {
     }
   }
 
-  var agora = new Date(), idPessoa, pessoaNova = linhaP < 0;
+  var agora = new Date(), idPessoa, pessoaNova = linhaP < 0, linhaPlanilha = 0;
   if (pessoaNova) {
     idPessoa = whProximoId_(dadosP, hP['ID Pessoa'], 'P', 5);
     var nova = new Array(shP.getLastColumn()).fill('');
@@ -167,9 +272,11 @@ function whRegistrarPessoa_(shP, campos, papel, origem, atualizadoPor) {
     if (hP['Status do contato'] != null) nova[hP['Status do contato']] = 'Novo';
     if (hP['Informação atualizada em'] != null) nova[hP['Informação atualizada em']] = agora;
     if (hP['Atualizado por'] != null) nova[hP['Atualizado por']] = atualizadoPor;
+    if (hP['Data de cadastro'] != null) nova[hP['Data de cadastro']] = agora;
     var rowP = whUltimaLinha_(shP, hP['ID Pessoa']) + 1;
     shP.getRange(rowP, hP['Telefone'] + 1).setNumberFormat('@');
     shP.getRange(rowP, 1, 1, nova.length).setValues([nova]);
+    linhaPlanilha = rowP;
   } else {
     var linha = dadosP[linhaP], rowE = linhaP + 2, mudou = false;
     idPessoa = linha[hP['ID Pessoa']];
@@ -187,8 +294,9 @@ function whRegistrarPessoa_(shP, campos, papel, origem, atualizadoPor) {
       if (hP['Informação atualizada em'] != null) shP.getRange(rowE, hP['Informação atualizada em'] + 1).setValue(agora);
       if (hP['Atualizado por'] != null) shP.getRange(rowE, hP['Atualizado por'] + 1).setValue(atualizadoPor);
     }
+    linhaPlanilha = rowE;
   }
-  return { idPessoa: idPessoa, pessoaNova: pessoaNova };
+  return { idPessoa: idPessoa, pessoaNova: pessoaNova, linha: linhaPlanilha };
 }
 
 function whResp_(obj) {

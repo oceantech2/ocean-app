@@ -62,7 +62,7 @@ const conteudo: ConteudoDivisao = {
       'be calculated based on the actual compensation, less the initial installment;',
     'Minimum fee of BRL 15,000.00 per project;',
   ],
-  observacaoImpostos: (percentual) => `Taxes (up to ${percentual}%) will be added to all amounts stated.`,
+  observacaoImpostos: (percentual) => `Taxes (${percentual}%) will be added to all amounts stated.`,
   observacoesGarantias: [
     'Replacement guarantee period if the hired candidate leaves the company (at no additional cost);',
     "Ocean will not approach the client's employees for 12 months after the last position filled;",

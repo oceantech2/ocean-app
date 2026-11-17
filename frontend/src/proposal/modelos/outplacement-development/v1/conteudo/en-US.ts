@@ -46,7 +46,7 @@ const conteudo: ConteudoDivisao = {
   observacoesInvestimento: [
     'Minimum fee of BRL 10,000.00 per project;',
   ],
-  observacaoImpostos: (percentual) => `Taxes (up to ${percentual}%) will be added to all amounts stated.`,
+  observacaoImpostos: (percentual) => `Taxes (${percentual}%) will be added to all amounts stated.`,
   observacoesGarantias: [],
   garantiasSempreVisivel: false,
 };

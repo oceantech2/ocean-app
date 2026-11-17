@@ -15,9 +15,33 @@ MODELOS = {
     "offshore-talent": {"nome": "Offshore Talent", "versao_atual": 1, "disponivel": True},
     "outsourcing": {"nome": "Outsourcing", "versao_atual": 1, "disponivel": True},
     "outplacement-development": {"nome": "Development & Outplacement", "versao_atual": 1, "disponivel": True},
+    # Feature 105: modelo único; o conteúdo da página vem dos serviços escolhidos
+    "ocean": {"nome": "Ocean Talent Solutions", "versao_atual": 1, "disponivel": True},
 }
 MODELO_SIMPLES = "simples"
 NOME_SIMPLES = "Proposta simples"
+MODELO_OCEAN = "ocean"
+
+# Catálogo fixo de serviços (feature 105); mantido em sincronia com frontend/src/proposal/modelos/ocean/v1/
+SERVICOS = {
+    "inteligencia-de-mercado": "Inteligência de Mercado",
+    "recrutamento-e-selecao": "Recrutamento e Seleção",
+    "assessment": "Assessment",
+    "outplacement": "Outplacement",
+    "solucoes-personalizadas": "Soluções Personalizadas",
+}
+SERVICO_ORDER = list(SERVICOS)
+
+# Propostas legadas (sem `servicos` gravado): serviço equivalente ao modelo
+MAPA_MODELO_PARA_SERVICOS = {
+    "executive-search": ["recrutamento-e-selecao"],
+    "outsourcing": ["recrutamento-e-selecao"],
+    "offshore-talent": ["recrutamento-e-selecao"],
+    "outplacement-development": ["outplacement"],
+}
+
+OBSERVACOES_MAX_ITENS = 20
+OBSERVACAO_MAX_CARACTERES = 1000
 
 SETORES = {
     "oil-gas": "Petróleo & Gás",
@@ -26,6 +50,7 @@ SETORES = {
     "mineracao": "Mineração",
     "tecnologia": "Tecnologia",
     "industria-servicos": "Indústria & Serviços",
+    "outros": "Outros",
 }
 
 # Ordem de exibição dos quadros de investimento
@@ -139,6 +164,70 @@ def validar_idioma(valor: Optional[str]) -> str:
     return idioma
 
 
+def validar_servicos(lista) -> list[str]:
+    """Valida os serviços (1 a 5 ids do catálogo, sem repetição) e devolve na ordem canônica do catálogo."""
+    itens = list(lista or [])
+    if not itens:
+        raise _erro("Selecione ao menos um serviço")
+    escolhidos = set()
+    for item in itens:
+        servico = item.strip() if isinstance(item, str) else None
+        if servico not in SERVICOS:
+            raise _erro("Serviço inválido")
+        if servico in escolhidos:
+            raise _erro("Serviço repetido")
+        escolhidos.add(servico)
+    return [s for s in SERVICO_ORDER if s in escolhidos]
+
+
+def validar_observacoes(lista) -> Optional[list[str]]:
+    """Observações editáveis (investimento/garantias); None = não informadas. Itens vazios são descartados."""
+    if lista is None:
+        return None
+    observacoes = []
+    for item in list(lista):
+        if not isinstance(item, str):
+            raise _erro("Observação inválida")
+        texto = item.strip()
+        if not texto:
+            continue
+        if len(texto) > OBSERVACAO_MAX_CARACTERES:
+            raise _erro(f"Cada observação deve ter até {OBSERVACAO_MAX_CARACTERES} caracteres")
+        observacoes.append(texto)
+    if len(observacoes) > OBSERVACOES_MAX_ITENS:
+        raise _erro(f"Inclua até {OBSERVACOES_MAX_ITENS} observações")
+    return observacoes
+
+
+def servicos_padrao_do_modelo(modelo: Optional[str]) -> Optional[list[str]]:
+    """Serviços equivalentes a um modelo legado; None quando o modelo não tem equivalente (ex.: simples)."""
+    padrao = MAPA_MODELO_PARA_SERVICOS.get(modelo or "")
+    return list(padrao) if padrao else None
+
+
+def servicos_efetivos(modelo: Optional[str], servicos) -> Optional[list[str]]:
+    """Serviços para exibição: os gravados ou, nas propostas legadas sem eles, os derivados do modelo."""
+    if servicos:
+        return list(servicos)
+    return servicos_padrao_do_modelo(modelo)
+
+
+def _servicos_e_observacoes(payload, modelo: Optional[str], obrigatorio_servicos: bool) -> dict:
+    """Serviços e observações do payload; sem serviços informados, deriva do mapa legado (modelo diferente de ocean)."""
+    bruto = getattr(payload, "servicos", None)
+    if bruto:
+        servicos = validar_servicos(bruto)
+    elif obrigatorio_servicos:
+        raise _erro("Selecione ao menos um serviço")
+    else:
+        servicos = servicos_padrao_do_modelo(modelo)
+    return {
+        "servicos": servicos,
+        "observacoes_investimento": validar_observacoes(getattr(payload, "observacoes_investimento", None)),
+        "observacoes_garantias": validar_observacoes(getattr(payload, "observacoes_garantias", None)),
+    }
+
+
 def texto_garantia_meses(meses: int, idioma: str) -> str:
     if idioma == "en-US":
         return "1 month" if meses == 1 else f"{meses} months"
@@ -227,6 +316,7 @@ def validar_modelo(payload, modelo: str, data_se_vazia: date) -> dict:
     shortlist = _texto_opcional(payload.shortlist, "Shortlist muito longo")
     sla = _texto_opcional(payload.sla, "SLA muito longo")
     garantia = _texto_opcional(payload.garantia, "Garantia muito longa")
+    extras = _servicos_e_observacoes(payload, modelo, obrigatorio_servicos=modelo == MODELO_OCEAN)
 
     dias = payload.validade_dias
     if not isinstance(dias, int) or isinstance(dias, bool) or not 1 <= dias <= VALIDADE_DIAS_MAX:
@@ -253,6 +343,7 @@ def validar_modelo(payload, modelo: str, data_se_vazia: date) -> dict:
         "shortlist": shortlist,
         "sla": sla,
         "garantia_texto": garantia,
+        **extras,
         "validade_dias": dias,
         "validade": validade,
         "projeto_nome": None,
@@ -301,6 +392,7 @@ def validar_modelo_proposta(payload) -> dict:
         "shortlist": _texto_opcional(payload.shortlist, "Shortlist muito longo"),
         "sla": _texto_opcional(payload.sla, "SLA muito longo"),
         "garantia_texto": _texto_opcional(payload.garantia, "Garantia muito longa"),
+        **_servicos_e_observacoes(payload, divisao, obrigatorio_servicos=False),
         "validade_dias": dias,
     }
 

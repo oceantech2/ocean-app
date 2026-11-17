@@ -24,6 +24,8 @@ from app.services.proposta_modelos import (
     MODELO_SIMPLES,
     MODELOS,
     MOEDAS,
+    SERVICO_ORDER,
+    SERVICOS,
     SETORES,
     TAXA_TIPOS,
     TIPOS_INVESTIMENTO,
@@ -42,6 +44,7 @@ MSG_INESPERADO = "Erro inesperado ao executar a ação. Tente novamente ou use o
 CAMPOS_PROPOSTA = (
     "modelo", "cliente_nome", "setor", "idioma", "moeda", "data_proposta", "validade_dias", "projetos",
     "projeto_escopo", "shortlist", "sla", "garantia",
+    "servicos", "observacoes_investimento", "observacoes_garantias",
     "consultor_nome", "consultor_cargo", "consultor_telefone", "consultor_email",
 )
 CAMPOS_VAGA = (
@@ -309,6 +312,27 @@ _PROJETOS = {
 
 _TEXTO_CURTO = {"type": "string", "maxLength": 255}
 
+_SERVICOS = {
+    "type": "array",
+    "minItems": 1,
+    "maxItems": len(SERVICO_ORDER),
+    "uniqueItems": True,
+    "items": _enum(SERVICO_ORDER, f"Serviço: {_rotulos(SERVICOS)}"),
+    "description": (
+        "Serviços da proposta (1 a 5). Obrigatório no modelo 'ocean'; nos modelos antigos, se omitido, "
+        "é derivado do modelo"
+    ),
+}
+
+
+def _observacoes(descricao: str) -> dict:
+    return {
+        "type": "array",
+        "maxItems": 20,
+        "items": {"type": "string", "maxLength": 1000},
+        "description": descricao,
+    }
+
 
 def _campos_proposta(com_imutaveis: bool) -> dict:
     campos = {
@@ -327,6 +351,12 @@ def _campos_proposta(com_imutaveis: bool) -> dict:
         "shortlist": {**_TEXTO_CURTO, "description": "Garantia de shortlist (opcional; vazio usa o texto padrão, ex.: 3 a 5 candidatos)"},
         "sla": {**_TEXTO_CURTO, "description": "SLA (opcional; vazio usa o texto padrão, ex.: 5 a 10 dias úteis)"},
         "garantia": {**_TEXTO_CURTO, "description": "Garantia (opcional)"},
+        "servicos": _SERVICOS,
+        "observacoes_investimento": _observacoes(
+            "Observações do quadro Investimento, uma por item (opcional). Use {imposto} onde o percentual de "
+            "impostos vigente deve aparecer"
+        ),
+        "observacoes_garantias": _observacoes("Observações do quadro Garantias, uma por item (opcional)"),
         "consultor_nome": {**_TEXTO_CURTO, "description": "Nome do consultor (padrão: Meu perfil)"},
         "consultor_cargo": {**_TEXTO_CURTO, "description": "Cargo do consultor (padrão: Meu perfil)"},
         "consultor_telefone": {"type": "string", "maxLength": 30, "description": "Telefone do consultor (padrão: Meu perfil)"},
@@ -334,7 +364,11 @@ def _campos_proposta(com_imutaveis: bool) -> dict:
     }
     if com_imutaveis:
         campos = {
-            "modelo": _enum(MODELOS, "Modelo da proposta: " + "; ".join(f"{k} = {v['nome']}" for k, v in MODELOS.items())),
+            "modelo": _enum(
+                MODELOS,
+                "Modelo da proposta (use 'ocean' para novas propostas, junto com 'servicos'): "
+                + "; ".join(f"{k} = {v['nome']}" for k, v in MODELOS.items()),
+            ),
             "idioma": _enum(IDIOMAS, "Idioma da página do cliente (padrão pt-BR)"),
             "moeda": _enum(MOEDAS, "Moeda dos valores (padrão BRL)"),
             **campos,

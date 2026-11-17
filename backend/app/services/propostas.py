@@ -16,6 +16,7 @@ from app.services.proposta_modelos import (
     MODELO_SIMPLES,
     MOEDA_PADRAO,
     nome_modelo,
+    servicos_efetivos,
     telefone_whatsapp,
 )
 
@@ -124,6 +125,10 @@ def formato_novo(p: Proposta) -> bool:
     return not eh_simples(p) and p.projetos is not None
 
 
+# Feature 105: JSONB opcionais do formato novo (serviços escolhidos e observações editáveis)
+CAMPOS_SERVICOS = ("servicos", "observacoes_investimento", "observacoes_garantias")
+
+
 def _json_canonico(dados: dict) -> str:
     return json.dumps(dados, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -157,6 +162,11 @@ def conteudo_canonico(p: Proposta) -> str:
         # Sem a chave quando nulo: mantém válidos os hashes gravados antes do imposto mensal existir
         if p.imposto_percentual is not None:
             dados["imposto_percentual"] = _dec_str(p.imposto_percentual)
+        # Feature 105: sem a chave quando nulo, para manter válidos os hashes de antes dos serviços
+        for campo in CAMPOS_SERVICOS:
+            valor = getattr(p, campo)
+            if valor is not None:
+                dados[campo] = valor
         return _json_canonico(dados)
     # Formato antigo congelado: assinaturas das versões 1 e 2 do Executive Search dependem dele
     if not eh_simples(p):
@@ -258,6 +268,14 @@ def _diff_modelo(p: Proposta, dados: dict) -> list[dict]:
             anterior = _dec_str(IMPOSTO_LEGADO)
         if anterior != novo:
             alteracoes.append({"campo": campo, "anterior": anterior, "novo": novo})
+    for campo in CAMPOS_SERVICOS:
+        anterior = getattr(p, campo)
+        if campo == "servicos":
+            # Proposta legada sem serviços gravados: compara com o que a leitura já mostrava
+            anterior = servicos_efetivos(p.modelo, anterior)
+        novo = dados.get(campo)
+        if anterior != novo:
+            alteracoes.append({"campo": campo, "anterior": anterior, "novo": novo})
     # Projetos não têm identificador: a comparação é por posição (inclusão, remoção, renomeação e reordenação)
     atuais = list(p.projetos or [])
     novos = list(dados["projetos"] or [])
@@ -316,6 +334,17 @@ def _data(d: Optional[date]) -> Optional[str]:
     return None if d is None else d.isoformat()
 
 
+def _campos_servicos(p: Proposta) -> dict:
+    """Serviços (derivados do modelo nas propostas legadas sem eles) e observações; vazios nas simples."""
+    if eh_simples(p):
+        return {"servicos": [], "observacoes_investimento": None, "observacoes_garantias": None}
+    return {
+        "servicos": servicos_efetivos(p.modelo, p.servicos) or [],
+        "observacoes_investimento": p.observacoes_investimento,
+        "observacoes_garantias": p.observacoes_garantias,
+    }
+
+
 def serializar_item(p: Proposta) -> dict:
     projetos = p.projetos if formato_novo(p) else None
     return {
@@ -325,6 +354,7 @@ def serializar_item(p: Proposta) -> dict:
         "modelo_nome": nome_modelo(p.modelo),
         "moeda": p.moeda,
         "idioma": p.idioma,
+        "servicos": _campos_servicos(p)["servicos"],
         "cliente_nome": p.cliente_nome,
         # Formato novo: nome do primeiro projeto
         "projeto_nome": projetos[0]["nome"] if projetos else p.projeto_nome,
@@ -356,6 +386,7 @@ def serializar_detalhe(p: Proposta) -> dict:
         "shortlist": p.shortlist,
         "sla": p.sla,
         "garantia": p.garantia_texto,
+        **_campos_servicos(p),
         "validade_dias": p.validade_dias,
         "imposto_percentual": _dec_str(p.imposto_percentual),
         "valor": _dec_str(p.valor),
@@ -426,6 +457,7 @@ def serializar_publica(p: Proposta) -> dict:
             "shortlist": p.shortlist,
             "sla": p.sla,
             "garantia": p.garantia_texto,
+            **_campos_servicos(p),
             "imposto_percentual": _dec_str(p.imposto_percentual),
             "validade": p.validade.isoformat(),
             "versao": p.versao,

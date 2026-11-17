@@ -10,6 +10,7 @@ _DEFAULT_CORS = [
     "http://127.0.0.1:5193",
     "http://proposal.localhost:5193",
     "http://consultantpanel.localhost:5193",
+    "http://landing.localhost:5193",
     "http://site.localhost:5193",
 ]
 _DEFAULT_HOSTS = ["localhost", "127.0.0.1"]

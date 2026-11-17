@@ -56,3 +56,5 @@ Thumbs.db
 
 # Local Netlify folder
 .netlify
+_tmp_propostas_v2/
+_tmp_site_final/

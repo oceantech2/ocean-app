@@ -13,26 +13,26 @@ const IMAGEM = { caminho: '/site/img/home-hero.jpg', largura: 1376, altura: 768 
 const SEO: Record<Pagina, Record<Idioma, { titulo: string; descricao: string }>> = {
   home: {
     pt: {
-      titulo: 'Ocean Talent Solutions | Executive Search e Capital Humano',
+      titulo: 'Ocean Talent Solutions | Recrutamento & Seleção e Capital Humano',
       descricao:
-        'Consultoria boutique de capital humano: Executive Search, Offshore Talent, Outsourcing e Development & Outplacement em Petróleo & Gás, Energia, Mineração e mais.',
+        'Consultoria boutique de capital humano: Inteligência de Mercado, Recrutamento & Seleção, Assessment, Outplacement e Soluções Personalizadas em Petróleo & Gás, Energia, Mineração e mais.',
     },
     en: {
-      titulo: 'Ocean Talent Solutions | Executive Search and Human Capital',
+      titulo: 'Ocean Talent Solutions | Recruitment & Selection and Human Capital',
       descricao:
-        'Boutique human capital consultancy: Executive Search, Offshore Talent, Outsourcing and Development & Outplacement in Oil & Gas, Energy, Mining and more.',
+        'Boutique human capital consultancy: Market Intelligence, Recruitment & Selection, Assessment, Outplacement and Customized Solutions in Oil & Gas, Energy, Mining and more.',
     },
   },
   solucoes: {
     pt: {
       titulo: 'Soluções em Capital Humano | Ocean Talent Solutions',
       descricao:
-        'Executive Search, recrutamento offshore, outsourcing de profissionais, assessment e outplacement: soluções para toda a cadeia de capital humano.',
+        'Inteligência de Mercado, Recrutamento & Seleção, Assessment, Outplacement e Soluções Personalizadas: soluções para toda a cadeia de capital humano.',
     },
     en: {
       titulo: 'Human Capital Solutions | Ocean Talent Solutions',
       descricao:
-        'Executive search, offshore recruitment, professional outsourcing, assessment and outplacement: solutions across the entire human capital chain.',
+        'Market intelligence, recruitment & selection, assessment, outplacement and customized solutions across the entire human capital chain.',
     },
   },
   vagas: {

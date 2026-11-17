@@ -10,7 +10,7 @@ import {
   CLIENTES,
   CONTATO,
   HASH_SOLUCAO,
-  ICONE_DIVISAO,
+  ICONE_SOLUCAO,
   NUMEROS,
   VALORES,
 } from '../dados/conteudo';
@@ -37,10 +37,9 @@ const TEXTOS = {
         </p>
         <p>
           Com uma equipe de consultores sêniores, oferecemos soluções integradas de <strong>mapeamento de mercado</strong>,{' '}
-          <strong>recrutamento e seleção</strong>, <strong>terceirização</strong>, <strong>treinamento</strong>,{' '}
-          <strong>desenvolvimento</strong> e <strong>recolocação de profissionais</strong>. Nossos serviços são
-          personalizados e partem de uma abordagem consultiva, com o objetivo de gerar valor ao negócio e impulsionar o
-          resultado dos nossos clientes.
+          <strong>recrutamento e seleção</strong>, <strong>avaliação</strong>, <strong>desenvolvimento</strong> e{' '}
+          <strong>recolocação de profissionais</strong>. Nossos serviços são personalizados e partem de uma abordagem
+          consultiva, com o objetivo de gerar valor ao negócio e impulsionar o resultado dos nossos clientes.
         </p>
         <p>
           Atuamos de maneira abrangente em âmbito continental, combinando expertise técnica, uma sólida rede de contatos
@@ -48,7 +47,7 @@ const TEXTOS = {
         </p>
       </>
     ),
-    saibaMais: 'Saiba mais',
+    saibaMais: 'Saiba mais →',
     valores: 'Valores',
     clientesTitulo: 'Empresas que confiam na Ocean',
     clientesTexto: 'Atendemos organizações de diferentes portes e setores, do scale-up ao enterprise.',
@@ -77,10 +76,9 @@ const TEXTOS = {
         </p>
         <p>
           With a team of senior consultants, we offer integrated solutions in <strong>market mapping</strong>,{' '}
-          <strong>recruitment and selection</strong>, <strong>outsourcing</strong>, <strong>training</strong>,{' '}
-          <strong>development</strong> and <strong>talent outplacement</strong>. Our services are personalized and
-          based on a consultative approach, with the goal of generating value for the business and driving our
-          clients' results.
+          <strong>recruitment and selection</strong>, <strong>assessment</strong>, <strong>development</strong> and{' '}
+          <strong>talent outplacement</strong>. Our services are personalized and based on a consultative approach,
+          with the goal of generating value for the business and driving our clients' results.
         </p>
         <p>
           We operate comprehensively on a continental scale, combining technical expertise, a solid network of contacts
@@ -88,7 +86,7 @@ const TEXTOS = {
         </p>
       </>
     ),
-    saibaMais: 'Learn more',
+    saibaMais: 'Learn more →',
     valores: 'Values',
     clientesTitulo: 'Companies that trust Ocean',
     clientesTexto: 'We serve organizations of all sizes and sectors, from scale-up to enterprise.',
@@ -175,31 +173,28 @@ function QuemSomos() {
               <div className="mt-6 space-y-4 text-lg leading-relaxed text-foreground/80">{t.quemSomosTexto}</div>
             </div>
           </Revelar>
-          <div className="grid gap-5 lg:col-span-6 lg:col-start-7">
-            <div className="grid grid-cols-2 gap-5">
+          <div className="lg:col-span-6 lg:col-start-7">
+            <ul aria-label={t.verSolucoes} className="sol-lista">
               {CARDS_SOLUCAO.map((c, i) => {
-                const { icone: Icone, traco } = ICONE_DIVISAO[c.id];
+                const Icone = ICONE_SOLUCAO[c.id];
                 return (
-                  <Revelar key={c.id} atraso={i * 0.05}>
-                    <article className="group flex aspect-square flex-col rounded-md border border-gray-light bg-background px-5 pb-5 pt-6 transition-colors duration-300 hover:border-primary focus-within:border-primary">
-                      <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        <Icone className="h-6 w-6" strokeWidth={traco} />
-                      </span>
-                      <h4 className="font-display whitespace-nowrap text-base font-bold leading-tight text-primary">{c.titulo}</h4>
-                      <p className="mt-3 flex-grow text-sm leading-relaxed text-dark-gray">{c.descricao[idioma]}</p>
-                      <hr className="mt-4 w-1/2 border-t border-gray-light" />
-                      <Link
-                        to={caminho('solucoes', HASH_SOLUCAO[c.id])}
-                        className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.14em] text-secondary"
-                      >
-                        {t.saibaMais}
-                        <IconeSeta className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                  <li key={c.id}>
+                    <Revelar atraso={i * 0.05}>
+                      <Link className="sol-nome" to={caminho('solucoes', HASH_SOLUCAO[c.id])}>
+                        <span className="ic" aria-hidden="true">
+                          <Icone />
+                        </span>
+                        <span className="sn">{c.titulo[idioma]}</span>
+                        <span className="ss">{c.descricao[idioma]}</span>
                       </Link>
-                    </article>
-                  </Revelar>
+                    </Revelar>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
+            <Link to={caminho('solucoes')} className="sol-btn">
+              {t.saibaMais}
+            </Link>
           </div>
         </div>
         <div className="mt-16 border-t border-primary/10 pt-10 lg:mt-24 lg:pt-16">

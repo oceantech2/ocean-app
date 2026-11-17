@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import prerenderSite from './site-prerender'
 
 // Em dev, proposal.localhost:5193 (cliente) e consultantpanel.localhost:5193 (painel) servem o app do
-// Proposal e site.localhost:5193 serve o site institucional (espelha o rewrite por host do vercel.json).
+// Proposal e landing.localhost:5193 serve o site institucional (espelha landing.oceantalentsolutions.com).
 function hostsDev(): Plugin {
   return {
     name: 'hosts-dev',
@@ -17,7 +17,7 @@ function hostsDev(): Plugin {
         if (!ehInterno && !temExtensao) {
           if (host.startsWith('proposal.') || host.startsWith('consultantpanel.')) {
             req.url = '/proposal.html'
-          } else if (host.startsWith('site.')) {
+          } else if (host.startsWith('landing.') || host.startsWith('site.')) {
             req.url = '/site.html'
           }
         }

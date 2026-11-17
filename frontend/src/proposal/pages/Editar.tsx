@@ -119,11 +119,11 @@ export default function Editar() {
       ) : (
         <ModeloForm
           inicial={formDeModelo(proposta)}
-          modelo={proposta.modelo}
+          modelo="ocean"
           rotuloSalvar="Salvar alterações"
           rotuloSalvando="Salvando..."
           salvando={salvando}
-          onSubmit={salvar}
+          onSubmit={(payload) => salvar({ ...payload, modelo: 'ocean' })}
           aviso={aviso}
           idiomaMoedaFixos
           imposto={{ vigente: imposto, atual: proposta.imposto_percentual ?? IMPOSTO_LEGADO }}

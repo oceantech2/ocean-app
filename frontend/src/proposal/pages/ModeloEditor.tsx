@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import ModeloForm, { FormModelo, formDeModeloProposta, formModeloInicial } from '../components/ModeloForm';
 import ProposalLayout from '../components/ProposalLayout';
-import { modelosDisponiveis } from '../modelos';
 import {
   criarModeloProposta,
   editarModeloProposta,
@@ -14,7 +13,7 @@ import {
 } from '../services/proposalApi';
 import { useProposalAuthStore } from '../store';
 
-const DIVISOES = modelosDisponiveis();
+const MODELO_OCEAN: ModeloId = 'ocean';
 const NOME_MAX = 120;
 
 export default function ModeloEditor() {
@@ -22,7 +21,6 @@ export default function ModeloEditor() {
   const editando = !!id;
   const navigate = useNavigate();
   const isAdmin = useProposalAuthStore((s) => s.papel) === 'admin';
-  const [divisao, setDivisao] = useState<ModeloId>(DIVISOES[0]?.id ?? 'executive-search');
   const [nome, setNome] = useState('');
   const [erroNome, setErroNome] = useState<string | undefined>();
   const [inicial, setInicial] = useState<FormModelo>(() => formModeloInicial(null));
@@ -38,7 +36,6 @@ export default function ModeloEditor() {
     obterModeloProposta(id)
       .then((m) => {
         if (!ativo) return;
-        setDivisao(m.divisao);
         setNome(m.nome);
         setInicial(formDeModeloProposta(m, null));
         setVersaoForm((v) => v + 1);
@@ -63,16 +60,19 @@ export default function ModeloEditor() {
     setSalvando(true);
     try {
       const dados = {
-        divisao,
+        divisao: MODELO_OCEAN,
         nome: nomeLimpo,
         idioma: payload.idioma,
         moeda: payload.moeda,
         setor: payload.setor,
+        servicos: payload.servicos,
         projeto_escopo: payload.projeto_escopo,
         projetos: payload.projetos,
         shortlist: payload.shortlist,
         sla: payload.sla,
         garantia: payload.garantia,
+        observacoes_investimento: payload.observacoes_investimento,
+        observacoes_garantias: payload.observacoes_garantias,
         validade_dias: payload.validade_dias,
       };
       const m = id ? await editarModeloProposta(id, dados) : await criarModeloProposta(dados);
@@ -108,41 +108,26 @@ export default function ModeloEditor() {
         <div className="text-center py-16 text-gray-600">Modelo não encontrado</div>
       ) : (
         <>
-          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Divisão</label>
-              <select
-                value={divisao}
-                onChange={(e) => setDivisao(e.target.value as ModeloId)}
-                className={`${campo} border-gray-300`}
-              >
-                {DIVISOES.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome do modelo</label>
-              <input
-                value={nome}
-                onChange={(e) => {
-                  setNome(e.target.value);
-                  setErroNome(undefined);
-                }}
-                maxLength={NOME_MAX}
-                placeholder="Ex.: Mapeamento com pagamento antecipado"
-                className={`${campo} ${erroNome ? 'border-red-400' : 'border-gray-300'}`}
-              />
-              {erroNome && <p className="text-sm text-red-600 mt-1">{erroNome}</p>}
-            </div>
+          <div className="mb-6 max-w-md">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nome do modelo</label>
+            <input
+              value={nome}
+              onChange={(e) => {
+                setNome(e.target.value);
+                setErroNome(undefined);
+              }}
+              maxLength={NOME_MAX}
+              placeholder="Ex.: Mapeamento com pagamento antecipado"
+              className={`${campo} ${erroNome ? 'border-red-400' : 'border-gray-300'}`}
+            />
+            {erroNome && <p className="text-sm text-red-600 mt-1">{erroNome}</p>}
+            <p className="text-xs text-gray-500 mt-1">Atalho Ocean: serviços e textos da proposta v2.</p>
           </div>
           <ModeloForm
             key={versaoForm}
             inicial={inicial}
             variante="modelo"
-            modelo={divisao}
+            modelo={MODELO_OCEAN}
             rotuloSalvar={editando ? 'Salvar modelo' : 'Criar modelo'}
             rotuloSalvando="Salvando..."
             salvando={salvando}

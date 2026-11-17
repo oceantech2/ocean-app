@@ -9,14 +9,16 @@ export const SETORES: { chave: SetorId; rotulo: string; foto: string }[] = [
   { chave: 'infraestrutura', rotulo: 'Infraestrutura', foto: FOTO_PADRAO },
   { chave: 'mineracao', rotulo: 'Mineração', foto: '/propostas/setores/mineracao.jpg' },
   { chave: 'tecnologia', rotulo: 'Tecnologia', foto: '/propostas/setores/tecnologia.jpg' },
-  // Sem foto própria até a Ocean enviar
-  { chave: 'industria-servicos', rotulo: 'Indústria & Serviços', foto: FOTO_PADRAO },
+  { chave: 'industria-servicos', rotulo: 'Indústria & Serviços', foto: '/propostas/setores/industria-servicos.jpg' },
+  // Sem foto: a capa do modelo Ocean fica azul-marinho liso com o símbolo como marca d'água
+  { chave: 'outros', rotulo: 'Outros', foto: '' },
 ];
 
 export function rotuloSetor(chave: string | null | undefined): string {
   return SETORES.find((s) => s.chave === chave)?.rotulo ?? (chave || '—');
 }
 
+// '' = setor sem foto ('outros'); setor desconhecido ou ausente cai na foto padrão (propostas antigas)
 export function fotoSetor(chave: string | null | undefined): string {
   return SETORES.find((s) => s.chave === chave)?.foto ?? FOTO_PADRAO;
 }

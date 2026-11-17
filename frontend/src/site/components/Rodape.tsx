@@ -6,23 +6,25 @@ import { useIdioma } from '../idioma';
 const TEXTOS = {
   pt: {
     descricao:
-      'Consultoria boutique de capital humano. Do recrutamento executivo ao desenvolvimento, recolocação e terceirização de profissionais.',
+      'Consultoria boutique de capital humano. Do recrutamento executivo ao desenvolvimento e à recolocação de profissionais.',
     navegacao: 'Navegação',
     solucoes: 'Soluções',
     vagas: 'Vagas',
     noticias: 'Notícias',
     contato: 'Contato',
     direitos: 'Todos os direitos reservados.',
+    faixa: 'Inteligência de Mercado · Recrutamento & Seleção · Assessment · Outplacement · Soluções Personalizadas',
   },
   en: {
     descricao:
-      'Boutique human capital consultancy. From executive search to development, outplacement and workforce outsourcing.',
+      'Boutique human capital consultancy. From executive search to development and talent outplacement.',
     navegacao: 'Navigation',
     solucoes: 'Solutions',
     vagas: 'Jobs',
     noticias: 'News',
     contato: 'Contact',
     direitos: 'All rights reserved.',
+    faixa: 'Market Intelligence · Recruitment & Selection · Assessment · Outplacement · Customized Solutions',
   },
 };
 
@@ -79,7 +81,7 @@ export default function Rodape({ parallax }: { parallax: boolean }) {
           <p>
             © {new Date().getFullYear()} Ocean Talent Solutions. {t.direitos}
           </p>
-          <p>Executive Search · Offshore Talent · Outsourcing · Development &amp; Outplacement</p>
+          <p>{t.faixa}</p>
         </div>
       </div>
     </footer>

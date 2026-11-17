@@ -776,6 +776,17 @@ def _migrar():
             conn.rollback()
             logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 098)")
 
+    # Proposal (feature 105): serviços e observações editáveis nas propostas e nos modelos de proposta
+    with engine.connect() as conn:
+        try:
+            for tabela in ("propostas", "propostas_modelos"):
+                for coluna in ("servicos", "observacoes_investimento", "observacoes_garantias"):
+                    conn.execute(text(f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS {coluna} JSONB"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.getLogger("ocean.migracao").exception("Falha na migração do Proposal (feature 105)")
+
     # Vagas e candidaturas (feature 102): tabelas do create_all fechadas para a API pública do Supabase
     # e as 5 vagas que eram fixas no site criadas uma única vez (não voltam se excluídas)
     with engine.connect() as conn:

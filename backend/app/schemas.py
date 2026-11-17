@@ -582,6 +582,10 @@ class PropostaCreate(BaseModel):
     sla: Optional[str] = None
     garantia: Optional[str] = None
     validade_dias: Optional[int] = None
+    # Feature 105
+    servicos: Optional[List[str]] = None
+    observacoes_investimento: Optional[List[str]] = None
+    observacoes_garantias: Optional[List[str]] = None
 
 
 class ModeloPropostaIn(BaseModel):
@@ -596,6 +600,10 @@ class ModeloPropostaIn(BaseModel):
     sla: Optional[str] = None
     garantia: Optional[str] = None
     validade_dias: Optional[int] = None
+    # Feature 105
+    servicos: Optional[List[str]] = None
+    observacoes_investimento: Optional[List[str]] = None
+    observacoes_garantias: Optional[List[str]] = None
 
 
 class VagaIn(BaseModel):

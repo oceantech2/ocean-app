@@ -1,7 +1,7 @@
-"""Envio das candidaturas à planilha "Formulário de candidatura em vaga" (Web App do Apps Script).
+"""Envio das candidaturas à planilha Base de Relacionamento (Web App do Apps Script).
 
-O `externalId` é o id da candidatura: a planilha ignora reenvios do mesmo id, então tentar de
-novo uma pendente nunca duplica a linha.
+A planilha grava/atualiza a pessoa em Pessoas e, se couber, uma linha Job post na planilha da
+vaga. `idCandidatura` na resposta vem vazio; o status "enviada" depende só de `ok: true`.
 """
 from __future__ import annotations
 

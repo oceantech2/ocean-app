@@ -19,6 +19,12 @@ import {
 } from '../modelos/formatoProposta';
 import { IDIOMAS_FORM, idiomaDaProposta, MOEDAS_FORM, PREFIXO_MOEDA } from '../modelos/idioma';
 import { TIPOS } from '../modelos/investimentos';
+import {
+  observacoesPadrao,
+  ordenarServicos,
+  SERVICO_ORDER,
+  SERVICOS,
+} from '../modelos/ocean/v1/conteudo';
 import { SETORES } from '../modelos/setores';
 import type {
   Idioma,
@@ -31,6 +37,7 @@ import type {
   Projeto,
   Proposta,
   PropostaModeloPayload,
+  ServicoId,
   SetorId,
   TaxaTipo,
   TipoInvestimento,
@@ -71,12 +78,40 @@ export interface FormModelo {
   consultor_cargo: string;
   consultor_telefone: string;
   consultor_email: string;
+  /** Serviços comerciais selecionados (feature 105); ordem canônica. */
+  servicos: ServicoId[];
   projeto_escopo: string;
   projetos: ProjetoForm[];
   shortlist: string;
   sla: string;
   garantia: string;
+  /** Uma observação por linha; `{imposto}` permanece literal até a página do cliente. */
+  observacoes_investimento: string;
+  observacoes_garantias: string;
+  /** true = consultor editou as obs; troca de serviço/idioma não sobrescreve. */
+  notesEdited: boolean;
   validade_dias: string;
+}
+
+function linhasObs(lista: string[] | null | undefined): string {
+  return (lista ?? []).join('\n');
+}
+
+function listaObs(texto: string): string[] {
+  return texto
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+function aplicarObsPadrao(f: FormModelo): FormModelo {
+  const n = observacoesPadrao(f.servicos, f.idioma);
+  return {
+    ...f,
+    observacoes_investimento: n.investimento.join('\n'),
+    observacoes_garantias: n.garantias.join('\n'),
+    notesEdited: false,
+  };
 }
 
 type Erros = Record<string, string | undefined>;
@@ -96,23 +131,28 @@ const investimentosVazios = (): Record<TipoInvestimento, InvestimentoForm> => ({
 
 const projetoVazio = (): ProjetoForm => ({ chave: novaChave(), nome: '', investimentos: investimentosVazios() });
 
-export const formModeloInicial = (consultor?: PerfilConsultor | null): FormModelo => ({
-  idioma: 'pt-BR',
-  moeda: 'BRL',
-  cliente_nome: '',
-  data_proposta: hojeSP(),
-  setor: '',
-  consultor_nome: consultor?.nome ?? '',
-  consultor_cargo: consultor?.cargo ?? '',
-  consultor_telefone: consultor?.telefone ?? '',
-  consultor_email: consultor?.email ?? '',
-  projeto_escopo: '',
-  projetos: [projetoVazio()],
-  shortlist: TEXTOS_PADRAO_GARANTIAS['pt-BR'].shortlist,
-  sla: TEXTOS_PADRAO_GARANTIAS['pt-BR'].sla,
-  garantia: '',
-  validade_dias: String(DIAS_VALIDADE_PADRAO),
-});
+export const formModeloInicial = (consultor?: PerfilConsultor | null): FormModelo =>
+  aplicarObsPadrao({
+    idioma: 'pt-BR',
+    moeda: 'BRL',
+    cliente_nome: '',
+    data_proposta: hojeSP(),
+    setor: '',
+    consultor_nome: consultor?.nome ?? '',
+    consultor_cargo: consultor?.cargo ?? '',
+    consultor_telefone: consultor?.telefone ?? '',
+    consultor_email: consultor?.email ?? '',
+    servicos: [],
+    projeto_escopo: '',
+    projetos: [projetoVazio()],
+    shortlist: TEXTOS_PADRAO_GARANTIAS['pt-BR'].shortlist,
+    sla: TEXTOS_PADRAO_GARANTIAS['pt-BR'].sla,
+    garantia: '',
+    observacoes_investimento: '',
+    observacoes_garantias: '',
+    notesEdited: false,
+    validade_dias: String(DIAS_VALIDADE_PADRAO),
+  });
 
 const taxaParaBR = (taxa: string) => Number(taxa).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 
@@ -136,11 +176,13 @@ const setorValido = (setor: string | null | undefined): setor is SetorId =>
 export function formDeModeloProposta(m: ModeloProposta, consultor?: PerfilConsultor | null): FormModelo {
   const base = formModeloInicial(consultor);
   const projetos = (m.projetos || []).map(projetoParaForm);
-  return {
+  const servicos = ordenarServicos(m.servicos);
+  const comServicos: FormModelo = {
     ...base,
     idioma: m.idioma,
     moeda: m.moeda,
     setor: setorValido(m.setor) ? m.setor : '',
+    servicos,
     projeto_escopo: m.projeto_escopo ?? '',
     projetos: projetos.length ? projetos : [projetoVazio()],
     shortlist: m.shortlist ?? '',
@@ -148,6 +190,15 @@ export function formDeModeloProposta(m: ModeloProposta, consultor?: PerfilConsul
     garantia: m.garantia ?? '',
     validade_dias: String(m.validade_dias),
   };
+  if (m.observacoes_investimento != null || m.observacoes_garantias != null) {
+    return {
+      ...comServicos,
+      observacoes_investimento: linhasObs(m.observacoes_investimento),
+      observacoes_garantias: linhasObs(m.observacoes_garantias),
+      notesEdited: true,
+    };
+  }
+  return aplicarObsPadrao(comServicos);
 }
 
 function diasEntre(inicio: string, fim: string): number {
@@ -162,7 +213,8 @@ export function formDeModelo(p: Proposta, opcoes: { copia?: boolean } = {}): For
   const dias = opcoes.copia
     ? DIAS_VALIDADE_PADRAO
     : p.validade_dias ?? (p.data_proposta ? diasEntre(p.data_proposta, p.validade) : DIAS_VALIDADE_PADRAO);
-  return {
+  const servicos = ordenarServicos(p.servicos);
+  const base: FormModelo = {
     idioma,
     moeda: p.moeda ?? 'BRL',
     cliente_nome: p.cliente_nome,
@@ -172,13 +224,21 @@ export function formDeModelo(p: Proposta, opcoes: { copia?: boolean } = {}): For
     consultor_cargo: p.consultor_cargo ?? '',
     consultor_telefone: p.consultor_telefone ?? '',
     consultor_email: p.consultor_email ?? '',
+    servicos,
     projeto_escopo: p.projeto_escopo ?? '',
     projetos: projetos.length ? projetos : [projetoVazio()],
     shortlist: novo ? p.shortlist ?? '' : TEXTOS_PADRAO_GARANTIAS[idioma].shortlist,
     sla: novo ? p.sla ?? '' : TEXTOS_PADRAO_GARANTIAS[idioma].sla,
     garantia: novo ? p.garantia ?? '' : p.garantia_meses ? mesesPorExtenso(p.garantia_meses, idioma) : '',
+    observacoes_investimento: linhasObs(p.observacoes_investimento),
+    observacoes_garantias: linhasObs(p.observacoes_garantias),
+    notesEdited: p.observacoes_investimento != null || p.observacoes_garantias != null,
     validade_dias: String(dias),
   };
+  if (p.observacoes_investimento == null && p.observacoes_garantias == null) {
+    return aplicarObsPadrao(base);
+  }
+  return base;
 }
 
 const parseTaxa = (texto: string) => parseNumeroBR(texto, 2);
@@ -212,6 +272,7 @@ function validadeCalculada(form: FormModelo): string | null {
 
 function validar(form: FormModelo, variante: Variante): Erros {
   const erros: Erros = {};
+  if (!form.servicos.length) erros.servicos = 'Selecione ao menos um serviço';
   if (variante === 'proposta') {
     if (!form.cliente_nome.trim()) erros.cliente_nome = 'Informe a empresa';
     if (!form.data_proposta) erros.data_proposta = 'Informe a data da proposta';
@@ -287,12 +348,13 @@ const CAMPO_ERRO_SECAO: Partial<Record<SecaoModelo, keyof FormModelo>> = {
 function comIdioma(f: FormModelo, idioma: Idioma): FormModelo {
   const antes = TEXTOS_PADRAO_GARANTIAS[f.idioma];
   const depois = TEXTOS_PADRAO_GARANTIAS[idioma];
-  return {
+  const trocado: FormModelo = {
     ...f,
     idioma,
     shortlist: f.shortlist === antes.shortlist ? depois.shortlist : f.shortlist,
     sla: f.sla === antes.sla ? depois.sla : f.sla,
   };
+  return f.notesEdited ? trocado : aplicarObsPadrao(trocado);
 }
 
 function conteudoDoModeloNaSecao(f: FormModelo, secao: SecaoModelo, m: ModeloProposta): FormModelo {
@@ -512,13 +574,24 @@ export default function ModeloForm({
       consultor_cargo: form.consultor_cargo.trim(),
       consultor_telefone: form.consultor_telefone.trim(),
       consultor_email: form.consultor_email.trim(),
+      servicos: form.servicos,
       projeto_escopo: contarCaracteres(form.projeto_escopo) ? form.projeto_escopo : null,
       projetos: form.projetos.map((p) => ({ nome: p.nome.trim(), investimentos: investimentosDoProjeto(p) })),
       shortlist: form.shortlist.trim() || null,
       sla: form.sla.trim() || null,
       garantia: form.garantia.trim() || null,
+      observacoes_investimento: listaObs(form.observacoes_investimento),
+      observacoes_garantias: listaObs(form.observacoes_garantias),
       validade_dias: Number(form.validade_dias),
     });
+  };
+
+  const alternarServico = (id: ServicoId) => {
+    const ligado = form.servicos.includes(id);
+    const servicos = ordenarServicos(ligado ? form.servicos.filter((s) => s !== id) : [...form.servicos, id]);
+    const proximo = { ...form, servicos };
+    setForm(form.notesEdited ? proximo : aplicarObsPadrao(proximo));
+    setErros((e) => ({ ...e, servicos: undefined }));
   };
 
   const inputCls = (erro?: string) =>
@@ -638,6 +711,37 @@ export default function ModeloForm({
                 ? 'Idioma e moeda não podem ser alterados depois de criada.'
                 : 'O idioma define os textos da página que o cliente recebe; a moeda, o símbolo dos valores.'}
             </p>
+          </section>
+
+          <section className={secaoCls}>
+            <h2 className="font-semibold text-gray-900">Serviço</h2>
+            <p className="text-sm text-gray-500">Escolha um ou mais. Os textos e observações padrão vêm dos serviços marcados.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {SERVICO_ORDER.map((id) => {
+                const s = SERVICOS[id];
+                const on = form.servicos.includes(id);
+                return (
+                  <label
+                    key={id}
+                    className={`relative flex gap-3 p-3 rounded-lg border cursor-pointer transition ${
+                      on ? 'border-ocean-600 bg-ocean-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={on}
+                      onChange={() => alternarServico(id)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-gray-900">{s.textos[form.idioma].title}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">{s.textos[form.idioma].tagline}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <Erro msg={erros.servicos} />
           </section>
 
           {ehModelo ? (
@@ -901,10 +1005,58 @@ export default function ModeloForm({
               {condicao('garantia', 'Garantia', form.idioma === 'en-US' ? '4 months' : '4 meses')}
             </div>
             <p className="text-sm text-gray-500">
-              Campos vazios não aparecem na proposta.{' '}
-              {registro.garantiasSempreVisivel
-                ? 'As Observações do modelo continuam aparecendo.'
-                : 'Se os três ficarem vazios, a seção não aparece.'}
+              Campos vazios não aparecem na proposta. Se shortlist, SLA, garantia e observações de garantias
+              ficarem vazios, a seção não aparece.
+            </p>
+          </section>
+
+          <section className={secaoCls}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-semibold text-gray-900">Observações</h2>
+              {form.notesEdited && (
+                <button
+                  type="button"
+                  className="text-sm text-ocean-700 hover:underline"
+                  onClick={() => setForm(aplicarObsPadrao(form))}
+                >
+                  Restaurar padrão dos serviços
+                </button>
+              )}
+            </div>
+            <div>
+              <label className={labelCls}>Investimento</label>
+              <textarea
+                value={form.observacoes_investimento}
+                onChange={(e) =>
+                  setForm({ ...form, observacoes_investimento: e.target.value, notesEdited: true })
+                }
+                rows={5}
+                className={inputCls()}
+                placeholder="Uma observação por linha"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Garantias e condições</label>
+              <textarea
+                value={form.observacoes_garantias}
+                onChange={(e) =>
+                  setForm({ ...form, observacoes_garantias: e.target.value, notesEdited: true })
+                }
+                rows={4}
+                className={inputCls()}
+                placeholder="Uma observação por linha"
+              />
+            </div>
+            <p className="text-sm text-gray-500" id="impHint">
+              {'{imposto}'} vira{' '}
+              {imposto?.vigente
+                ? `${formatarPercentual(imposto.vigente.percentual, form.idioma)}%`
+                : '18,75%'}{' '}
+              na proposta
+              {imposto?.vigente?.mes && imposto.vigente.ano
+                ? ` (${formatarMesAno(imposto.vigente.mes, imposto.vigente.ano)})`
+                : ''}
+              .
             </p>
           </section>
 

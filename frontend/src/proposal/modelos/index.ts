@@ -17,6 +17,7 @@ interface ModeloRegistro {
   versoes: Partial<Record<number, LazyExoticComponent<ComponentType<ModeloPaginaProps>>>>;
 }
 
+const paginaOcean = lazy(() => import('./ocean/v1/OceanV1'));
 // v1 a v3 compartilham o componente; as diferenças ficam em executive-search/v1/versoes.ts
 const paginaExecutiveSearch = lazy(() => import('./executive-search/v1/ExecutiveSearchV1'));
 const paginaOffshoreTalent = lazy(() => import('./offshore-talent/v1/OffshoreTalentV1'));
@@ -26,10 +27,20 @@ const paginaOutplacementDevelopment = lazy(
 );
 
 // Mantido em sincronia com MODELOS de backend/app/services/proposta_modelos.py
+// disponivel: false = só abre propostas já emitidas (componenteDoModelo continua registrado); não é oferecido para criar
 export const MODELOS: Record<ModeloId, ModeloRegistro> = {
+  ocean: {
+    nome: 'Ocean',
+    disponivel: true,
+    rotuloEscopo: 'Escopo do projeto',
+    garantiasSempreVisivel: false,
+    versoes: {
+      1: paginaOcean,
+    },
+  },
   'executive-search': {
     nome: 'Executive Search',
-    disponivel: true,
+    disponivel: false,
     rotuloEscopo: 'Escopo do Projeto',
     garantiasSempreVisivel: true,
     versoes: {
@@ -40,7 +51,7 @@ export const MODELOS: Record<ModeloId, ModeloRegistro> = {
   },
   'offshore-talent': {
     nome: 'Offshore Talent',
-    disponivel: true,
+    disponivel: false,
     rotuloEscopo: 'Escopo',
     garantiasSempreVisivel: true,
     versoes: {
@@ -49,7 +60,7 @@ export const MODELOS: Record<ModeloId, ModeloRegistro> = {
   },
   outsourcing: {
     nome: 'Outsourcing',
-    disponivel: true,
+    disponivel: false,
     rotuloEscopo: 'Escopo',
     garantiasSempreVisivel: true,
     versoes: {
@@ -58,7 +69,7 @@ export const MODELOS: Record<ModeloId, ModeloRegistro> = {
   },
   'outplacement-development': {
     nome: 'Development & Outplacement',
-    disponivel: true,
+    disponivel: false,
     rotuloEscopo: 'Escopo',
     garantiasSempreVisivel: false,
     versoes: {
@@ -74,7 +85,7 @@ export function modelosDisponiveis(): { id: ModeloId; nome: string }[] {
 }
 
 export function registroDoModelo(modelo: string | undefined): ModeloRegistro {
-  return MODELOS[(modelo && modelo in MODELOS ? modelo : 'executive-search') as ModeloId];
+  return MODELOS[(modelo && modelo in MODELOS ? modelo : 'ocean') as ModeloId];
 }
 
 export function componenteDoModelo(

@@ -20,20 +20,12 @@ const TEXTOS = {
 
 export function Logo() {
   return (
-    <span className="inline-flex items-center gap-3">
-      <img
-        src="/site/img/ocean-logo-wordmark.png"
-        alt="Ocean"
-        className="h-7 w-auto shrink-0 select-none -translate-y-[1px]"
-        draggable={false}
-      />
-      <span className="h-7 w-px bg-primary/25" aria-hidden="true" />
-      <span className="font-display text-[10px] font-medium uppercase leading-tight tracking-[0.26em] translate-y-[1px] text-primary/65">
-        talent
-        <br />
-        solutions
-      </span>
-    </span>
+    <img
+      src="/site/img/ocean-logo-wordmark.png"
+      alt="Ocean Talent Solutions"
+      className="h-9 w-auto shrink-0 select-none"
+      draggable={false}
+    />
   );
 }
 

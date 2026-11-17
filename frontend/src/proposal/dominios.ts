@@ -35,7 +35,7 @@ export function urlSite(): string {
   const configurada = import.meta.env.VITE_SITE_URL as string | undefined;
   if (configurada) return semBarra(configurada);
   const { protocol, hostname, port } = window.location;
-  if (hostname.endsWith('localhost')) return `${protocol}//site.localhost${port ? `:${port}` : ''}`;
+  if (hostname.endsWith('localhost')) return `${protocol}//landing.localhost${port ? `:${port}` : ''}`;
   return 'https://landing.oceantalentsolutions.com';
 }
 

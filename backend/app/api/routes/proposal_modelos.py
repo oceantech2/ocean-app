@@ -11,7 +11,7 @@ from app.database import get_db
 from app.models import ModeloProposta
 from app.schemas import ModeloPropostaIn
 from app.services.audit import registrar_auditoria
-from app.services.proposta_modelos import MODELOS, nome_modelo, validar_modelo_proposta
+from app.services.proposta_modelos import MODELOS, nome_modelo, servicos_efetivos, validar_modelo_proposta
 
 router = APIRouter()
 
@@ -64,6 +64,9 @@ def serializar(m: ModeloProposta) -> dict:
         "shortlist": m.shortlist,
         "sla": m.sla,
         "garantia": m.garantia_texto,
+        "servicos": servicos_efetivos(m.divisao, m.servicos) or [],
+        "observacoes_investimento": m.observacoes_investimento,
+        "observacoes_garantias": m.observacoes_garantias,
         "validade_dias": m.validade_dias,
         "criado_por_usuario": m.criado_por_usuario,
         "criado_em": m.criado_em.isoformat() if m.criado_em else None,

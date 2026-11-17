@@ -493,6 +493,11 @@ class Proposta(Base):
     shortlist = Column(String(255), nullable=True)
     sla = Column(String(255), nullable=True)
     garantia_texto = Column(String(255), nullable=True)
+    # Feature 105: ids do catálogo de serviços (ordem canônica); NULL nas propostas anteriores (derivado do modelo na leitura)
+    servicos = Column(JSONB, nullable=True)
+    # Observações editáveis dos quadros Investimento e Garantias ("{imposto}" é substituído na renderização)
+    observacoes_investimento = Column(JSONB, nullable=True)
+    observacoes_garantias = Column(JSONB, nullable=True)
     # validade = data_proposta + validade_dias ao salvar
     validade_dias = Column(SmallInteger, nullable=True)
     # Imposto vigente no último salvamento (feature 092); NULL = proposta anterior à feature, exibe 19,55%
@@ -609,6 +614,10 @@ class ModeloProposta(Base):
     shortlist = Column(String(255), nullable=True)
     sla = Column(String(255), nullable=True)
     garantia_texto = Column(String(255), nullable=True)
+    # Feature 105: serviços pré-selecionados e observações editáveis (mesmo formato de Proposta)
+    servicos = Column(JSONB, nullable=True)
+    observacoes_investimento = Column(JSONB, nullable=True)
+    observacoes_garantias = Column(JSONB, nullable=True)
     validade_dias = Column(SmallInteger, nullable=False)
     criado_por_usuario = Column(String(255), nullable=False)
     criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)

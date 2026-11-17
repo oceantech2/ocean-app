@@ -1,6 +1,6 @@
-# Contrato: envio à planilha "Formulário de candidatura em vaga"
+# Contrato: envio à planilha "Base de Relacionamento"
 
-Web App do Google Apps Script mantido pela Ocean. Configuração no servidor:
+Web App do Google Apps Script mantido pela Ocean (cópia versionada: `backend/scripts/apps_script_webhook.gs`). Configuração no servidor:
 
 - `SHEETS_WEBHOOK_URL` — endereço `https://script.google.com/macros/s/.../exec`
 - `SHEETS_WEBHOOK_SECRET` — igual ao `WEBHOOK_SECRET` do Apps Script
@@ -12,6 +12,7 @@ Web App do Google Apps Script mantido pela Ocean. Configuração no servidor:
 ```json
 {
   "secret": "<SHEETS_WEBHOOK_SECRET>",
+  "tipo": "candidatura",
   "externalId": "123",
   "nome": "Maria Silva",
   "email": "maria@exemplo.com",
@@ -49,12 +50,32 @@ Regras:
 - `ingles`, `disponibilidade` e `mobilidade` vão com o rótulo em português.
 - Timeout de 30 s.
 
+## O que a planilha grava (a partir da Versão 4, 16/11/2026)
+
+A candidatura **não** é mais gravada na aba Candidaturas (fica oculta, só como histórico).
+
+1. **Pessoas** — uma linha por pessoa, encontrada por e-mail, e-mail 2 ou LinkedIn; se não existir, é criada. Pessoa nova recebe **Data de cadastro**. Em todo envio, a linha ganha **Última candidatura em** e **Última vaga candidatada**. Campos já preenchidos não são sobrescritos.
+2. **Planilha da vaga (Mapeamento)** — quando a vaga tem planilha no **layout novo**, entra também uma linha com Status **"Job post"**. Motivos de não gravar nessa planilha (sem falhar o envio): vaga sem planilha / sem ID / sem link, Opt-out = Sim, layout antigo, ou pessoa já estava na planilha.
+
 ## Resposta
 
+Sucesso (pessoa gravada/atualizada na Base):
+
 ```json
-{ "ok": true, "idCandidatura": "C0042", "idPessoa": "P0010", "pessoaNova": false, "duplicado": false }
+{
+  "ok": true,
+  "idCandidatura": "",
+  "idPessoa": "P0010",
+  "pessoaNova": false,
+  "duplicado": false,
+  "planilhaVaga": "gravado",
+  "linhaPlanilhaVaga": 42
+}
 ```
 
-- `ok: true` (inclusive `duplicado: true`) → enviada.
-- `ok: false` → pendente, `planilha_erro` = `"Planilha recusou: <error>"`.
+- `idCandidatura` — sempre `""` (a aba Candidaturas deixou de ser gravada).
+- `planilhaVaga` — `"gravado"` ou o motivo de não ter gravado na planilha da vaga (ex.: vaga sem planilha, Opt-out, layout antigo).
+- `linhaPlanilhaVaga` — número da linha no Mapeamento quando gravou (ou da linha existente se `duplicado`); senão `null`.
+- `ok: true` (inclusive `duplicado: true`) → no painel a candidatura fica **enviada**.
+- `ok: false` → **pendente**, `planilha_erro` = `"Planilha recusou: <error>"`. Em especial, se a planilha da vaga **não abrir**, a resposta continua `ok: false` (a pessoa pode já ter sido gravada na Base; o painel mostra pendente e permite o reenvio).
 - HTTP ≥ 400, resposta não-JSON ou falha de rede → pendente com a mensagem correspondente.

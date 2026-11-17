@@ -10,8 +10,27 @@ export const VOLTAR_KEY = 'proposal_voltar';
 
 export type StatusProposta = 'aguardando' | 'visualizada' | 'assinada' | 'cancelada' | 'expirada';
 
-export type ModeloId = 'executive-search' | 'offshore-talent' | 'outsourcing' | 'outplacement-development';
-export type SetorId = 'oil-gas' | 'energia' | 'infraestrutura' | 'mineracao' | 'tecnologia' | 'industria-servicos';
+export type ModeloId =
+  | 'ocean'
+  | 'executive-search'
+  | 'offshore-talent'
+  | 'outsourcing'
+  | 'outplacement-development';
+export type SetorId =
+  | 'oil-gas'
+  | 'energia'
+  | 'infraestrutura'
+  | 'mineracao'
+  | 'tecnologia'
+  | 'industria-servicos'
+  | 'outros';
+// Catálogo fixo de serviços do modelo Ocean (feature 105); a ordem canônica fica em ocean/v1/conteudo.ts
+export type ServicoId =
+  | 'inteligencia-de-mercado'
+  | 'recrutamento-e-selecao'
+  | 'assessment'
+  | 'outplacement'
+  | 'solucoes-personalizadas';
 export type TipoInvestimento = 'retainer' | 'sucesso' | 'valor-fechado';
 export type TaxaTipo = 'percentual' | 'valor';
 export type Moeda = 'BRL' | 'USD';
@@ -88,6 +107,10 @@ export interface Proposta extends PropostaListItem {
   sla: string | null;
   garantia: string | null;
   validade_dias: number | null;
+  // Modelo Ocean: serviços escolhidos e observações editadas ({imposto} é preenchido na página); null = padrão
+  servicos?: ServicoId[] | null;
+  observacoes_investimento?: string[] | null;
+  observacoes_garantias?: string[] | null;
   // Imposto vigente no último salvamento; null = proposta anterior ao imposto mensal (exibe 19,55%)
   imposto_percentual: string | null;
   valor: string | null;
@@ -136,6 +159,9 @@ export interface PropostaModeloPayload {
   sla: string | null;
   garantia: string | null;
   validade_dias: number;
+  servicos?: ServicoId[];
+  observacoes_investimento?: string[] | null;
+  observacoes_garantias?: string[] | null;
 }
 
 export interface ConsultorPublico {
@@ -165,6 +191,9 @@ export interface PropostaPublicaData {
   shortlist?: string | null;
   sla?: string | null;
   garantia?: string | null;
+  servicos?: ServicoId[] | null;
+  observacoes_investimento?: string[] | null;
+  observacoes_garantias?: string[] | null;
   imposto_percentual?: string | null;
   cliente_nome?: string;
   cnpj?: string;
@@ -332,6 +361,9 @@ export interface ModeloPropostaPayload {
   sla: string | null;
   garantia: string | null;
   validade_dias: number;
+  servicos?: ServicoId[];
+  observacoes_investimento?: string[] | null;
+  observacoes_garantias?: string[] | null;
 }
 
 export interface ModeloProposta extends Omit<ModeloPropostaPayload, 'setor'> {
